@@ -14,8 +14,9 @@ from pathlib import Path
 from PySide6.QtCore import QRectF, QSettings, Qt, QTimer
 from PySide6.QtGui import QColor, QFont, QImage, QLinearGradient, QPainter
 
-from countin import gui
+from countin import gui, i18n
 from countin.core import io
+from countin.i18n import _
 
 OUT = Path(__file__).resolve().parent / "screenshots"
 
@@ -56,7 +57,10 @@ def social(shot: QImage, font: QFont) -> None:
     img.save(str(OUT / "social-preview.png"))
 
 
-def run(song: Path, scheme: str, tmp: Path) -> None:
+def run(song: Path, scheme: str, lang: str, tmp: Path) -> None:
+    """Shots of one theme and language; Russian files have no suffix, English ones end in -en."""
+    i18n.set_language(lang)
+    sfx = "" if lang == "ru" else "-en"
     QSettings.setDefaultFormat(QSettings.IniFormat)
     QSettings.setPath(QSettings.IniFormat, QSettings.UserScope, str(tmp / "settings"))
     app = gui.App.instance() or gui.App([])
@@ -70,7 +74,7 @@ def run(song: Path, scheme: str, tmp: Path) -> None:
     gui.apply_icon(app)
 
     st = QSettings()
-    st.setValue(gui.OUT_DIR, str(Path.home() / "Music" / "Count-In"))
+    st.setValue(gui.OUT_DIR, "~/Music/Count-In")  # shown in the settings shot; never a real home path
     st.setValue(gui.OUT_GROUP, True)
 
     w = gui.Window()
@@ -83,28 +87,29 @@ def run(song: Path, scheme: str, tmp: Path) -> None:
         if step["n"] == 0 and w.pcm is not None:
             w.vocals.setValue(-6)
             w.guitar.setValue(gui.MUTE)
-            w.status.setText("Сохранено: Demo Song_backing_guitar-off_vocals-6dB.mp3")
+            w.status.setText(_("Сохранено: {name}", name="Demo Song_backing_guitar-off_vocals-6dB.mp3"))
             w.reveal_b.show()
             step["n"] = 1
         elif step["n"] == 1:
             shot = w.grab().toImage()
-            shot.save(str(OUT / f"main-{scheme}.png"))
+            shot.save(str(OUT / f"main-{scheme}{sfx}.png"))
             if scheme == "dark":
-                social(shot, app.font())
+                if lang == "en":
+                    social(shot, app.font())
                 d = gui.PrefsDialog(w)
                 d.show()
                 app.processEvents()
-                d.grab().save(str(OUT / "prefs-dark.png"))
+                d.grab().save(str(OUT / f"prefs-dark{sfx}.png"))
                 d.close()
                 w.reveal_b.hide()
                 w.status.setText("")
                 w.prog_panel.show()
-                w.prog_label.setText("Demo Song.mp3: разделение")
+                w.prog_label.setText(_("{name}: разделение", name="Demo Song.mp3"))
                 w.progress.setRange(0, 1000)
                 w.progress.setValue(440)
-                w.prog_eta.setText("44% · осталось ~1:24")
+                w.prog_eta.setText("44% · " + _("осталось ~{m}:{s:02d}", m=1, s=24))
                 app.processEvents()
-                w.grab().save(str(OUT / "progress-dark.png"))
+                w.grab().save(str(OUT / f"progress-dark{sfx}.png"))
             w.close()
             app.quit()
 
@@ -122,8 +127,9 @@ def main() -> int:
     with tempfile.TemporaryDirectory() as t:
         tmp = Path(t)
         song = neutral_copy(Path(sys.argv[1]), tmp / f"Demo Song{Path(sys.argv[1]).suffix}")
-        for scheme in ("dark", "light"):
-            run(song, scheme, tmp)
+        for lang in ("ru", "en"):
+            for scheme in ("dark", "light"):
+                run(song, scheme, lang, tmp)
     print(f"written to {OUT}")
     return 0
 

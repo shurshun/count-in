@@ -18,7 +18,8 @@ from PySide6.QtWidgets import (
     QSlider, QStackedWidget, QStatusBar, QVBoxLayout, QWidget,
 )
 
-from . import update
+from . import i18n, update
+from .i18n import _
 from .core import analyze as an
 from .core import io
 from .core import render as rd
@@ -67,7 +68,8 @@ QStatusBar, QStatusBar QLabel { color: @FIELD@; }
 
 
 # App icon variants. The built ICO/ICNS stay light; this only changes the window and Dock icon while running.
-ICON_CHOICES = {"light": "Светлая", "dark": "Тёмная", "system": "Как тема приложения"}
+ICON_CHOICES = {"light": "Светлая", "dark": "Тёмная"}
+LANG_KEY = "appearance/language"
 ICON_KEY = "appearance/icon"
 ICON_SIZES = (16, 20, 24, 32, 40, 48, 64, 96, 128, 256, 512, 1024)
 
@@ -76,12 +78,6 @@ def icon_choice() -> str:
     """Saved icon choice; a missing or unknown value means light."""
     v = QSettings().value(ICON_KEY, "light")
     return v if v in ICON_CHOICES else "light"
-
-
-def icon_variant(choice: str, scheme: Qt.ColorScheme) -> str:
-    if choice == "system":
-        return "dark" if scheme == Qt.ColorScheme.Dark else "light"
-    return choice
 
 
 def app_icon(variant: str) -> QIcon:
@@ -94,8 +90,8 @@ def app_icon(variant: str) -> QIcon:
 
 
 def apply_icon(app: QApplication) -> str:
-    """Sets the app and window icon from the saved choice and the current color scheme. Returns the variant."""
-    variant = icon_variant(icon_choice(), app.styleHints().colorScheme())
+    """Sets the app and window icon from the saved choice. Returns the variant."""
+    variant = icon_choice()
     icon = app_icon(variant)
     app.setWindowIcon(icon)
     for w in app.topLevelWidgets():
@@ -154,6 +150,9 @@ NOTES = {
 
 
 def translate(note: str) -> str:
+    """Detector notes come in English; the Russian UI translates them."""
+    if i18n.language() == "en":
+        return note
     for en, ru in NOTES.items():
         note = note.replace(en, ru)
     return note.replace(" s", " с")
@@ -169,7 +168,7 @@ def reveal(path: Path) -> None:
 
 
 def clip_note(clipped: int) -> str:
-    return f"Клики перегружают звук в {clipped} сэмплах, убавьте громкость отсчёта" if clipped else ""
+    return _("Клики перегружают звук в {n} сэмплах, убавьте громкость отсчёта", n=clipped) if clipped else ""
 
 
 def log_path() -> Path:
@@ -218,7 +217,7 @@ class Job(QRunnable):
 
 def analyze_job(job: Job, track: Track):
     """Returns (track, pcm, sr); the UI keeps the PCM, so the file is decoded once and never on the UI thread."""
-    job.report(f"Анализ: {track.path.name}")
+    job.report(_("Анализ: {name}", name=track.path.name))
     pcm, sr = None, 0
     try:
         pcm, info = io.decode(track.path)
@@ -234,7 +233,7 @@ def analyze_job(job: Job, track: Track):
 def _stems(job: Job, pcm, sr, label: str) -> dict[str, np.ndarray]:
     from .core import stems
 
-    job.report(f"{label}: загрузка модели")
+    job.report(_("{name}: загрузка модели", name=label))
     return stems.separate(pcm, sr, lambda d, n: job.report(label, d, n), only=("guitar", "vocals"))
 
 
@@ -257,10 +256,10 @@ def preview_job(job: Job, track: Track, s: Settings, pcm: np.ndarray, sr: int, c
         c0, st = cached
         part = {k: v[i0 - c0 : i1 - c0] for k, v in st.items()}
     elif separate:
-        part = _stems(job, pcm[i0:i1], sr, "Разделяю отрывок")
+        part = _stems(job, pcm[i0:i1], sr, _("Разделяю отрывок"))
         new_cache = (i0, part)
 
-    job.report("Сборка отрывка")
+    job.report(_("Сборка отрывка"))
     r = rd.render(pcm, sr, clicks, track.t0, s.pre_roll, s.volume_db, rd.load_samples(sr))
     shift = int(round(r.offset * sr))
     o0 = max(0, int((first - 0.3) * sr) + shift)
@@ -289,14 +288,14 @@ def save_job(job: Job, t: Track, s: Settings, cached):
     """Writes the track. Returns (track, saved path, (0, stems) when separated or None, clipped samples)."""
     from .core import stems
 
-    job.report(f"{t.path.name}: чтение")
+    job.report(_("{name}: чтение", name=t.path.name))
     pcm, info = io.decode(t.path)
     full = None
     if s.levels:
-        st = cached[1] if _covers(cached, 0, len(pcm)) else _stems(job, pcm, info.sr, f"{t.path.name}: разделение")
+        st = cached[1] if _covers(cached, 0, len(pcm)) else _stems(job, pcm, info.sr, _("{name}: разделение", name=t.path.name))
         full = (0, st)
         pcm = stems.attenuate(pcm, st, s.levels)
-    job.report(f"{t.path.name}: запись")
+    job.report(_("{name}: запись", name=t.path.name))
     r = rd.render(pcm, info.sr, clicks_for(t, s), t.t0, s.pre_roll, s.volume_db, rd.load_samples(info.sr))
     out = target_path(t.path, s, info)
     out.parent.mkdir(parents=True, exist_ok=True)
@@ -368,9 +367,9 @@ class Segmented(QWidget):
         h = QHBoxLayout(self)
         h.setContentsMargins(0, 0, 0, 0)
         h.setSpacing(0)
-        self.values = [v for _, v in options]
+        self.values = [v for _label, v in options]
         self.group = QButtonGroup(self)
-        for i, (label, _) in enumerate(options):
+        for i, (label, _value) in enumerate(options):
             b = QPushButton(label, checkable=True)
             b.setProperty("seg", "first" if i == 0 else "last" if i == len(options) - 1 else "mid")
             b.setFocusPolicy(Qt.NoFocus)
@@ -459,7 +458,7 @@ class Wave(QWidget):
         per_px = (self.v1 - self.v0) / max(self.width(), 1)
         return next((s for s in (0.1, 0.25, 0.5, 1, 2, 5, 10, 30, 60) if s / per_px >= 70), 120)
 
-    def paintEvent(self, _):
+    def paintEvent(self, _event):
         p = QPainter(self)
         p.setRenderHint(QPainter.Antialiasing)
         w, h = self.width(), self.height()
@@ -523,7 +522,7 @@ class Wave(QWidget):
             p.setPen(QPen(QColor(127, 127, 127, 140), 1))
             p.drawLine(QPointF(x, wh), QPointF(x, wh + 4))
             p.drawText(QRectF(x + 3, wh + 2, 80, self.RULER - 2), Qt.AlignLeft | Qt.AlignVCenter,
-                       f"{t:.2f}".rstrip("0").rstrip(".") + " с")
+                       f"{t:.2f}".rstrip("0").rstrip(".") + _(" с"))
             t += step
 
     def _near_marker(self, x: float) -> bool:
@@ -547,13 +546,13 @@ class Wave(QWidget):
             self.t0Changed.emit(self.t0)
             self.update()
         elif self.drag:
-            _, x0, a, b = self.drag
+            _kind, x0, a, b = self.drag
             dt = (x - x0) / max(self.width(), 1) * (b - a)
             self.show_range(a - dt, b - dt)
         else:
             self.setCursor(Qt.SizeHorCursor if self._near_marker(x) else Qt.OpenHandCursor)
 
-    def mouseReleaseEvent(self, _):
+    def mouseReleaseEvent(self, _event):
         self.drag = None
 
     def wheelEvent(self, e):
@@ -614,26 +613,26 @@ class PrefsDialog(QDialog):
 
     def __init__(self, parent):
         super().__init__(parent)
-        self.setWindowTitle("Настройки")
+        self.setWindowTitle(_("Настройки"))
         self.setMinimumWidth(520)
         st = QSettings()
 
-        out, g = card("Сохранение")
-        self.next_to = QRadioButton("Рядом с исходным файлом")
-        self.to_dir = QRadioButton("В папку")
+        out, g = card(_("Сохранение"))
+        self.next_to = QRadioButton(_("Рядом с исходным файлом"))
+        self.to_dir = QRadioButton(_("В папку"))
         self.dir_l = QLabel(objectName="field")
-        pick = QPushButton("Выбрать…", objectName="small", clicked=self._pick)
+        pick = QPushButton(_("Выбрать…"), objectName="small", clicked=self._pick)
         g.addWidget(self.next_to, 0, 0, 1, 3)
         g.addWidget(self.to_dir, 1, 0)
         g.addWidget(self.dir_l, 1, 1)
         g.addWidget(pick, 1, 2)
-        self.group = QCheckBox("Раскладывать по папкам")
+        self.group = QCheckBox(_("Раскладывать по папкам"))
         g.addWidget(self.group, 2, 0, 1, 3)
         levels = QHBoxLayout()
         levels.setContentsMargins(24, 0, 0, 0)
         self.levels = {}
         for key, title in OUT_LEVELS.items():
-            box = QCheckBox(title, checked=pref_bool(key, True))
+            box = QCheckBox(_(title), checked=pref_bool(key, True))
             box.toggled.connect(lambda on, k=key: self._save(k, on))
             self.levels[key] = box
             levels.addWidget(box)
@@ -642,13 +641,23 @@ class PrefsDialog(QDialog):
         self.example = QLabel(objectName="field", wordWrap=True)
         g.addWidget(self.example, 4, 0, 1, 3)
 
-        look, g2 = card("Внешний вид")
+        look, g2 = card(_("Внешний вид"))
         self.icon = QComboBox()
         for key, title in ICON_CHOICES.items():
-            self.icon.addItem(title, key)
+            self.icon.addItem(_(title), key)
         self.icon.setCurrentIndex(list(ICON_CHOICES).index(icon_choice()))
         self.icon.currentIndexChanged.connect(self._icon)
-        row(g2, "Значок приложения", self.icon)
+        row(g2, _("Иконка приложения"), self.icon)
+        self.lang = QComboBox()
+        for key, title in i18n.LANGUAGES.items():
+            self.lang.addItem(_(title) if key == "system" else title, key)
+        saved = st.value(LANG_KEY, "system")
+        self.lang.setCurrentIndex(max(0, list(i18n.LANGUAGES).index(saved) if saved in i18n.LANGUAGES else 0))
+        self.lang.currentIndexChanged.connect(self._lang)
+        row(g2, _("Язык"), self.lang)
+        self.lang_note = QLabel(_("Язык сменится после перезапуска приложения"), objectName="field")
+        self.lang_note.hide()
+        g2.addWidget(self.lang_note, g2.rowCount(), 1)
 
         self.dir = st.value(OUT_DIR, "") or ""
         self.group.setChecked(pref_bool(OUT_GROUP, False))
@@ -656,7 +665,7 @@ class PrefsDialog(QDialog):
         self.to_dir.toggled.connect(self._mode)
         self.group.toggled.connect(lambda on: self._save(OUT_GROUP, on))
 
-        close = QPushButton("Готово", objectName="primary", clicked=self.accept)
+        close = QPushButton(_("Готово"), objectName="primary", clicked=self.accept)
         v = QVBoxLayout(self)
         v.addWidget(out)
         v.addWidget(look)
@@ -668,7 +677,7 @@ class PrefsDialog(QDialog):
         self._update()
 
     def _pick(self):
-        d = QFileDialog.getExistingDirectory(self, "Папка для сохранения", self.dir or str(Path.home()))
+        d = QFileDialog.getExistingDirectory(self, _("Папка для сохранения"), self.dir or str(Path.home()))
         if d:
             self.dir = d
             self.to_dir.setChecked(True)
@@ -681,23 +690,28 @@ class PrefsDialog(QDialog):
         QSettings().setValue(OUT_DIR, self.dir if to_dir else "")
         self._update()
 
+    def _lang(self):
+        QSettings().setValue(LANG_KEY, self.lang.currentData())
+        self.lang_note.show()
+
     def _icon(self):
         QSettings().setValue(ICON_KEY, self.icon.currentData())
         apply_icon(QApplication.instance())
 
     def _update(self):
         to_dir = self.to_dir.isChecked() and bool(self.dir)
-        self.dir_l.setText(self.dir_l.fontMetrics().elidedText(self.dir or "не выбрана", Qt.ElideMiddle, 300))
+        self.dir_l.setText(self.dir_l.fontMetrics().elidedText(self.dir or _("не выбрана"), Qt.ElideMiddle, 300))
         self.dir_l.setToolTip(self.dir)
         self.group.setEnabled(to_dir)
         for box in self.levels.values():
             box.setEnabled(to_dir and self.group.isChecked())
         root, group = output_prefs()
-        tags = {"artist": "Исполнитель", "album": "Альбом", "date": "2005"}
+        tags = {"artist": _("Исполнитель"), "album": _("Альбом"), "date": "2005"}
         folder = io.organized_dir(root, tags, *group) if root and group else root
-        sample = io.output_path(Path("Песня.mp3"), "mp3", {}, folder)
+        sample = io.output_path(Path(_("Песня") + ".mp3"), "mp3", {}, folder)
         shown = sample.relative_to(root) if folder else None
-        self.example.setText(f"Пример: …/{shown.as_posix()}" if shown else "Файл ляжет рядом с исходником: Песня_countin.mp3")
+        self.example.setText(_("Пример: …/{path}", path=shown.as_posix()) if shown
+                             else _("Файл ляжет рядом с исходником: {name}", name=sample.name))
 
 
 # --- window ---
@@ -751,22 +765,22 @@ class Window(QMainWindow):
 
     def _build_menu(self):
         mb = self.menuBar()
-        file = mb.addMenu("Файл")
-        self.open_a = file.addAction("Открыть…", QKeySequence.Open, self._open_dialog)
-        self.save_a = file.addAction("Сохранить", QKeySequence.Save, self._save)
-        self.reveal_a = file.addAction("Показать сохранённый файл", self._reveal)
+        file = mb.addMenu(_("Файл"))
+        self.open_a = file.addAction(_("Открыть…"), QKeySequence.Open, self._open_dialog)
+        self.save_a = file.addAction(_("Сохранить"), QKeySequence.Save, self._save)
+        self.reveal_a = file.addAction(_("Показать сохранённый файл"), self._reveal)
         file.addSeparator()
-        prefs = file.addAction("Настройки…", QKeySequence.Preferences, self._prefs)
+        prefs = file.addAction(_("Настройки…"), QKeySequence.Preferences, self._prefs)
         prefs.setMenuRole(QAction.PreferencesRole)
 
-        play = mb.addMenu("Воспроизведение")
-        self.play_a = play.addAction("Прослушать / Стоп (Пробел)", self._play)
+        play = mb.addMenu(_("Воспроизведение"))
+        self.play_a = play.addAction(_("Прослушать / Стоп (Пробел)"), self._play)
 
-        help_ = mb.addMenu("Справка")
-        about = help_.addAction("О программе Count-In", self._about)
+        help_ = mb.addMenu(_("Справка"))
+        about = help_.addAction(_("О программе Count-In"), self._about)
         about.setMenuRole(QAction.AboutRole)
-        help_.addAction("Проверить обновления", lambda: self.check_updates(manual=True))
-        help_.addAction("Страница проекта", lambda: QDesktopServices.openUrl(QUrl(f"https://github.com/{update.REPO}")))
+        help_.addAction(_("Проверить обновления"), lambda: self.check_updates(manual=True))
+        help_.addAction(_("Страница проекта"), lambda: QDesktopServices.openUrl(QUrl(f"https://github.com/{update.REPO}")))
 
     def _header(self) -> QWidget:
         head = QWidget(objectName="header")
@@ -779,9 +793,9 @@ class Window(QMainWindow):
         text.addWidget(self.title)
         text.addWidget(self.subtitle)
         h.addLayout(text, 1)
-        self.open_b = QPushButton("Открыть…", objectName="tool", clicked=self._open_dialog)
-        self.play_b = QPushButton("▶  Прослушать", objectName="primary", clicked=self._play, toolTip="Пробел")
-        self.save_b = QPushButton("Сохранить", objectName="tool", clicked=self._save, toolTip="⌘S")
+        self.open_b = QPushButton(_("Открыть…"), objectName="tool", clicked=self._open_dialog)
+        self.play_b = QPushButton(_("▶  Прослушать"), objectName="primary", clicked=self._play, toolTip=_("Пробел"))
+        self.save_b = QPushButton(_("Сохранить"), objectName="tool", clicked=self._save, toolTip="⌘S")
         for b in (self.open_b, self.play_b, self.save_b):
             b.setFocusPolicy(Qt.NoFocus)
             h.addWidget(b)
@@ -792,7 +806,7 @@ class Window(QMainWindow):
         drop_page = QWidget()
         dv = QVBoxLayout(drop_page)
         dv.setContentsMargins(40, 20, 40, 40)
-        drop = QLabel("Перетащите сюда трек\n\nmp3, FLAC, ALAC, WAV", objectName="drop", alignment=Qt.AlignCenter)
+        drop = QLabel(_("Перетащите сюда трек\n\nmp3, FLAC, ALAC, WAV"), objectName="drop", alignment=Qt.AlignCenter)
         dv.addWidget(drop)
         self.stack.addWidget(drop_page)
         self.stack.addWidget(self._editor())
@@ -813,7 +827,7 @@ class Window(QMainWindow):
         self.prog_label = QLabel(objectName="cardTitle")
         self.prog_eta = QLabel(objectName="field")
         self.progress = QProgressBar(textVisible=False, maximumHeight=8)
-        self.cancel_b = QPushButton("Отмена", objectName="tool", clicked=self._cancel)
+        self.cancel_b = QPushButton(_("Отмена"), objectName="tool", clicked=self._cancel)
         g.addWidget(self.prog_label, 0, 0)
         g.addWidget(self.prog_eta, 0, 1, Qt.AlignRight)
         g.addWidget(self.progress, 1, 0, 1, 2)
@@ -832,54 +846,54 @@ class Window(QMainWindow):
         self.warning = QLabel(objectName="warning", wordWrap=True)
         self.wave = Wave()
         self.wave.t0Changed.connect(self._marker_moved)
-        hint = QLabel("Тяните оранжевый маркер «1» на первую сильную долю. Колесо — масштаб, перетаскивание — сдвиг, "
-                      "⌥ — без прилипания к долям.", objectName="subtitle", wordWrap=True)
+        hint = QLabel(_("Тяните оранжевый маркер «1» на первую сильную долю. Колесо — масштаб, перетаскивание — сдвиг, "
+                        "⌥ — без прилипания к долям."), objectName="subtitle", wordWrap=True)
 
-        tempo, g = card("Темп и первая доля")
+        tempo, g = card(_("Темп и первая доля"))
         self.bpm_spin = QDoubleSpinBox(decimals=2, minimum=30, maximum=320, singleStep=0.1, suffix=" BPM")
         self.bpm_spin.valueChanged.connect(self._bpm_edited)
         x2 = QPushButton("×2", objectName="small", clicked=lambda: self._scale_bpm(2.0))
         half = QPushButton("÷2", objectName="small", clicked=lambda: self._scale_bpm(0.5))
         tap = QPushButton("Tap", objectName="small", clicked=self._tap)
-        row(g, "Темп", self.bpm_spin, x2, half, tap)
-        self.t0_spin = QDoubleSpinBox(decimals=3, maximum=36000, singleStep=0.001, suffix=" с")
+        row(g, _("Темп"), self.bpm_spin, x2, half, tap)
+        self.t0_spin = QDoubleSpinBox(decimals=3, maximum=36000, singleStep=0.001, suffix=_(" с"))
         self.t0_spin.valueChanged.connect(self._t0_edited)
         prev_b = QPushButton("◀", objectName="small", clicked=lambda: self._shift_beat(-1))
         next_b = QPushButton("▶", objectName="small", clicked=lambda: self._shift_beat(1))
-        row(g, "Доля «1»", self.t0_spin, prev_b, next_b)
-        self.alt_b = QPushButton("Взять кандидата детектора", objectName="small", clicked=self._use_alt)
+        row(g, _("Доля «1»"), self.t0_spin, prev_b, next_b)
+        self.alt_b = QPushButton(_("Взять кандидата детектора"), objectName="small", clicked=self._use_alt)
         g.addWidget(self.alt_b, g.rowCount(), 1)
         for b in (x2, half, tap, prev_b, next_b, self.alt_b):
             b.setFocusPolicy(Qt.NoFocus)
 
-        count, g = card("Отсчёт")
-        self.style_seg = Segmented([("Ровный", "even"), ("Нарастание", "buildup"), ("MIDI…", "midi")], "buildup")
+        count, g = card(_("Отсчёт"))
+        self.style_seg = Segmented([(_("Ровный"), "even"), (_("Нарастание"), "buildup"), ("MIDI…", "midi")], "buildup")
         self.style_seg.changed.connect(self._style_changed)
-        row(g, "Рисунок", self.style_seg)
-        self.bars_seg = Segmented([("1 такт", 1), ("2 такта", 2)], 2)
+        row(g, _("Рисунок"), self.style_seg)
+        self.bars_seg = Segmented([(_("1 такт"), 1), (_("2 такта"), 2)], 2)
         self.bars_seg.changed.connect(self._refresh)
-        row(g, "Длина", self.bars_seg)
+        row(g, _("Длина"), self.bars_seg)
         self.meter_seg = Segmented([(m, m) for m in rd.METERS], "4/4")
         self.meter_seg.changed.connect(self._meter_changed)
-        row(g, "Размер", self.meter_seg)
+        row(g, _("Размер"), self.meter_seg)
         self.volume = QSlider(Qt.Horizontal, minimum=-24, maximum=6, value=0, minimumWidth=140)
         self.volume_l = QLabel(minimumWidth=60)
-        row(g, "Громкость", self.volume, self.volume_l)
+        row(g, _("Громкость"), self.volume, self.volume_l)
         self.pattern: Path | None = None
 
-        mix, g = card("Бэктрек")
+        mix, g = card(_("Бэктрек"))
         self.guitar = QSlider(Qt.Horizontal, minimum=MUTE, maximum=0, value=0, minimumWidth=140)
         self.guitar_l = QLabel(minimumWidth=90)
-        row(g, "Гитара", self.guitar, self.guitar_l)
+        row(g, _("Гитара"), self.guitar, self.guitar_l)
         self.vocals = QSlider(Qt.Horizontal, minimum=MUTE, maximum=0, value=0, minimumWidth=140)
         self.vocals_l = QLabel(minimumWidth=90)
-        row(g, "Вокал", self.vocals, self.vocals_l)
-        self.trim = QCheckBox("Обрезать тишину в начале")
+        row(g, _("Вокал"), self.vocals, self.vocals_l)
+        self.trim = QCheckBox(_("Обрезать тишину в начале"))
         g.addWidget(self.trim, g.rowCount(), 1)
         self.fmt = QComboBox()
         for key, name in FORMAT_NAMES.items():
-            self.fmt.addItem(name, key)
-        row(g, "Формат", self.fmt)
+            self.fmt.addItem(_(name), key)
+        row(g, _("Формат"), self.fmt)
 
         for w in (self.volume, self.guitar, self.vocals):
             w.valueChanged.connect(self._labels)
@@ -910,10 +924,10 @@ class Window(QMainWindow):
         self.setStatusBar(sb)
         self.file_l = QLabel()
         self.status = QLabel()
-        self.reveal_b = QPushButton("Показать в Finder" if sys.platform == "darwin" else "Показать в папке",
+        self.reveal_b = QPushButton(_("Показать в Finder") if sys.platform == "darwin" else _("Показать в папке"),
                                     objectName="small", clicked=self._reveal)
         self.reveal_b.setFocusPolicy(Qt.NoFocus)
-        self.version_l = QLabel(f"Count-In {update.current_version()}")
+        self.version_l = QLabel(f"Count-In v{update.current_version()}")
         self.update_b = QPushButton(objectName="update", clicked=self._download_update)
         self.update_b.setFocusPolicy(Qt.NoFocus)
         sb.addWidget(self.file_l)
@@ -927,7 +941,7 @@ class Window(QMainWindow):
     def _show_version(self):
         self.update_b.setVisible(self.release is not None)
         if self.release:
-            self.update_b.setText(f"Обновить до {self.release.version}")
+            self.update_b.setText(_("Обновить до v{version}", version=self.release.version))
 
     # --- dialogs ---
 
@@ -935,9 +949,9 @@ class Window(QMainWindow):
         PrefsDialog(self).exec()
 
     def _about(self):
-        QMessageBox.about(self, "О программе Count-In", (
-            f"<h3>Count-In {update.current_version()}</h3>"
-            "<p>Барабанный отсчёт перед первой сильной долей и бэктреки без гитары или вокала.</p>"
+        QMessageBox.about(self, _("О программе Count-In"), (
+            f"<h3>Count-In v{update.current_version()}</h3>"
+            f"<p>{_('Барабанный отсчёт перед первой сильной долей и бэктреки без гитары или вокала.')}</p>"
             f'<p><a href="https://github.com/{update.REPO}">github.com/{update.REPO}</a></p>'
             "<p>beat_this (MIT), BS-RoFormer (MIT), FFmpeg (LGPL), Qt for Python (LGPL), PyTorch (BSD).</p>"))
 
@@ -960,7 +974,7 @@ class Window(QMainWindow):
             self.release = release
             self._show_version()
         elif getattr(self, "_manual_check", False):
-            self.status.setText(f"Установлена последняя версия, {update.current_version()}")
+            self.status.setText(_("Установлена последняя версия, v{version}", version=update.current_version()))
 
     def _download_update(self, *_):
         if self.release:
@@ -977,7 +991,7 @@ class Window(QMainWindow):
 
     def _open_dialog(self):
         exts = " ".join(f"*{x}" for x in sorted(AUDIO_EXT))
-        f, _ = QFileDialog.getOpenFileName(self, "Трек", "", f"Аудио ({exts})")
+        f, _sel = QFileDialog.getOpenFileName(self, _("Трек"), "", _("Аудио ({exts})", exts=exts))
         if f:
             self.open_files([Path(f)])
 
@@ -986,7 +1000,7 @@ class Window(QMainWindow):
         path = next((p for p in paths if p.is_file() and p.suffix.lower() in AUDIO_EXT), None)
         if not path or self.job:
             if paths and not path:
-                self.status.setText("Это не аудиофайл: mp3, FLAC, ALAC или WAV")
+                self.status.setText(_("Это не аудиофайл: mp3, FLAC, ALAC или WAV"))
             return
         self._stop()
         if self.analysis_job:
@@ -1002,7 +1016,7 @@ class Window(QMainWindow):
         self.warning.hide()
         self.title.setText(path.stem)
         self.subtitle.setText("")
-        self.detector.setText("Анализ…")
+        self.detector.setText(_("Анализ…"))
         try:
             self.info = io.probe(path)
             self._show_file()
@@ -1037,11 +1051,11 @@ class Window(QMainWindow):
         a = t.analysis
         self.wave.set_audio(self.pcm, self.sr)
         self.wave.beats, self.wave.downs = list(a.beats), list(a.downbeats)
-        self.detector.setText(f"Детектор: {a.bpm:.2f} BPM · «1» на {fmt_time(a.first_downbeat)} · "
-                              f"уверенность {a.confidence:.0%}")
+        self.detector.setText(_("Детектор: {bpm:.2f} BPM · «1» на {t} · уверенность {conf:.0%}",
+                                bpm=a.bpm, t=fmt_time(a.first_downbeat), conf=a.confidence))
         notes = [translate(n) for n in a.notes]
         if a.confidence < 0.4:
-            notes.insert(0, "детектор не уверен, проверьте маркер «1» на слух")
+            notes.insert(0, _("детектор не уверен, проверьте маркер «1» на слух"))
         self.warning.setText("; ".join(notes))
         self.warning.setVisible(bool(notes))
         self.alt_b.setVisible(a.alt_downbeat is not None)
@@ -1113,7 +1127,7 @@ class Window(QMainWindow):
 
     def _style_changed(self, style: str):
         if style == "midi":
-            f, _ = QFileDialog.getOpenFileName(self, "MIDI-шаблон", "", "MIDI (*.mid *.midi)")
+            f, _sel = QFileDialog.getOpenFileName(self, _("MIDI-шаблон"), "", "MIDI (*.mid *.midi)")
             if f:
                 self.pattern = Path(f)
                 self.style_seg.group.button(2).setText(self.pattern.stem[:14] + "…")
@@ -1126,10 +1140,10 @@ class Window(QMainWindow):
         self.player.gains = {"guitar": keep(self.guitar.value()), "vocals": keep(self.vocals.value())}
 
     def _labels(self):
-        self.volume_l.setText(f"{self.volume.value():+d} дБ")
+        self.volume_l.setText(_("{v:+d} дБ", v=self.volume.value()))
         for s, l in ((self.guitar, self.guitar_l), (self.vocals, self.vocals_l)):
             v = s.value()
-            l.setText("как есть" if v == 0 else "убрать" if v == MUTE else f"{v} дБ")
+            l.setText(_("как есть") if v == 0 else _("убрать") if v == MUTE else _("{v} дБ", v=v))
 
     def settings(self) -> Settings:
         levels = {}
@@ -1197,8 +1211,9 @@ class Window(QMainWindow):
         # Rate from the chunks finished since this stage began; the first one carries model loading.
         rate = (done - self._stage_done) / max(time.monotonic() - self._stage_start, 1e-6)
         left = (total - done) / rate if done > self._stage_done else None
-        self.prog_eta.setText(f"{frac:.0%}" + (f" · осталось ~{int(left // 60)}:{int(left % 60):02d}"
-                                               if left is not None else " · считаю время…"))
+        rest = (_("осталось ~{m}:{s:02d}", m=int(left // 60), s=int(left % 60)) if left is not None
+                else _("считаю время…"))
+        self.prog_eta.setText(f"{frac:.0%} · {rest}")
 
     def _finish(self):
         self.job = None
@@ -1211,12 +1226,12 @@ class Window(QMainWindow):
 
     def _cancelled(self):
         self._finish()
-        self.status.setText("Отменено")
+        self.status.setText(_("Отменено"))
 
     def _cancel(self):
         if self.job:
             self.job.cancelled.set()
-            self.status.setText("Отменяю…")
+            self.status.setText(_("Отменяю…"))
 
     def _play(self):
         if self.play_start is not None:
@@ -1235,17 +1250,17 @@ class Window(QMainWindow):
             return
         if new_cache:
             self.stem_cache = new_cache
-        self.status.setText(clip_note(clipped) or ("Гитару и вокал можно менять на ходу" if stems
-                            else "Чтобы менять гитару и вокал на ходу, опустите ползунок до прослушивания"))
+        self.status.setText(clip_note(clipped) or (_("Гитару и вокал можно менять на ходу") if stems
+                            else _("Чтобы менять гитару и вокал на ходу, опустите ползунок до прослушивания")))
         self._gains()
         try:
             self.player.play(base, stems, sr)
         except Exception as e:  # no output device, unsupported channel count
             log.exception("audio output failed")
-            self.status.setText(f"Не удалось воспроизвести: {e}")
+            self.status.setText(_("Не удалось воспроизвести: {e}", e=e))
             return
         self.play_start = start
-        self.play_b.setText("■  Стоп")
+        self.play_b.setText(_("■  Стоп"))
         self.play_timer.start()
         self._enable()
 
@@ -1262,7 +1277,7 @@ class Window(QMainWindow):
         self.player.stop()
         self.play_start = None
         self.play_timer.stop()
-        self.play_b.setText("▶  Прослушать")
+        self.play_b.setText(_("▶  Прослушать"))
         self.wave.cursor_t = None
         self.wave.update()
         self._enable()
@@ -1274,7 +1289,7 @@ class Window(QMainWindow):
         s = self.settings()
         out = target_path(self.current.path, s, self.info or io.probe(self.current.path))
         if out.exists() and QMessageBox.question(
-                self, "Count-In", f"Файл {out.name} уже есть. Заменить?") != QMessageBox.Yes:
+                self, "Count-In", _("Файл {name} уже есть. Заменить?", name=out.name)) != QMessageBox.Yes:
             return
         self._run(save_job, self.current, s, self.stem_cache, on_done=self._saved)
 
@@ -1286,7 +1301,7 @@ class Window(QMainWindow):
         if full:
             self.stem_cache = full
         self.last_saved = out
-        self.status.setText(" · ".join(x for x in (f"Сохранено: {out.name}", clip_note(clipped)) if x))
+        self.status.setText(" · ".join(x for x in (_("Сохранено: {name}", name=out.name), clip_note(clipped)) if x))
         self.reveal_b.show()
         self._enable()
 
@@ -1338,9 +1353,10 @@ def main() -> int:
     apply_icon(app)
 
     setup_log()
+    i18n.set_language(QSettings().value(LANG_KEY, "system"))
 
-    # The window restyles with the system appearance; the icon follows it only in the "Как тема приложения" mode.
-    app.styleHints().colorSchemeChanged.connect(lambda _: (apply_icon(app), app.setStyleSheet(style_sheet(app))))
+    # The window restyles with the system appearance.
+    app.styleHints().colorSchemeChanged.connect(lambda _scheme: app.setStyleSheet(style_sheet(app)))
     font = app.font()
     font.setPointSizeF(font.pointSizeF() + 1.5)
     app.setFont(font)
