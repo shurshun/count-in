@@ -1,0 +1,44 @@
+[project]
+name = "countin"
+version = "0.1.0"
+description = "Insert a drum-stick count-in before the first downbeat of a song"
+authors = [
+    { name = "Andrei Korviakov", email = "4lifenet@gmail.com" }
+]
+requires-python = ">=3.12"
+dependencies = [
+    "beartype>=0.23.1",
+    "beat-this",
+    "einops>=0.8.2",
+    "mido>=1.3.3",
+    "numpy>=2.5.4",
+    "pyside6-essentials>=6.12.0",
+    "pyyaml>=6.0.3",
+    "rotary-embedding-torch>=0.6.5",
+    "sounddevice>=0.5.6",
+    "soundfile>=0.14.0",
+    "soxr>=1.1.0",
+]
+
+[project.scripts]
+countin = "countin.cli:main"
+countin-verify = "countin.verify:main"
+
+[project.gui-scripts]
+countin-gui = "countin.gui:main"
+
+[build-system]
+requires = ["uv_build>=0.12.10,<0.13.0"]
+build-backend = "uv_build"
+
+[tool.uv.sources]
+beat-this = { git = "https://github.com/CPJKU/beat_this" }
+
+[dependency-groups]
+dev = [
+    "pyinstaller>=6.22.3",
+    "pytest>=9.2.0",
+]
+
+[tool.pytest.ini_options]
+markers = ["slow: runs a neural model"]
