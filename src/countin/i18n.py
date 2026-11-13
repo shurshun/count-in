@@ -58,8 +58,9 @@ EN = {
     # Status and progress
     "Показать в Finder": "Show in Finder",
     "Показать в папке": "Show in Explorer",
-    "Обновить до v{version}": "Update to v{version}",
+    "Доступна v{version}, скачать": "v{version} is available, download it",
     "Установлена последняя версия, v{version}": "You have the latest version, v{version}",
+    "Не удалось проверить обновления: {e}": "Could not check for updates: {e}",
     "Это не аудиофайл: mp3, FLAC, ALAC или WAV": "Not an audio file: mp3, FLAC, ALAC or WAV",
     "Анализ…": "Analyzing…",
     "Анализ: {name}": "Analyzing: {name}",

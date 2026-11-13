@@ -38,7 +38,9 @@ STYLE = """
 QMainWindow, QStackedWidget > QWidget, #progWrap, #header { background: @WINDOW@; }
 QStatusBar { background: @SIDEBAR@; border-top: 1px solid @BORDER@; }
 QStatusBar QLabel { padding: 0 8px; }
-QPushButton#update { color: #ff9f0a; border: 1px solid #ff9f0a; border-radius: 6px; padding: 2px 10px; background: transparent; }
+QPushButton#update { background: #0a84ff; color: white; border: none; border-radius: 10px; font-weight: 700;
+                     min-width: 20px; max-width: 20px; min-height: 20px; max-height: 20px; padding: 0; }
+QPushButton#update:hover { background: #409cff; }
 #title { font-size: 24px; font-weight: 600; }
 #subtitle { color: @FIELD@; }
 #warning { color: #ff9f0a; }
@@ -927,21 +929,24 @@ class Window(QMainWindow):
         self.reveal_b = QPushButton(_("Показать в Finder") if sys.platform == "darwin" else _("Показать в папке"),
                                     objectName="small", clicked=self._reveal)
         self.reveal_b.setFocusPolicy(Qt.NoFocus)
-        self.version_l = QLabel(f"Count-In v{update.current_version()}")
-        self.update_b = QPushButton(objectName="update", clicked=self._download_update)
+        self.version_l = QLabel(f"v{update.current_version()}")
+
+        # Round blue badge next to the version, shown only when a newer release exists.
+        self.update_b = QPushButton("↓", objectName="update", clicked=self._download_update)
         self.update_b.setFocusPolicy(Qt.NoFocus)
+        self.update_b.setCursor(Qt.PointingHandCursor)
         sb.addWidget(self.file_l)
         sb.addWidget(self.status, 1)
         sb.addPermanentWidget(self.reveal_b)
-        sb.addPermanentWidget(self.update_b)
         sb.addPermanentWidget(self.version_l)
+        sb.addPermanentWidget(self.update_b)
         self.reveal_b.hide()
         self._show_version()
 
     def _show_version(self):
         self.update_b.setVisible(self.release is not None)
         if self.release:
-            self.update_b.setText(_("Обновить до v{version}", version=self.release.version))
+            self.update_b.setToolTip(_("Доступна v{version}, скачать", version=self.release.version))
 
     # --- dialogs ---
 
@@ -963,14 +968,21 @@ class Window(QMainWindow):
         threading.Thread(target=self._check_in_thread, daemon=True).start()
 
     def _check_in_thread(self):
-        release = update.check()
+        try:
+            release = update.check()
+        except Exception as e:  # offline, TLS, rate limit
+            log.warning("update check failed: %s", e)
+            release = e
         try:
             self.updateFound.emit(release)
         except RuntimeError:  # the window closed while GitHub was answering
             pass
 
     def _update_found(self, release):
-        if release:
+        if isinstance(release, Exception):
+            if getattr(self, "_manual_check", False):
+                self.status.setText(_("Не удалось проверить обновления: {e}", e=release))
+        elif release:
             self.release = release
             self._show_version()
         elif getattr(self, "_manual_check", False):

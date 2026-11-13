@@ -100,6 +100,7 @@ jobs:
         run: |
           uv run python -c "import numpy as np, soundfile as sf; sr=44100; x=np.zeros((20*sr,2),np.float32); [x.__setitem__(slice(int(t*sr),int(t*sr)+400), 0.8) for t in np.arange(1,20,0.5)]; sf.write('smoke.wav', x, sr)"
           ${{ matrix.cli }} --version
+          ${{ matrix.cli }} --check-update  # a real HTTPS request from the bundle; fails on missing certificates
           ${{ matrix.cli }} smoke.wav --guitar-db=-12 --format mp3 --out smoke_out.mp3
           test -s smoke_out.mp3
 

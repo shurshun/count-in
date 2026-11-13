@@ -1,11 +1,14 @@
 """Checks GitHub releases for a newer version of the app."""
 
 import json
+import ssl
 import re
 import sys
 import urllib.request
 from dataclasses import dataclass
 from importlib.metadata import PackageNotFoundError, version
+
+import truststore
 
 REPO = "shurshun/count-in"
 TIMEOUT = 10.0
@@ -53,11 +56,13 @@ def newer_release(data: dict, current: str) -> Release | None:
 
 
 def check() -> Release | None:
-    """Blocking call, run it off the UI thread. Network errors and timeouts return None."""
+    """Blocking call, run it off the UI thread. Raises on network, TLS and API errors.
+
+    TLS trusts the operating system's certificate store (Keychain, Windows store) through truststore.
+    The bundled Python's own OpenSSL would look in a folder that exists only where python.org Python is installed.
+    """
     req = urllib.request.Request(f"https://api.github.com/repos/{REPO}/releases/latest",
                                  headers={"Accept": "application/vnd.github+json", "User-Agent": "Count-In"})
-    try:
-        with urllib.request.urlopen(req, timeout=TIMEOUT) as r:
-            return newer_release(json.load(r), current_version())
-    except Exception:
-        return None
+    ctx = truststore.SSLContext(ssl.PROTOCOL_TLS_CLIENT)
+    with urllib.request.urlopen(req, timeout=TIMEOUT, context=ctx) as r:
+        return newer_release(json.load(r), current_version())
