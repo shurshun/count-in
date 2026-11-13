@@ -31,7 +31,7 @@ jobs:
       - name: ffmpeg (Windows)
         if: runner.os == 'Windows'
         run: |
-          curl -fsSL -o ff.zip https://github.com/BtbN/FFmpeg-Builds/releases/download/latest/ffmpeg-n7.1-latest-win64-lgpl-7.1.zip
+          curl -fsSL -o ff.zip https://github.com/BtbN/FFmpeg-Builds/releases/download/latest/ffmpeg-n8.1-latest-win64-lgpl-8.1.zip
           7z x -y ff.zip > /dev/null
           mkdir -p bin
           cp ffmpeg-*/bin/ffmpeg.exe ffmpeg-*/bin/ffprobe.exe bin/
