@@ -1,96 +1,118 @@
+<p align="center"><img src="docs/screenshots/social-preview.png" alt="Count-In" width="820"></p>
+
 # Count-In
 
-Inserts a drum-stick count-in before the first downbeat of a song (mp3, FLAC, ALAC, WAV). The last click lands exactly one click before the song's "one".
+Count-In находит темп и первую сильную долю песни и вставляет перед ней барабанный отсчёт. Последний клик звучит ровно за долю до «раз». Из той же песни можно сделать бэктрек: убрать или приглушить гитару и вокал.
 
-## Install
+- Отсчёт на 1 или 2 такта, размер 4/4, 3/4 или 6/8.
+- Рисунок: ровный, «нарастание» (во второй половине вдвое чаще, последние удары громче) или свой из MIDI-файла.
+- Гитара и вокал отделяются нейросетью за один проход, уровень каждого настраивается отдельно.
+- Вход: mp3, FLAC, ALAC, WAV. Выход: MP3 320 kbps, FLAC, ALAC или WAV, теги и обложка сохраняются.
+- Работает без интернета. Сеть нужна только для проверки обновлений.
 
-```bash
-brew install ffmpeg            # or packaging/build_ffmpeg.sh for the bundled LGPL build
-uv sync
-packaging/fetch_models.sh      # beat_this final0 (81 MB), BS-RoFormer SW (700 MB)
-```
+## Скачать
 
-## Use
+Последняя версия лежит на странице [Releases](https://github.com/shurshun/count-in/releases/latest).
 
-```bash
-uv run countin song.mp3 --bars 1 --meter 4/4 --out song_countin.mp3
-uv run countin *.mp3 --dry-run            # table: BPM, downbeat, confidence
-uv run countin-verify song_countin.mp3 --last-click 2.22526
-```
-
-| Flag | Meaning |
+| Система | Файл |
 |---|---|
-| `--bars 1\|2` | count-in length |
-| `--meter 4/4\|3/4\|6/8` | 6/8 clicks six eighths over two dotted-quarter beats |
-| `--bpm`, `--first-beat SEC` | manual correction |
+| Windows 10/11, x64 | `Count-In-windows-x64.zip` |
+| macOS 12+, Apple Silicon | `Count-In-macos-arm64.zip` |
 
-When the detector counts 6 beats in a 6/8 bar or 8 in a 4/4 bar, the click period gets rescaled from the bar length.
-| `--tempo-x2`, `--tempo-half` | fix a doubled or halved tempo |
-| `--pattern file.mid` | MIDI note positions as the rhythm, played with the stick samples; length rounds up to whole bars |
-| `--pre-roll keep\|trim` | `keep` mixes clicks over any intro audio; `trim` first cuts leading silence |
-| `--volume DB` | count-in gain |
-| `--out`, `--format mp3\|flac\|alac\|wav` | output format: mp3 320k, FLAC level 8, ALAC, WAV; default follows the source |
-| `--style even\|buildup` | buildup: second half twice as dense, the last three hits louder |
-| `--guitar-db DB`, `--vocals-db DB` | stem levels for a backing track: `-12` keeps a hint, `--guitar-db=-inf` removes it |
+Сборки не подписаны, поэтому система при первом запуске предупредит.
 
-Samples live in `samples/stick_hi.wav` (bar start) and `samples/stick_lo.wav`. Missing files get synthesized in memory. Silence before a sample's attack gets cut.
+- **Windows.** Распакуйте архив и запустите `Count-In.exe`. Если появится SmartScreen, нажмите «Подробнее» → «Выполнить в любом случае».
+- **macOS.** Распакуйте архив и перетащите `Count-In.app` в «Программы». При первом запуске откройте его через правый клик → «Открыть».
 
-## How timing stays exact
+## Как пользоваться
 
-- Clicks get placed on beats found in the same decoded stream, so the source's encoder delay cannot move them.
-- mp3 output is 320 kbps CBR with a LAME tag, so players drop the encoder delay.
-- Each click rounds to a sample from its own float time.
-- beat_this works in 20 ms frames. Peak interpolation plus a line fit over 16 beats gets the grid phase below a frame.
+![Главное окно](docs/screenshots/main-dark.png)
 
-`countin-verify` prints two numbers:
+1. Перетащите треки или папки в окно. Каждый трек анализируется в фоне, в списке слева появятся темп и время первой доли.
+2. Проверьте оранжевый маркер «1» на волне. Если детектор ошибся, перетащите маркер на нужную долю: он прилипает к найденным долям, с ⌥/Alt ставится свободно. Колесо мыши меняет масштаб, перетаскивание волны сдвигает её.
+3. Выберите рисунок, длину и размер отсчёта. Синие отметки на волне показывают, где прозвучат клики.
+4. Для бэктрека опустите ползунки «Гитара» и «Вокал».
+5. Нажмите «Прослушать» или пробел: прозвучит отсчёт и 10 секунд песни. Во время прослушивания ползунки гитары и вокала меняют звук сразу.
+6. Нажмите «Сохранить» или «Сохранить все». Файлы ложатся рядом с исходниками.
 
-- **vs planned** finds the last click by cross-correlation and compares it to the planned sample. This checks the codec path.
-- **click vs downbeat-1** re-runs the detector on the output. It includes the detector's own error of a few ms.
+Если детектор не уверен в результате, над волной появляется оранжевая подсказка. Кнопки ×2 и ÷2 исправляют удвоенный или половинный темп, Tap задаёт темп постукиванием.
 
-## Guitar attenuation
+### Имена файлов
 
-BS-RoFormer SW (jarredou) splits the song into six stems in one pass: bass, drums, other, vocals, guitar, piano.
-The output is the original minus the removed share of the guitar stem, so the other instruments stay untouched.
+| Что сделано | Имя |
+|---|---|
+| Только отсчёт | `Песня_countin.mp3` |
+| Бэктрек | `Песня_backing_guitar-off_vocals-6dB.mp3` |
 
-- Model code is vendored in `src/countin/core/roformer` (MIT, from python-audio-separator).
-- A 4-minute track takes about 2.5 minutes on an M-series Mac (MPS). Weights: 700 MB.
-- Mono and stereo only.
+### Время обработки
 
-## App
+Отсчёт и анализ занимают секунды. Разделение на гитару и вокал работает дольше: около 2.5 минут на 4-минутную песню на Mac с Apple Silicon и заметно дольше на Windows, где считает только процессор. Внизу окна видны этап, проценты и оставшееся время, работу можно отменить.
+
+![Прогресс](docs/screenshots/progress-dark.png)
+
+### Обновления
+
+При запуске приложение в фоне проверяет, нет ли новой версии на GitHub. Если есть, сверху появляется предложение скачать её.
+
+---
+
+## Разработка
+
+Как устроен код, почему выбраны эти технологии и где что менять, описано в [AGENTS.md](AGENTS.md).
+
+### Окружение
 
 ```bash
-uv run countin-gui [files...]
+brew install ffmpeg            # или packaging/build_ffmpeg.sh, LGPL-сборка для бандла в bin/
+uv sync
+packaging/fetch_models.sh      # beat_this final0 (81 МБ), BS-RoFormer SW (700 МБ)
 ```
 
-- Drop tracks or folders on the window or the Dock icon. Each gets analyzed in the background.
-- The orange marker is the first downbeat. Drag it; it snaps to detected beats, Alt places it freely. Wheel zooms, dragging pans.
-- Count-in styles: even clicks, build-up (second half twice as dense, the last three hits louder), or a MIDI pattern.
-- Guitar and vocal sliders turn those stems down; both come from one separation pass.
-- Space or "Прослушать" plays the count-in plus 10 s of the song. With a stem slider down at start, that excerpt gets separated once; then both sliders change the mix live.
-- Long jobs show stage, percent and time left, and can be cancelled between chunks.
-- On start the app asks GitHub for the latest release in a background thread (10 s timeout). A newer version shows a banner with a download link for this platform.
-- "Сохранить" and "Сохранить все" write next to each source: `<name>_countin.<ext>`, or `<name>_backing_guitar-off_vocals-6dB.<ext>` for a backing track.
-
-## Build
+### Запуск
 
 ```bash
-uv run pyinstaller packaging/countin-app.spec --noconfirm --distpath build/dist --workpath build/work  # Count-In.app
+uv run countin-gui [файлы...]                       # приложение
+uv run countin song.mp3 --style buildup --bars 2     # командная строка
+uv run countin *.mp3 --dry-run                       # таблица: BPM, первая доля, уверенность
+uv run countin-verify out.mp3 --last-click 2.22526   # проверка, где оказался последний клик
+```
+
+| Флаг | Что делает |
+|---|---|
+| `--bars 1\|2` | длина отсчёта |
+| `--meter 4/4\|3/4\|6/8` | размер; 6/8 щёлкает шесть восьмых на две доли |
+| `--style even\|buildup` | ровный отсчёт или нарастание |
+| `--pattern file.mid` | рисунок из MIDI, длина округляется до целых тактов |
+| `--bpm`, `--first-beat SEC` | ручная правка темпа и первой доли |
+| `--tempo-x2`, `--tempo-half` | исправить удвоенный или половинный темп |
+| `--pre-roll keep\|trim` | `keep` кладёт клики поверх вступления, `trim` сначала срезает тишину в начале |
+| `--volume DB` | громкость отсчёта |
+| `--guitar-db DB`, `--vocals-db DB` | уровни для бэктрека, `--guitar-db=-inf` убирает гитару |
+| `--out`, `--format mp3\|flac\|alac\|wav` | формат вывода, по умолчанию как у исходника |
+
+### Тесты
+
+```bash
+uv run pytest -m 'not slow'    # быстрые
+uv run pytest                  # вместе с прогоном нейросети
+```
+
+### Сборка и релиз
+
+```bash
+uv run pyinstaller packaging/countin-app.spec --noconfirm --distpath build/dist --workpath build/work  # приложение
 uv run pyinstaller packaging/countin.spec --noconfirm --distpath build/dist --workpath build/work      # CLI
 ```
 
-Models and samples go into the bundle. ffmpeg comes from `bin/` when present, else from PATH.
-`packaging/build_ffmpeg.sh` builds an LGPL ffmpeg/ffprobe (audio only, LAME static) into `bin/`.
-CI (`.github/workflows/build.yml`) builds a Windows x64 zip and a macOS arm64 .app on every push; tags `v*` publish them as a release. To release: bump `version` in `pyproject.toml`, then tag `v<version>`; the update check compares against that version. Builds are unsigned; the spec has `codesign_identity` and `entitlements_file` for notarized builds.
+CI (`.github/workflows/build.yml`) на каждый push собирает Windows x64 и macOS arm64 и прогоняет собранный CLI от начала до конца. Чтобы выпустить релиз, поднимите `version` в `pyproject.toml` и поставьте тег `v<версия>`. CI опубликует оба архива в Releases, а проверка обновлений в приложении сравнивает именно эту версию.
 
-## Tests
+## Сторонние компоненты
 
-```bash
-uv run pytest            # all
-uv run pytest -m 'not slow'
-```
-
-## Known limits
-
-- Live tempo drift and rubato. The grid fits the first 16 beats only.
-- Intros without a beat (ambient, feedback) push the first downbeat to where the beat starts. Use `--first-beat` to pick another one.
-- Half-time intros may make the detector place the bar line on the wrong beat. Check the downbeat list and correct it with `--first-beat`.
+| Компонент | Лицензия |
+|---|---|
+| [beat_this](https://github.com/CPJKU/beat_this) (детектор долей, код и веса) | MIT |
+| Код BS-RoFormer из [python-audio-separator](https://github.com/nomadkaraoke/python-audio-separator), на основе [lucidrains/BS-RoFormer](https://github.com/lucidrains/BS-RoFormer) | MIT |
+| Веса BS-RoFormer SW (jarredou) | условия автора, явной лицензии нет |
+| [FFmpeg](https://ffmpeg.org), сборка без GPL-частей, с LAME | LGPL |
+| [Qt for Python](https://doc.qt.io/qtforpython-6/) | LGPL |
+| [PyTorch](https://pytorch.org) | BSD |
