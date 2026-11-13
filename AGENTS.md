@@ -60,10 +60,11 @@ Count-In inserts a drum count-in before a song's first downbeat and can turn gui
 - **One track.** `Window.open_files` takes the first audio file it is given and replaces the current track; a stale analysis gets cancelled and its result ignored.
 - **Files from Finder.** `App.event` handles `QFileOpenEvent` for files dropped on the Dock icon.
 - **Space.** An application event filter plays or stops on Space unless the key goes to a text field or spin box, or a modal dialog is open.
-- **Preferences.** `PrefsDialog` saves to `QSettings` at once: `output/dir` (empty means next to the source), `output/group` and the `output/artist|year|album` levels, `appearance/icon`. `io.organized_dir` builds the folder from source tags; `io.safe_name` keeps names valid on Windows.
+- **Preferences.** `PrefsDialog` saves to `QSettings` at once: `output/dir` (empty means next to the source), `output/group` and the `output/artist|year|album` levels, `appearance/icon`, `appearance/language`. `io.organized_dir` builds the folder from source tags; `io.safe_name` keeps names valid on Windows.
 - **Status bar.** File format from `io.describe`, save status, the update button and the version.
 - **Theme.** `style_sheet()` fills colour tokens in `STYLE` for light or dark appearance.
-- **App icon.** The preferences dialog offers light (default), dark and "follow the app theme". The choice lives in `QSettings` under `appearance/icon`; a missing or unknown value means light. `apply_icon()` sets the window and Dock icon at run time and reruns on `colorSchemeChanged`, which only matters in the follow-theme mode. Finder and Explorer always show the built-in light ICNS/ICO; switching those would need separate work.
+- **App icon.** The preferences offer a light (default) or dark icon, saved under `appearance/icon`; anything else means light. `apply_icon()` sets the window and Dock icon at run time. Finder and Explorer always show the built-in light ICNS/ICO.
+- **Languages.** `i18n.py` holds the English text. Strings in the code are Russian and pass through `_()`; `_("… {name}", name=x)` formats. The preferences save `appearance/language` (`system`, `en`, `ru`); `system` picks Russian for a Russian system locale and English otherwise. The language applies at start, together with the number format, so a change needs a restart. Detector notes come from `analyze.py` in English and get translated only for the Russian UI. `test_every_ui_string_has_an_english_version` fails on any `_()` string missing from `i18n.EN`; add the English line when you add a string. Folder names for missing tags (`Unknown Artist`) follow the language too.
 
 ## Packaging
 
@@ -84,6 +85,8 @@ Count-In inserts a drum count-in before a song's first downbeat and can turn gui
 - Builds are unsigned. The specs have `codesign_identity` and `entitlements_file` placeholders for notarization.
 
 ## Working on it
+
+- **Screenshots follow the UI.** Any change to the interface or a new visible feature ships with fresh screenshots in the same PR: `uv run python docs/screenshots.py <any track with a clear beat>`. The script lives in `docs/`, so a screenshot-only PR does not trigger a build. It rewrites `docs/screenshots/` (main window in both themes, preferences, progress, in Russian and, with an `-en` suffix, in English; the 1280x640 social preview from the English window) from a copy of the track with neutral tags, so no real artist or title gets committed. After a merge, upload `social-preview.png` by hand: Settings → General → Social preview, since GitHub has no API for it. If a new screen matters, add it to the script and to both README sections.
 
 - Python tooling is uv: `uv sync`, `uv run pytest -m 'not slow'`, `uv run countin-gui`.
 - Commits need a DCO sign-off (`git commit -s`). Work on a branch and open a PR.

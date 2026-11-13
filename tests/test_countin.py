@@ -291,8 +291,8 @@ def test_update_check_offers_only_newer_releases():
                                              "browser_download_url": "https://evil.example/app.zip"}]}
     assert update.newer_release(evil, "0.1.0").url == f"https://github.com/{update.REPO}/releases/latest"
 
-def test_icon_choice_defaults_to_light_and_follows_theme_only_in_system_mode(tmp_path):
-    from PySide6.QtCore import QCoreApplication, QSettings, Qt
+def test_icon_choice_is_light_or_dark_and_defaults_to_light(tmp_path):
+    from PySide6.QtCore import QCoreApplication, QSettings
 
     from countin import gui
     from countin.core.io import resource
@@ -303,15 +303,11 @@ def test_icon_choice_defaults_to_light_and_follows_theme_only_in_system_mode(tmp
     QSettings.setPath(QSettings.IniFormat, QSettings.UserScope, str(tmp_path))
 
     assert gui.icon_choice() == "light"
-    QSettings().setValue(gui.ICON_KEY, "neon")
-    assert gui.icon_choice() == "light"
-
-    dark, light = Qt.ColorScheme.Dark, Qt.ColorScheme.Light
-    assert [gui.icon_variant(c, dark) for c in ("light", "dark", "system")] == ["light", "dark", "dark"]
-    assert [gui.icon_variant(c, light) for c in ("light", "dark", "system")] == ["light", "dark", "light"]
+    for saved, used in (("dark", "dark"), ("light", "light"), ("system", "light"), ("neon", "light")):
+        QSettings().setValue(gui.ICON_KEY, saved)
+        assert gui.icon_choice() == used
     for v in ("light", "dark"):
         assert resource("assets", "icons", v, "png", "Count-In-256.png").exists()
-
 
 def test_organized_dir_levels_and_unsafe_names():
     tags = {"artist": "AC/DC", "album": "Back in Black", "date": "1980-07-25"}
@@ -329,3 +325,39 @@ def test_describe_lossy_and_lossless():
     flac = io.AudioInfo(sr=96000, channels=2, codec="flac", bits=24, bitrate=2304000)
     assert io.describe(mp3) == "MP3 · 320 kbps · 44.1 кГц · стерео"
     assert io.describe(flac) == "FLAC · 24 бит · 96 кГц · стерео · сжатие до 50%"
+
+
+def test_every_ui_string_has_an_english_version():
+    """Every literal passed to _() in the app has an English entry, so the English UI shows no Russian."""
+    import ast
+
+    from countin import i18n
+
+    root = Path(__file__).resolve().parents[1] / "src" / "countin"
+    missing = []
+    for f in (root / "gui.py", root / "core" / "io.py"):
+        for node in ast.walk(ast.parse(f.read_text(encoding="utf-8"))):
+            if (isinstance(node, ast.Call) and getattr(node.func, "id", None) == "_" and node.args
+                    and isinstance(node.args[0], ast.Constant) and node.args[0].value not in i18n.EN):
+                missing.append(f"{f.name}:{node.lineno} {node.args[0].value!r}")
+
+    # Constants translated where they are shown.
+    from countin import gui
+    for text in (*gui.ICON_CHOICES.values(), *gui.OUT_LEVELS.values(), gui.FORMAT_NAMES[None], i18n.LANGUAGES["system"]):
+        if text not in i18n.EN:
+            missing.append(text)
+    assert not missing, missing
+
+
+def test_language_switch_changes_text():
+    from countin import i18n
+
+    info = io.AudioInfo(sr=48000, channels=1, codec="flac", bits=16, bitrate=500000)
+    try:
+        i18n.set_language("en")
+        assert io.describe(info) == "FLAC · 16-bit · 48 kHz · mono · compressed to 65%"
+        assert i18n._("Сохранено: {name}", name="a.mp3") == "Saved: a.mp3"
+        i18n.set_language("ru")
+        assert io.describe(info) == "FLAC · 16 бит · 48 кГц · моно · сжатие до 65%"
+    finally:
+        i18n.set_language("ru")

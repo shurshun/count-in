@@ -7,7 +7,7 @@ from pathlib import Path
 from PyInstaller.utils.hooks import copy_metadata
 
 root = Path(SPECPATH).parent
-version = tomllib.loads((root / "pyproject.toml").read_text())["project"]["version"]
+version = tomllib.loads((root / "pyproject.toml").read_text(encoding="utf-8"))["project"]["version"]
 
 datas = [(str(root / "models" / "final0.ckpt"), "models"),
          (str(root / "models" / "separator"), "models/separator")]

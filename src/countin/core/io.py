@@ -10,6 +10,8 @@ from pathlib import Path
 
 import numpy as np
 
+from ..i18n import _
+
 # Output format -> file extension.
 FORMATS = {"mp3": ".mp3", "flac": ".flac", "alac": ".m4a", "wav": ".wav"}
 
@@ -153,13 +155,13 @@ def describe(info: AudioInfo) -> str:
     name = {"mp3": "MP3", "flac": "FLAC", "alac": "ALAC", "aac": "AAC", "vorbis": "Ogg Vorbis", "opus": "Opus"}
     parts = [name.get(info.codec, "WAV" if info.codec.startswith("pcm_") else info.codec.upper())]
     if info.lossless:
-        parts.append(f"{info.bits} бит")
+        parts.append(_("{n} бит", n=info.bits))
     elif info.bitrate:
         parts.append(f"{round(info.bitrate / 1000)} kbps")
-    parts.append(f"{info.sr / 1000:g} кГц")
-    parts.append({1: "моно", 2: "стерео"}.get(info.channels, f"{info.channels} кан."))
+    parts.append(_("{k:g} кГц", k=info.sr / 1000))
+    parts.append({1: _("моно"), 2: _("стерео")}.get(info.channels) or _("{n} кан.", n=info.channels))
     if info.lossless and info.bitrate and not info.codec.startswith("pcm_"):
-        parts.append(f"сжатие до {info.bitrate / (info.sr * info.bits * info.channels):.0%}")
+        parts.append(_("сжатие до {p:.0%}", p=info.bitrate / (info.sr * info.bits * info.channels)))
     return " · ".join(parts)
 
 
@@ -175,11 +177,11 @@ def organized_dir(root: Path, tags: dict[str, str], artist: bool, year: bool, al
     """root/Artist/Year - Album from the source tags; levels left out are skipped."""
     d = root
     if artist:
-        d /= safe_name(tags.get("album_artist") or tags.get("artist") or "Неизвестный исполнитель")
+        d /= safe_name(tags.get("album_artist") or tags.get("artist") or _("Неизвестный исполнитель"))
     y = (tags.get("date") or tags.get("year") or "")[:4]
     if album:
-        a = tags.get("album") or "Без альбома"
+        a = tags.get("album") or _("Без альбома")
         d /= safe_name(f"{y} - {a}" if year and y else a)
     elif year:
-        d /= safe_name(y or "Без года")
+        d /= safe_name(y or _("Без года"))
     return d

@@ -12,7 +12,7 @@ Count-In finds a song's tempo and first downbeat and puts a drum count-in in fro
 - Input: mp3, FLAC, ALAC, WAV. Output: MP3 320 kbps, FLAC, ALAC or WAV, with tags and cover art kept.
 - Works offline. The network is used only for the update check.
 
-The app interface is in Russian.
+The interface is in English and Russian; it follows the system language, and Settings can switch it.
 
 ## Download
 
@@ -30,7 +30,7 @@ The builds are unsigned, so the system warns on first launch.
 
 ## How to use
 
-![Main window](docs/screenshots/main-dark.png)
+![Main window](docs/screenshots/main-dark-en.png)
 
 1. Drop a track onto the window or open it with ⌘O. The app works on one track at a time and analyzes it in the background.
 2. Check the orange "1" marker on the waveform. If the detector got it wrong, drag the marker to the right beat. It snaps to detected beats; hold ⌥/Alt to place it freely. The mouse wheel zooms, dragging the waveform pans.
@@ -39,7 +39,11 @@ The builds are unsigned, so the system warns on first launch.
 5. Press "Прослушать" (preview) or Space to hear the count-in and 10 seconds of the song. The guitar and vocal sliders change the sound while it plays.
 6. Press "Сохранить" (save) or ⌘S. By default the file goes next to the original.
 
-In Settings (⌘,) you can pick one output folder and have files sorted into Artist / Year - Album subfolders from the source tags; each level is a checkbox. The bottom bar shows the file format, bitrate or bit depth, sample rate and length, plus the app version.
+In Settings (⌘,) you can pick one output folder and have files sorted into Artist / Year - Album subfolders from the source tags; each level is a checkbox.
+
+![Settings](docs/screenshots/prefs-dark-en.png)
+
+The bottom bar shows the file format, bitrate or bit depth, sample rate and length, plus the app version.
 
 When the detector is unsure, an orange hint appears above the waveform. ×2 and ÷2 fix a doubled or halved tempo; Tap sets the tempo by tapping.
 
@@ -54,7 +58,7 @@ When the detector is unsure, an orange hint appears above the waveform. ×2 and 
 
 The count-in and analysis take seconds. Separating guitar and vocals takes longer: about 2.5 minutes for a 4-minute song on an Apple Silicon Mac, and noticeably longer on Windows, where only the CPU does the work. The bottom of the window shows the stage, percent and time left, and the job can be cancelled.
 
-![Progress](docs/screenshots/progress-dark.png)
+![Progress](docs/screenshots/progress-dark-en.png)
 
 ### Updates
 
@@ -133,6 +137,7 @@ Count-In находит темп и первую сильную долю пес�
 - Гитара и вокал отделяются нейросетью за один проход, уровень каждого настраивается отдельно.
 - Вход: mp3, FLAC, ALAC, WAV. Выход: MP3 320 kbps, FLAC, ALAC или WAV, теги и обложка сохраняются.
 - Работает без интернета. Сеть нужна только для проверки обновлений.
+- Интерфейс на русском и английском: язык берётся из системы, его можно сменить в настройках.
 
 ### Скачать
 
@@ -159,7 +164,11 @@ Count-In находит темп и первую сильную долю пес�
 5. Нажмите «Прослушать» или пробел: прозвучит отсчёт и 10 секунд песни. Во время прослушивания ползунки гитары и вокала меняют звук сразу.
 6. Нажмите «Сохранить» или ⌘S. По умолчанию файл ложится рядом с исходником.
 
-В настройках (⌘,) можно один раз выбрать папку для всех файлов и раскладывать их по подпапкам «Исполнитель / Год - Альбом» по тегам исходника, каждый уровень включается галочкой. В нижней панели видны формат файла, битрейт или разрядность, частота дискретизации, длительность и версия приложения.
+В настройках (⌘,) можно один раз выбрать папку для всех файлов и раскладывать их по подпапкам «Исполнитель / Год - Альбом» по тегам исходника, каждый уровень включается галочкой.
+
+![Настройки](docs/screenshots/prefs-dark.png)
+
+В нижней панели видны формат файла, битрейт или разрядность, частота дискретизации, длительность и версия приложения.
 
 Если детектор не уверен в результате, над волной появляется оранжевая подсказка. Кнопки ×2 и ÷2 исправляют удвоенный или половинный темп, Tap задаёт темп постукиванием.
 
