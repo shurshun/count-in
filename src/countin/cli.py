@@ -7,9 +7,24 @@ from .core import analyze as an
 from .core import io, render as rd
 
 
+class _CheckUpdate(argparse.Action):
+    """--check-update: asks GitHub like the app does and exits; CI uses it to test TLS in the bundle."""
+
+    def __init__(self, **kw):
+        super().__init__(nargs=0, **kw)
+
+    def __call__(self, parser, namespace, values, option_string=None):
+        try:
+            r = update.check()
+        except Exception as e:
+            parser.exit(1, f"update check failed: {e}\n")
+        parser.exit(0, f"update available: v{r.version} {r.url}\n" if r else f"up to date: v{update.current_version()}\n")
+
+
 def build_parser() -> argparse.ArgumentParser:
     p = argparse.ArgumentParser(prog="countin", description="Insert a drum-stick count-in before the first downbeat.")
     p.add_argument("--version", action="version", version=update.current_version())
+    p.add_argument("--check-update", action=_CheckUpdate, help="check GitHub for a newer release and exit")
     p.add_argument("songs", nargs="+", type=Path, help="mp3, FLAC, ALAC or WAV files; several only with --dry-run")
     p.add_argument("--out", type=Path, help="output file; its extension picks the format (.mp3, .flac, .m4a, .wav)")
     p.add_argument("--format", choices=sorted(io.FORMATS),

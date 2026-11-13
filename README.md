@@ -62,7 +62,7 @@ The count-in and analysis take seconds. Separating guitar and vocals takes longe
 
 ### Updates
 
-On start, the app checks GitHub for a newer version in the background. If there is one, an "Обновить до …" button appears in the bottom bar. Справка → Проверить обновления checks again.
+On start, the app checks GitHub for a newer version in the background. If there is one, a round blue download badge appears next to the version in the bottom right corner. Справка → Проверить обновления checks again.
 
 ---
 
@@ -187,7 +187,7 @@ Count-In находит темп и первую сильную долю пес�
 
 #### Обновления
 
-При запуске приложение в фоне проверяет, нет ли новой версии на GitHub. Если есть, в нижней панели появляется кнопка «Обновить до …». Справка → Проверить обновления проверяет ещё раз.
+При запуске приложение в фоне проверяет, нет ли новой версии на GitHub. Если есть, справа внизу рядом с версией появляется круглый голубой значок загрузки. Справка → Проверить обновления проверяет ещё раз.
 
 ---
 
