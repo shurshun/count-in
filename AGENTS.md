@@ -73,7 +73,7 @@ Count-In inserts a drum count-in before a song's first downbeat and can turn gui
 ## CI and releases
 
 - Pull requests that touch code build both platforms, run the fast tests, then run the bundled CLI on 20 s of synthetic clicks with separation and mp3 export. A broken bundle fails here, before packaging. Docs-only PRs and pushes to `main` build nothing.
-- Speed: uv and macOS ffmpeg are cached; archives are stored uncompressed because weights and torch barely shrink.
+- Speed: uv and macOS ffmpeg are cached; archives use zip level 1, which halves the libraries while the weights barely shrink. Higher levels save about 5% for four times the packing time.
 - Release: bump `version` in `pyproject.toml`, tag `v<version>`. CI attaches `Count-In-windows-x64.zip` and `Count-In-macos-arm64.zip` to the release. `update.asset_suffix()` matches those names.
 - Builds are unsigned. The specs have `codesign_identity` and `entitlements_file` placeholders for notarization.
 
