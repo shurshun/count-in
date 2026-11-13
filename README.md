@@ -37,7 +37,7 @@ The builds are unsigned, so the system warns on first launch.
 3. Pick the pattern, length and meter. Blue marks on the waveform show where the clicks will sound.
 4. For a backing track, lower the "Гитара" (guitar) and "Вокал" (vocals) sliders.
 5. Press "Прослушать" (preview) or Space to hear the count-in and 10 seconds of the song. The guitar and vocal sliders change the sound while it plays.
-6. Press "Сохранить" (save) or ⌘S. By default the file goes next to the original.
+6. Press "Сохранить" (save) or ⌘S. By default the file goes next to the original, and Finder or Explorer opens with it selected; turn that off in Settings.
 
 In Settings (⌘,) you can pick one output folder and have files sorted into Artist / Year - Album subfolders from the source tags; each level is a checkbox.
 
@@ -162,7 +162,7 @@ Count-In находит темп и первую сильную долю пес�
 3. Выберите рисунок, длину и размер отсчёта. Синие отметки на волне показывают, где прозвучат клики.
 4. Для бэктрека опустите ползунки «Гитара» и «Вокал».
 5. Нажмите «Прослушать» или пробел: прозвучит отсчёт и 10 секунд песни. Во время прослушивания ползунки гитары и вокала меняют звук сразу.
-6. Нажмите «Сохранить» или ⌘S. По умолчанию файл ложится рядом с исходником.
+6. Нажмите «Сохранить» или ⌘S. По умолчанию файл ложится рядом с исходником, а Finder или Проводник открывается с ним; это отключается в настройках.
 
 В настройках (⌘,) можно один раз выбрать папку для всех файлов и раскладывать их по подпапкам «Исполнитель / Год - Альбом» по тегам исходника, каждый уровень включается галочкой.
 

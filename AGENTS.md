@@ -60,7 +60,7 @@ Count-In inserts a drum count-in before a song's first downbeat and can turn gui
 - **One track.** `Window.open_files` takes the first audio file it is given and replaces the current track; a stale analysis gets cancelled and its result ignored.
 - **Files from Finder.** `App.event` handles `QFileOpenEvent` for files dropped on the Dock icon.
 - **Space.** An application event filter plays or stops on Space unless the key goes to a text field or spin box, or a modal dialog is open.
-- **Preferences.** `PrefsDialog` saves to `QSettings` at once: `output/dir` (empty means next to the source), `output/group` and the `output/artist|year|album` levels, `appearance/icon`, `appearance/language`. `io.organized_dir` builds the folder from source tags; `io.safe_name` keeps names valid on Windows.
+- **Preferences.** `PrefsDialog` saves to `QSettings` at once: `output/dir` (empty means next to the source), `output/group` and the `output/artist|year|album` levels, `output/reveal` (open the folder after saving, on by default), `appearance/icon`, `appearance/language`. `io.organized_dir` builds the folder from source tags; `io.safe_name` keeps names valid on Windows.
 - **Status bar.** File format from `io.describe`, save status, the version (`v0.4.0`) and, when a newer release exists, a round blue download badge next to it.
 - **Update check TLS.** `update.check` trusts the OS certificate store through `truststore`. The bundled Python's OpenSSL looks for certificates in a python.org-only folder, so without truststore HTTPS fails on most machines. CI runs `countin --check-update` from the bundle to catch that.
 - **Theme.** `style_sheet()` fills colour tokens in `STYLE` for light or dark appearance.

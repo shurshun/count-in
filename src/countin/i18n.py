@@ -114,6 +114,7 @@ EN = {
     "Пример: …/{path}": "Example: …/{path}",
     "Файл ляжет рядом с исходником: {name}": "The file goes next to the original: {name}",
     "Песня": "Song",
+    "Открывать папку после сохранения": "Open the folder after saving",
     # Folder names and file description (core.io)
     "Неизвестный исполнитель": "Unknown Artist",
     "Без альбома": "Unknown Album",
