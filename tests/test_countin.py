@@ -336,7 +336,7 @@ def test_every_ui_string_has_an_english_version():
     root = Path(__file__).resolve().parents[1] / "src" / "countin"
     missing = []
     for f in (root / "gui.py", root / "core" / "io.py"):
-        for node in ast.walk(ast.parse(f.read_text())):
+        for node in ast.walk(ast.parse(f.read_text(encoding="utf-8"))):
             if (isinstance(node, ast.Call) and getattr(node.func, "id", None) == "_" and node.args
                     and isinstance(node.args[0], ast.Constant) and node.args[0].value not in i18n.EN):
                 missing.append(f"{f.name}:{node.lineno} {node.args[0].value!r}")
