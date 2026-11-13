@@ -15,6 +15,10 @@ for extra in ("samples", "bin"):
     if (root / extra).exists():
         datas.append((str(root / extra), extra))
 
+# Window and Dock icons the app switches at run time; the ICO/ICNS below are the fixed, light build icons.
+icons = root / "assets" / "icons"
+datas += [(str(icons / v / "png"), f"assets/icons/{v}/png") for v in ("light", "dark")]
+
 # Package metadata carries the version the update check compares against.
 datas += copy_metadata("countin")
 
@@ -30,11 +34,13 @@ def scripts_for(main: str):
 
 
 # Signing: set codesign_identity and entitlements_file for notarized builds.
-app_exe = EXE(pyz, scripts_for("countin_app"), [], exclude_binaries=True, name="Count-In", console=False)
+app_exe = EXE(pyz, scripts_for("countin_app"), [], exclude_binaries=True, name="Count-In", console=False,
+              icon=str(icons / "light" / "windows" / "Count-In.ico") if sys.platform == "win32" else None)
 cli_exe = EXE(pyz, scripts_for("countin_cli"), [], exclude_binaries=True, name="countin", console=True)
 coll = COLLECT(app_exe, cli_exe, a.binaries, a.datas, name="Count-In")
 if sys.platform == "darwin":
     app = BUNDLE(coll, name="Count-In.app", bundle_identifier="local.countin",
+                 icon=str(icons / "light" / "macos" / "Count-In.icns"),
                  info_plist={"NSHighResolutionCapable": True, "CFBundleShortVersionString": version,
                              "CFBundleDocumentTypes": [{"CFBundleTypeName": "Audio", "CFBundleTypeRole": "Viewer",
                                                         "LSItemContentTypes": ["public.audio"]}]})

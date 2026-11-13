@@ -15,6 +15,7 @@ Count-In inserts a drum count-in before a song's first downbeat and can turn gui
 | `src/countin/update.py` | GitHub release check |
 | `src/countin/cli.py`, `verify.py` | CLI and the timing check tool |
 | `packaging/` | PyInstaller spec, ffmpeg build, model download |
+| `assets/icons/{light,dark}/` | app icons: ICO, ICNS, iconset, PNG 16–1024, raster master |
 | `.github/workflows/build.yml` | Windows and macOS builds, smoke test, releases |
 
 ## Pipeline
@@ -58,12 +59,13 @@ Count-In inserts a drum count-in before a song's first downbeat and can turn gui
 - **Progress.** Time left comes from the chunk rate since the stage began, excluding the first chunk that carries model loading.
 - **Files from Finder.** `App.event` handles `QFileOpenEvent` for files dropped on the Dock icon.
 - **Theme.** `style_sheet()` fills colour tokens in `STYLE` for light or dark appearance.
+- **App icon.** Настройки → Значок приложения offers light (default), dark and "follow the app theme". The choice lives in `QSettings` under `appearance/icon`; a missing or unknown value means light. `apply_icon()` sets the window and Dock icon at run time and reruns on `colorSchemeChanged`, which only matters in the follow-theme mode. Finder and Explorer always show the built-in light ICNS/ICO; switching those would need separate work.
 
 ## Packaging
 
 - `io.resource()` resolves `models/`, `samples/` and `bin/` against `sys._MEIPASS` in a bundle and the project root in development.
 - `countin/__init__.py` puts `bin/` first on `PATH` at import.
-- `packaging/countin.spec` builds one bundle with two executables sharing its libraries: `Count-In` (app) and `countin` (CLI). It bundles `models/final0.ckpt`, `models/separator/`, `samples/`, `bin/` and the `countin` package metadata (the update check reads the version from it).
+- `packaging/countin.spec` builds one bundle with two executables sharing its libraries: `Count-In` (app) and `countin` (CLI). It bundles `models/final0.ckpt`, `models/separator/`, `samples/`, `bin/`, the light and dark PNGs from `assets/icons/` and the `countin` package metadata (the update check reads the version from it).
 - `packaging/build_ffmpeg.sh` builds a static, audio-only LGPL ffmpeg on macOS. ffmpeg 7+ needs the `fd` protocol for `-` pipes. Windows CI downloads a BtbN LGPL build instead.
 - `packaging/fetch_models.sh` downloads the weights. CI caches `models/`.
 - The windowed Windows build has no stderr; `packaging/countin_app.py` points it at devnull before anything prints.
