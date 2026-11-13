@@ -57,9 +57,13 @@ Count-In inserts a drum count-in before a song's first downbeat and can turn gui
 - **Waveform.** `Wave` caches the waveform layer in a pixmap keyed by view and size. Repaints during playback only draw lines over it. A Python loop per repaint starved the audio callback and made preview crackle; keep the cache.
 - **Preview.** `preview_job` returns the song with clicks plus aligned guitar and vocal stems. `Player` mixes them in the PortAudio callback with the current slider gains (`latency="high"`, 2048-frame blocks). Excerpt stems are cached per track in `stem_cache` as `(first sample, stems)`; a save stores full-track stems there too.
 - **Progress.** Time left comes from the chunk rate since the stage began, excluding the first chunk that carries model loading.
+- **One track.** `Window.open_files` takes the first audio file it is given and replaces the current track; a stale analysis gets cancelled and its result ignored.
 - **Files from Finder.** `App.event` handles `QFileOpenEvent` for files dropped on the Dock icon.
+- **Space.** An application event filter plays or stops on Space unless the key goes to a text field or spin box, or a modal dialog is open.
+- **Preferences.** `PrefsDialog` saves to `QSettings` at once: `output/dir` (empty means next to the source), `output/group` and the `output/artist|year|album` levels, `appearance/icon`. `io.organized_dir` builds the folder from source tags; `io.safe_name` keeps names valid on Windows.
+- **Status bar.** File format from `io.describe`, save status, the update button and the version.
 - **Theme.** `style_sheet()` fills colour tokens in `STYLE` for light or dark appearance.
-- **App icon.** Настройки → Значок приложения offers light (default), dark and "follow the app theme". The choice lives in `QSettings` under `appearance/icon`; a missing or unknown value means light. `apply_icon()` sets the window and Dock icon at run time and reruns on `colorSchemeChanged`, which only matters in the follow-theme mode. Finder and Explorer always show the built-in light ICNS/ICO; switching those would need separate work.
+- **App icon.** The preferences dialog offers light (default), dark and "follow the app theme". The choice lives in `QSettings` under `appearance/icon`; a missing or unknown value means light. `apply_icon()` sets the window and Dock icon at run time and reruns on `colorSchemeChanged`, which only matters in the follow-theme mode. Finder and Explorer always show the built-in light ICNS/ICO; switching those would need separate work.
 
 ## Packaging
 

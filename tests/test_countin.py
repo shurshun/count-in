@@ -306,3 +306,21 @@ def test_icon_choice_defaults_to_light_and_follows_theme_only_in_system_mode(tmp
     assert [gui.icon_variant(c, light) for c in ("light", "dark", "system")] == ["light", "dark", "light"]
     for v in ("light", "dark"):
         assert resource("assets", "icons", v, "png", "Count-In-256.png").exists()
+
+
+def test_organized_dir_levels_and_unsafe_names():
+    tags = {"artist": "AC/DC", "album": "Back in Black", "date": "1980-07-25"}
+    root = Path("/out")
+    assert io.organized_dir(root, tags, True, True, True) == root / "AC_DC" / "1980 - Back in Black"
+    assert io.organized_dir(root, tags, True, False, True) == root / "AC_DC" / "Back in Black"
+    assert io.organized_dir(root, tags, False, True, False) == root / "1980"
+    assert io.organized_dir(root, {}, True, True, True) == root / "Неизвестный исполнитель" / "Без альбома"
+    assert io.output_path(Path("/m/Song.mp3"), "flac", {}, root / "x").as_posix() == "/out/x/Song_countin.flac"
+    assert io.safe_name('Live: "Best"?. ') == "Live_ _Best__"
+
+
+def test_describe_lossy_and_lossless():
+    mp3 = io.AudioInfo(sr=44100, channels=2, codec="mp3", bitrate=320000)
+    flac = io.AudioInfo(sr=96000, channels=2, codec="flac", bits=24, bitrate=2304000)
+    assert io.describe(mp3) == "MP3 · 320 kbps · 44.1 кГц · стерео"
+    assert io.describe(flac) == "FLAC · 24 бит · 96 кГц · стерео · сжатие до 50%"
