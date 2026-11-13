@@ -48,7 +48,15 @@ def report(path: Path, a: an.Analysis) -> None:
 
 
 def main(argv: list[str] | None = None) -> int:
-    args = build_parser().parse_args(argv)
+    parser = build_parser()
+    args = parser.parse_args(argv)
+    if args.out:
+        try:
+            io.format_of(args.out)
+        except ValueError as e:
+            parser.error(str(e))
+    if args.bpm is not None and args.bpm <= 0:
+        parser.error("--bpm must be positive")
     if len(args.songs) > 1 and not args.dry_run:
         sys.exit("several files need --dry-run")
 
@@ -95,7 +103,7 @@ def main(argv: list[str] | None = None) -> int:
         from .core import stems
 
         print("separating stems...")
-        pcm = stems.attenuate(pcm, stems.separate(pcm, info.sr), levels)
+        pcm = stems.attenuate(pcm, stems.separate(pcm, info.sr, only=tuple(levels)), levels)
     r = rd.render(pcm, info.sr, clicks, t0, args.pre_roll, args.volume)
     if r.clipped:
         print(f"warning: {r.clipped} samples clipped, lower --volume", file=sys.stderr)

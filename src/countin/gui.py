@@ -1,5 +1,7 @@
 """Count-In desktop app."""
 
+import logging
+import os
 import subprocess
 import sys
 import threading
@@ -8,7 +10,7 @@ from dataclasses import dataclass, field
 from pathlib import Path
 
 import numpy as np
-from PySide6.QtCore import QEvent, QObject, QSettings, QUrl, QPointF, QRectF, QRunnable, QSize, Qt, QThreadPool, QTimer, Signal
+from PySide6.QtCore import QEvent, QObject, QSettings, QStandardPaths, QUrl, QPointF, QRectF, QRunnable, QSize, Qt, QThreadPool, QTimer, Signal
 from PySide6.QtGui import QAction, QDesktopServices, QIcon, QKeySequence, QColor, QPainter, QPainterPath, QPen, QPixmap, QPolygonF
 from PySide6.QtWidgets import (
     QAbstractSpinBox, QApplication, QButtonGroup, QCheckBox, QComboBox, QDialog, QDoubleSpinBox, QFileDialog, QFrame,
@@ -21,6 +23,8 @@ from .core import analyze as an
 from .core import io
 from .core import render as rd
 from .core.io import resource
+
+log = logging.getLogger("countin")
 
 AUDIO_EXT = {".mp3", ".flac", ".m4a", ".wav", ".aif", ".aiff", ".ogg"}
 PREVIEW_AFTER = 10.0  # seconds of song after the downbeat
@@ -103,11 +107,12 @@ class Cancelled(Exception):
     pass
 
 
-@dataclass
+@dataclass(eq=False)
 class Track:
     path: Path
     analysis: an.Analysis | None = None
     bpm: float = 120.0
+    bpm_manual: bool = False  # set by the BPM field, ×2/÷2 or Tap; a meter change then keeps it
     t0: float = 0.0
     duration: float = 0.0
     error: str | None = None
@@ -158,7 +163,25 @@ def reveal(path: Path) -> None:
     if sys.platform == "darwin":
         subprocess.Popen(["open", "-R", str(path)])
     elif sys.platform == "win32":
-        subprocess.Popen(["explorer", "/select,", str(path)])
+        # Full path: a bare name would also be looked up in the current folder.
+        explorer = Path(os.environ.get("SystemRoot", r"C:\Windows")) / "explorer.exe"
+        subprocess.Popen([str(explorer), f"/select,{path}"])
+
+
+def clip_note(clipped: int) -> str:
+    return f"Клики перегружают звук в {clipped} сэмплах, убавьте громкость отсчёта" if clipped else ""
+
+
+def log_path() -> Path:
+    return Path(QStandardPaths.writableLocation(QStandardPaths.AppDataLocation)) / "count-in.log"
+
+
+def setup_log() -> None:
+    """Errors go to a log file next to the settings; a windowed Windows build has no console to show them."""
+    path = log_path()
+    path.parent.mkdir(parents=True, exist_ok=True)
+    logging.basicConfig(filename=path, level=logging.INFO, format="%(asctime)s %(levelname)s %(message)s")
+    sys.excepthook = lambda *exc: log.critical("unhandled error", exc_info=exc)
 
 
 # --- background work ---
@@ -170,6 +193,7 @@ class Job(QRunnable):
         progress = Signal(str, int, int)
         done = Signal(object)
         failed = Signal(str)
+        cancelled = Signal()
 
     def __init__(self, fn, *args):
         super().__init__()
@@ -186,28 +210,32 @@ class Job(QRunnable):
         try:
             self.signals.done.emit(self.fn(self, *self.args))
         except Cancelled:
-            self.signals.failed.emit("Отменено")
+            self.signals.cancelled.emit()
         except Exception as e:  # shown to the user, the app keeps running
+            log.exception("job %s failed", getattr(self.fn, "__name__", self.fn))
             self.signals.failed.emit(f"{type(e).__name__}: {e}")
 
 
 def analyze_job(job: Job, track: Track):
+    """Returns (track, pcm, sr); the UI keeps the PCM, so the file is decoded once and never on the UI thread."""
     job.report(f"Анализ: {track.path.name}")
+    pcm, sr = None, 0
     try:
         pcm, info = io.decode(track.path)
-        track.duration = len(pcm) / info.sr
-        track.analysis = an.analyze(pcm, info.sr)
+        sr = info.sr
+        track.duration = len(pcm) / sr
+        track.analysis = an.analyze(pcm, sr)
     except Exception as e:
+        log.exception("analysis of %s failed", track.path)
         track.error = str(e)
-    return track
+    return track, pcm, sr
 
 
 def _stems(job: Job, pcm, sr, label: str) -> dict[str, np.ndarray]:
     from .core import stems
 
     job.report(f"{label}: загрузка модели")
-    st = stems.separate(pcm, sr, lambda d, n: job.report(label, d, n))
-    return {k: st[k] for k in ("guitar", "vocals")}
+    return stems.separate(pcm, sr, lambda d, n: job.report(label, d, n), only=("guitar", "vocals"))
 
 
 def _covers(cached, i0: int, i1: int) -> bool:
@@ -246,30 +274,34 @@ def preview_job(job: Job, track: Track, s: Settings, pcm: np.ndarray, sr: int, c
         lo, hi = max(a, 0), min(a + len(v), len(base))
         z[lo:hi] = v[lo - a : hi - a]
         aligned[k] = z
-    return base, aligned, sr, o0 / sr - r.offset, new_cache
+    return track, base, aligned, sr, o0 / sr - r.offset, new_cache, r.clipped
+
+
+def target_path(song: Path, s: Settings, info: io.AudioInfo) -> Path:
+    """Where the saved file goes: the output folder from the preferences, optionally Artist/Year - Album."""
+    folder = s.out_root
+    if folder and s.group:
+        folder = io.organized_dir(folder, info.tags, *s.group)
+    return io.output_path(song, s.fmt or info.format, s.levels, folder)
 
 
 def save_job(job: Job, t: Track, s: Settings, cached):
-    """Writes the track. Returns (saved path, (0, stems) when separated, else None)."""
+    """Writes the track. Returns (track, saved path, (0, stems) when separated or None, clipped samples)."""
     from .core import stems
 
     job.report(f"{t.path.name}: чтение")
     pcm, info = io.decode(t.path)
     full = None
     if s.levels:
-        st = cached[1] if _covers(cached, 0, len(pcm)) and cached[0] == 0 else _stems(job, pcm, info.sr, f"{t.path.name}: разделение")
+        st = cached[1] if _covers(cached, 0, len(pcm)) else _stems(job, pcm, info.sr, f"{t.path.name}: разделение")
         full = (0, st)
         pcm = stems.attenuate(pcm, st, s.levels)
     job.report(f"{t.path.name}: запись")
     r = rd.render(pcm, info.sr, clicks_for(t, s), t.t0, s.pre_roll, s.volume_db, rd.load_samples(info.sr))
-    folder = s.out_root
-    if folder and s.group:
-        folder = io.organized_dir(folder, info.tags, *s.group)
-    if folder:
-        folder.mkdir(parents=True, exist_ok=True)
-    out = io.output_path(t.path, s.fmt or info.format, s.levels, folder)
+    out = target_path(t.path, s, info)
+    out.parent.mkdir(parents=True, exist_ok=True)
     io.encode(r.pcm, info, out, tags_from=t.path)
-    return out, full
+    return t, out, full, r.clipped
 
 
 def keep(slider_value: int) -> float:
@@ -313,7 +345,9 @@ class Player:
             self.done = True
 
     def position(self) -> float:
-        return self.pos / self.sr
+        """Seconds heard so far: samples handed to the device minus its output latency."""
+        lag = self.stream.latency if self.stream else 0.0
+        return max(0.0, self.pos / self.sr - lag)
 
     def stop(self):
         if self.stream:
@@ -405,7 +439,7 @@ class Wave(QWidget):
             ts = self.v0 + np.arange(w + 1) / w * (self.v1 - self.v0)
             env = np.r_[self.env, 0.0]
             idx = np.clip((ts * 1000).astype(int), 0, len(env) - 1)
-            peaks = np.maximum.reduceat(env, idx[:-1])
+            peaks = np.maximum.reduceat(env, idx)[:-1]
             peaks[(ts[:-1] < 0) | (ts[:-1] > self.duration)] = 0
             mid = h / 2
             top = [QPointF(x, mid - a * mid * 0.92) for x, a in enumerate(peaks)]
@@ -668,11 +702,9 @@ class PrefsDialog(QDialog):
 
 # --- window ---
 
-class UpdateSignals(QObject):
-    found = Signal(object)
-
-
 class Window(QMainWindow):
+    updateFound = Signal(object)
+
     def __init__(self):
         super().__init__()
         self.setWindowTitle("Count-In")
@@ -696,8 +728,7 @@ class Window(QMainWindow):
         self.last_saved: Path | None = None
         self.release = None
 
-        self.updates = UpdateSignals()
-        self.updates.found.connect(self._update_found)
+        self.updateFound.connect(self._update_found)
         self._build_menu()
         self._build_body()
         self._build_status()
@@ -915,7 +946,14 @@ class Window(QMainWindow):
     def check_updates(self, manual: bool = False):
         """Asks GitHub in a daemon thread; the answer comes back to the UI thread as a queued signal."""
         self._manual_check = manual
-        threading.Thread(target=lambda: self.updates.found.emit(update.check()), daemon=True).start()
+        threading.Thread(target=self._check_in_thread, daemon=True).start()
+
+    def _check_in_thread(self):
+        release = update.check()
+        try:
+            self.updateFound.emit(release)
+        except RuntimeError:  # the window closed while GitHub was answering
+            pass
 
     def _update_found(self, release):
         if release:
@@ -983,7 +1021,8 @@ class Window(QMainWindow):
         self.subtitle.setText(who + (f" ({year})" if year and who else year))
         self.file_l.setText(f"{io.describe(i)} · {fmt_time(i.duration)[:-4]}")
 
-    def _analyzed(self, t: Track):
+    def _analyzed(self, result):
+        t, pcm, sr = result
         if t is not self.current:
             return
         if t.error:
@@ -994,12 +1033,7 @@ class Window(QMainWindow):
             return
         t.bpm = 60.0 / an.beat_period(t.analysis, rd.METERS[self.meter_seg.value()][0])[0]
         t.t0 = t.analysis.first_downbeat
-        QApplication.setOverrideCursor(Qt.WaitCursor)
-        try:
-            self.pcm, info = io.decode(t.path)
-            self.sr = info.sr
-        finally:
-            QApplication.restoreOverrideCursor()
+        self.pcm, self.sr = pcm, sr
         a = t.analysis
         self.wave.set_audio(self.pcm, self.sr)
         self.wave.beats, self.wave.downs = list(a.beats), list(a.downbeats)
@@ -1028,12 +1062,13 @@ class Window(QMainWindow):
 
     def _bpm_edited(self, v: float):
         if self.current:
-            self.current.bpm = v
+            self.current.bpm, self.current.bpm_manual = v, True
             self._refresh()
 
     def _scale_bpm(self, k: float):
         if self.current:
             self.current.bpm = float(np.clip(self.current.bpm * k, 30, 320))
+            self.current.bpm_manual = True
             self._show_track_values()
 
     def _tap(self):
@@ -1042,14 +1077,17 @@ class Window(QMainWindow):
             self.taps = []
         self.taps = (self.taps + [now])[-8:]
         if len(self.taps) >= 3 and self.current:
-            self.current.bpm = 60.0 / float(np.median(np.diff(self.taps)))
+            self.current.bpm = float(np.clip(60.0 / float(np.median(np.diff(self.taps))), 30, 320))
+            self.current.bpm_manual = True
             self._show_track_values()
 
     def _meter_changed(self, meter: str):
         t = self.current
-        if t and t.analysis:
+        if t and t.analysis and not t.bpm_manual:
             t.bpm = 60.0 / an.beat_period(t.analysis, rd.METERS[meter][0])[0]
             self._show_track_values()
+        else:
+            self._refresh()
 
     def _t0_edited(self, v: float):
         if self.current:
@@ -1112,7 +1150,7 @@ class Window(QMainWindow):
             return
         try:
             self.wave.clicks = clicks_for(t, self.settings())
-        except ValueError as e:
+        except Exception as e:  # unreadable or empty MIDI pattern
             self.wave.clicks = []
             self.status.setText(str(e))
         self.wave.t0 = t.t0
@@ -1138,6 +1176,7 @@ class Window(QMainWindow):
         self.job.signals.progress.connect(self._progress)
         self.job.signals.done.connect(on_done)
         self.job.signals.failed.connect(self._failed)
+        self.job.signals.cancelled.connect(self._cancelled)
         self.progress.setRange(0, 0)
         self._stage = None
         self.job_pool.start(self.job)
@@ -1168,8 +1207,11 @@ class Window(QMainWindow):
     def _failed(self, msg: str):
         self._finish()
         self.status.setText(msg)
-        if msg != "Отменено":
-            QMessageBox.warning(self, "Count-In", msg)
+        QMessageBox.warning(self, "Count-In", msg)
+
+    def _cancelled(self):
+        self._finish()
+        self.status.setText("Отменено")
 
     def _cancel(self):
         if self.job:
@@ -1188,13 +1230,20 @@ class Window(QMainWindow):
 
     def _preview_ready(self, result):
         self._finish()
-        base, stems, sr, start, new_cache = result
+        track, base, stems, sr, start, new_cache, clipped = result
+        if track is not self.current:
+            return
         if new_cache:
             self.stem_cache = new_cache
-        self.status.setText("Гитару и вокал можно менять на ходу" if stems
-                            else "Чтобы менять гитару и вокал на ходу, опустите ползунок до прослушивания")
+        self.status.setText(clip_note(clipped) or ("Гитару и вокал можно менять на ходу" if stems
+                            else "Чтобы менять гитару и вокал на ходу, опустите ползунок до прослушивания"))
         self._gains()
-        self.player.play(base, stems, sr)
+        try:
+            self.player.play(base, stems, sr)
+        except Exception as e:  # no output device, unsupported channel count
+            log.exception("audio output failed")
+            self.status.setText(f"Не удалось воспроизвести: {e}")
+            return
         self.play_start = start
         self.play_b.setText("■  Стоп")
         self.play_timer.start()
@@ -1222,15 +1271,22 @@ class Window(QMainWindow):
         if not self.save_b.isEnabled():
             return
         self._stop()
-        self._run(save_job, self.current, self.settings(), self.stem_cache, on_done=self._saved)
+        s = self.settings()
+        out = target_path(self.current.path, s, self.info or io.probe(self.current.path))
+        if out.exists() and QMessageBox.question(
+                self, "Count-In", f"Файл {out.name} уже есть. Заменить?") != QMessageBox.Yes:
+            return
+        self._run(save_job, self.current, s, self.stem_cache, on_done=self._saved)
 
     def _saved(self, result):
-        out, full = result
+        track, out, full, clipped = result
         self._finish()
+        if track is not self.current:
+            return
         if full:
             self.stem_cache = full
         self.last_saved = out
-        self.status.setText(f"Сохранено: {out.name}")
+        self.status.setText(" · ".join(x for x in (f"Сохранено: {out.name}", clip_note(clipped)) if x))
         self.reveal_b.show()
         self._enable()
 
@@ -1241,6 +1297,10 @@ class Window(QMainWindow):
     def closeEvent(self, e):
         self._stop()
         self._cancel()
+        if self.analysis_job:
+            self.analysis_job.cancelled.set()
+        self.analysis_pool.clear()
+        self.job_pool.clear()
         super().closeEvent(e)
 
 
@@ -1258,7 +1318,9 @@ class App(QApplication):
 
 def style_sheet(app: QApplication) -> str:
     """STYLE with colors for the system light or dark appearance."""
-    dark = app.palette().window().color().lightness() < 128
+    scheme = app.styleHints().colorScheme()
+    dark = (scheme == Qt.ColorScheme.Dark if scheme != Qt.ColorScheme.Unknown
+            else app.palette().window().color().lightness() < 128)
     colors = ({"@WINDOW@": "#1e1e20", "@SIDEBAR@": "#262628", "@CARD@": "#2c2c2e", "@BORDER@": "#3a3a3c",
                "@FIELD@": "#a1a1a6"} if dark else
               {"@WINDOW@": "#f5f5f7", "@SIDEBAR@": "#ececee", "@CARD@": "#ffffff", "@BORDER@": "#d8d8dc",
@@ -1275,8 +1337,10 @@ def main() -> int:
     app.setApplicationName("Count-In")
     apply_icon(app)
 
-    # "Как тема приложения" follows the system appearance; the other choices ignore it.
-    app.styleHints().colorSchemeChanged.connect(lambda _: apply_icon(app))
+    setup_log()
+
+    # The window restyles with the system appearance; the icon follows it only in the "Как тема приложения" mode.
+    app.styleHints().colorSchemeChanged.connect(lambda _: (apply_icon(app), app.setStyleSheet(style_sheet(app))))
     font = app.font()
     font.setPointSizeF(font.pointSizeF() + 1.5)
     app.setFont(font)
@@ -1284,7 +1348,12 @@ def main() -> int:
     w = app.window = Window()
     w.open_files([Path(a) for a in sys.argv[1:]])
     w.show()
-    w.check_updates()
+
+    # CI smoke test: start, show the window, quit; a missing bundled icon fails it.
+    if os.environ.get("COUNTIN_SMOKE"):
+        QTimer.singleShot(2000, lambda: app.exit(1 if app.windowIcon().isNull() else 0))
+    else:
+        w.check_updates()
     return app.exec()
 
 

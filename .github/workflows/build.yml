@@ -22,12 +22,19 @@ jobs:
             cli: dist/Count-In.app/Contents/MacOS/countin
     runs-on: ${{ matrix.os }}
     permissions:
-      contents: write
+      contents: read
     defaults:
       run:
         shell: bash
     steps:
       - uses: actions/checkout@v7
+
+      # A tag must match the version the update check compares against.
+      - name: tag matches pyproject version
+        if: startsWith(github.ref, 'refs/tags/v')
+        run: |
+          v=$(sed -n 's/^version = "\(.*\)"/\1/p' pyproject.toml)
+          [ "v$v" = "$GITHUB_REF_NAME" ] || { echo "tag $GITHUB_REF_NAME, pyproject $v" >&2; exit 1; }
       - uses: astral-sh/setup-uv@v10.3.3  # setup-uv publishes exact version tags only
         with:
           enable-cache: true
@@ -36,7 +43,9 @@ jobs:
       - name: ffmpeg (Windows)
         if: runner.os == 'Windows'
         run: |
-          curl -fsSL -o ff.zip https://github.com/BtbN/FFmpeg-Builds/releases/download/latest/ffmpeg-n8.1-latest-win64-lgpl-8.1.zip
+          # Dated build pinned by hash. BtbN prunes old autobuilds; on a 404 move to a newer one and update both lines.
+          curl -fsSL -o ff.zip https://github.com/BtbN/FFmpeg-Builds/releases/download/autobuild-2026-11-13-12-43/ffmpeg-n8.1.3-35-gf1acb0a266-win64-lgpl-8.1.zip
+          echo "ea5e260eb3d669aff29e7bfc100e0ed9ea633e37f02fee358f6d164cb946e421  ff.zip" | sha256sum -c -
           7z x -y ff.zip > /dev/null
           mkdir -p bin
           cp ffmpeg-*/bin/ffmpeg.exe ffmpeg-*/bin/ffprobe.exe bin/
@@ -59,7 +68,7 @@ jobs:
       - uses: actions/cache@v6
         with:
           path: models
-          key: models-final0-bsroformer-sw
+          key: models-${{ hashFiles('packaging/fetch_models.sh') }}
       - run: packaging/fetch_models.sh
 
       - run: uv run pyinstaller packaging/countin.spec --noconfirm --distpath dist --workpath build/work
@@ -71,6 +80,14 @@ jobs:
           ${{ matrix.cli }} --version
           ${{ matrix.cli }} smoke.wav --guitar-db=-12 --format mp3 --out smoke_out.mp3
           test -s smoke_out.mp3
+
+      # The app itself: starts offscreen with the bundled Qt plugins, icons and PortAudio, then quits.
+      - name: smoke test (app)
+        env:
+          QT_QPA_PLATFORM: offscreen
+          COUNTIN_SMOKE: "1"
+        run: |
+          if [ "$RUNNER_OS" = Windows ]; then dist/Count-In/Count-In; else dist/Count-In.app/Contents/MacOS/Count-In; fi
 
       # Level 1: torch and Qt libraries halve, weights barely shrink. Higher levels save ~5% for 4x the time.
       - name: pack
@@ -86,7 +103,19 @@ jobs:
         with:
           path: ${{ matrix.name }}.zip
           archive: false
-      - if: startsWith(github.ref, 'refs/tags/v')
-        uses: softprops/action-gh-release@v3
+
+  release:
+    if: startsWith(github.ref, 'refs/tags/v')
+    needs: build
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/download-artifact@v8
         with:
-          files: ${{ matrix.name }}.zip
+          merge-multiple: true
+          skip-decompress: true
+      - uses: softprops/action-gh-release@v3
+        with:
+          files: "*.zip"
+          fail_on_unmatched_files: true

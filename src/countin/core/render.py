@@ -81,27 +81,13 @@ def pattern_grid(midi_path: str | Path, first_downbeat: float, period: float, me
             for b, v in hits]
 
 
-def _synth(freq: float, sr: int) -> np.ndarray:
-    """Stick-like hit: onset at sample 0, noise plus a decaying tone."""
-    t = np.arange(int(0.08 * sr)) / sr
-    rng = np.random.default_rng(int(freq))
-    body = np.sin(2 * np.pi * freq * t) * np.exp(-t / 0.012)
-    noise = rng.standard_normal(len(t)) * np.exp(-t / 0.004)
-    x = 0.6 * body + 0.4 * noise
-    return (0.8 * x / np.abs(x).max()).astype(np.float32)
-
-
 def load_samples(sr: int, folder: Path | None = None) -> tuple[np.ndarray, np.ndarray]:
-    """(hi, lo) mono samples at `sr`, each starting at its attack. Missing files get synthesized in memory."""
+    """(hi, lo) mono samples at `sr`, each starting at its attack."""
     folder = folder or resource("samples")
     out = []
-    for name, freq in (("stick_hi.wav", 2600.0), ("stick_lo.wav", 1700.0)):
-        p = folder / name
-        if p.exists():
-            x, file_sr = sf.read(p, dtype="float32", always_2d=True)
-            x = x.mean(axis=1)
-        else:
-            x, file_sr = _synth(freq, 44100), 44100
+    for name in ("stick_hi.wav", "stick_lo.wav"):
+        x, file_sr = sf.read(folder / name, dtype="float32", always_2d=True)
+        x = x.mean(axis=1)
         if file_sr != sr:
             x = soxr.resample(x, file_sr, sr).astype(np.float32)
 

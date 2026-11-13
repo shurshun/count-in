@@ -68,17 +68,19 @@ Count-In inserts a drum count-in before a song's first downbeat and can turn gui
 ## Packaging
 
 - `io.resource()` resolves `models/`, `samples/` and `bin/` against `sys._MEIPASS` in a bundle and the project root in development.
-- `countin/__init__.py` puts `bin/` first on `PATH` at import.
+- `io.tool()` finds ffmpeg/ffprobe in `bin/` by full path; nothing relies on `PATH`.
 - `packaging/countin.spec` builds one bundle with two executables sharing its libraries: `Count-In` (app) and `countin` (CLI). It bundles `models/final0.ckpt`, `models/separator/`, `samples/`, `bin/`, the light and dark PNGs from `assets/icons/` and the `countin` package metadata (the update check reads the version from it).
 - `packaging/build_ffmpeg.sh` builds a static, audio-only LGPL ffmpeg on macOS. ffmpeg 7+ needs the `fd` protocol for `-` pipes. Windows CI downloads a BtbN LGPL build instead.
-- `packaging/fetch_models.sh` downloads the weights. CI caches `models/`.
+- `packaging/fetch_models.sh` downloads the weights and checks their sha256; `build_ffmpeg.sh` checks the ffmpeg tarball. Windows CI pins a dated BtbN build by hash; BtbN prunes old autobuilds, so a 404 there means moving the URL and hash to a newer one. CI caches `models/` keyed by the fetch script.
 - The windowed Windows build has no stderr; `packaging/countin_app.py` points it at devnull before anything prints.
 
 ## CI and releases
 
 - Pull requests that touch code build both platforms, run the fast tests, then run the bundled CLI on 20 s of synthetic clicks with separation and mp3 export. A broken bundle fails here, before packaging. Docs-only PRs and pushes to `main` build nothing.
 - Speed: uv and macOS ffmpeg are cached; archives use zip level 1, which halves the libraries while the weights barely shrink. Higher levels save about 5% for four times the packing time.
-- Release: bump `version` in `pyproject.toml`, tag `v<version>`. CI attaches `Count-In-windows-x64.zip` and `Count-In-macos-arm64.zip` to the release. `update.asset_suffix()` matches those names.
+- The app smoke test starts the bundled app offscreen with `COUNTIN_SMOKE=1`; it quits after two seconds and fails when the bundled icon is missing.
+- Release: bump `version` in `pyproject.toml`, tag `v<version>`. Builds check that the tag matches the version. A separate `release` job runs only after both builds pass and is the only job with write access; it attaches `Count-In-windows-x64.zip` and `Count-In-macos-arm64.zip`. `update.asset_suffix()` matches those names.
+- Errors: the app logs to `count-in.log` in its data folder (`~/Library/Application Support/Count-In/Count-In` on macOS, `%APPDATA%\Count-In\Count-In` on Windows). Job failures, analysis errors and unhandled exceptions land there.
 - Builds are unsigned. The specs have `codesign_identity` and `entitlements_file` placeholders for notarization.
 
 ## Working on it

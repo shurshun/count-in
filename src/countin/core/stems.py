@@ -49,8 +49,11 @@ def _chunk_starts(n: int, chunk: int, step: int) -> list[int]:
     return starts + [max(n - chunk, 0)]
 
 
-def separate(pcm: np.ndarray, sr: int, progress=None) -> dict[str, np.ndarray]:
-    """All stems, sample-aligned with pcm and of its shape. progress(done, total) gets called per chunk."""
+def separate(pcm: np.ndarray, sr: int, progress=None, only: tuple[str, ...] | None = None) -> dict[str, np.ndarray]:
+    """Stems (all, or the ones named in only), sample-aligned with pcm and of its shape.
+
+    progress(done, total) gets called per chunk.
+    """
     import torch
 
     if pcm.shape[1] > 2:
@@ -63,7 +66,8 @@ def separate(pcm: np.ndarray, sr: int, progress=None) -> dict[str, np.ndarray]:
     mix = torch.from_numpy(np.ascontiguousarray(x.T, dtype=np.float32))
     n = mix.shape[1]
     window = torch.from_numpy(np.hamming(chunk).astype(np.float32))
-    out = torch.zeros(len(names), 2, n)
+    keep = [i for i, name in enumerate(names) if only is None or name in only]
+    out = torch.zeros(len(keep), 2, n)
     weight = torch.zeros(n)
     starts = _chunk_starts(n, chunk, chunk // OVERLAP)
 
@@ -79,14 +83,14 @@ def separate(pcm: np.ndarray, sr: int, progress=None) -> dict[str, np.ndarray]:
                 model.to(device)
                 y = model(part)[0]
             w = window[: y.shape[-1]]
-            out[..., s : s + y.shape[-1]] += y * w
+            out[..., s : s + y.shape[-1]] += y[keep] * w
             weight[s : s + y.shape[-1]] += w
             if progress:
                 progress(i + 1, len(starts))
     out /= weight.clamp(min=1e-10)
 
     stems = {}
-    for name, y in zip(names, out.numpy()):
+    for name, y in zip([names[i] for i in keep], out.numpy()):
         y = y.T
         if sr != MODEL_SR:
             y = soxr.resample(y, MODEL_SR, sr)

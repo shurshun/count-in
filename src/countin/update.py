@@ -1,7 +1,6 @@
 """Checks GitHub releases for a newer version of the app."""
 
 import json
-import platform
 import re
 import sys
 import urllib.request
@@ -25,33 +24,32 @@ def current_version() -> str:
         return "0"
 
 
-def parse(v: str) -> tuple[int, ...]:
-    """'v1.2.3' -> (1, 2, 3); anything after the numeric part (rc, dev) is ignored."""
-    parts = []
-    for p in v.lstrip("vV").split("."):
-        digits = re.match(r"\d*", p).group()
-        if not digits:
-            break
-        parts.append(int(digits))
-        if digits != p:
-            break
-    return tuple(parts)
+def parse(v: str) -> tuple[tuple[int, ...], int]:
+    """'v1.2.3' -> ((1, 2, 3), 1). A suffix (rc1, dev) sorts before the final release; trailing zeros do not count."""
+    m = re.match(r"[vV]?(\d+(?:\.\d+)*)(.*)", v.strip())
+    if not m:
+        return (), 0
+    nums = [int(x) for x in m.group(1).split(".")]
+    while nums and nums[-1] == 0:
+        nums.pop()
+    return tuple(nums), 0 if m.group(2) else 1
 
 
 def asset_suffix() -> str:
-    if sys.platform == "win32":
-        return "windows-x64.zip"
-    return f"macos-{'arm64' if platform.machine() == 'arm64' else 'x64'}.zip"
+    return "windows-x64.zip" if sys.platform == "win32" else "macos-arm64.zip"
 
 
 def newer_release(data: dict, current: str) -> Release | None:
     """The latest release from the GitHub API response when it is newer than current."""
     tag = data.get("tag_name", "")
-    if data.get("draft") or data.get("prerelease") or parse(tag) <= parse(current):
+    if parse(tag) <= parse(current):
         return None
-    url = next((a["browser_download_url"] for a in data.get("assets", []) if a["name"].endswith(asset_suffix())),
-               data.get("html_url", f"https://github.com/{REPO}/releases/latest"))
-    return Release(tag.lstrip("vV"), url)
+    page = f"https://github.com/{REPO}/releases/latest"
+    url = next((a.get("browser_download_url", "") for a in data.get("assets", [])
+                if a.get("name", "").endswith(asset_suffix())), page)
+
+    # The browser opens only links into this repository.
+    return Release(tag.lstrip("vV"), url if url.startswith(f"https://github.com/{REPO}/") else page)
 
 
 def check() -> Release | None:
