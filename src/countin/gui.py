@@ -594,6 +594,7 @@ def row(grid: QGridLayout, label: str, *widgets) -> None:
 # --- preferences ---
 
 OUT_DIR, OUT_GROUP = "output/dir", "output/group"
+OUT_REVEAL = "output/reveal"
 OUT_LEVELS = {"output/artist": "Исполнитель", "output/year": "Год", "output/album": "Альбом"}
 
 
@@ -642,6 +643,9 @@ class PrefsDialog(QDialog):
         g.addLayout(levels, 3, 0, 1, 3)
         self.example = QLabel(objectName="field", wordWrap=True)
         g.addWidget(self.example, 4, 0, 1, 3)
+        self.open_after = QCheckBox(_("Открывать папку после сохранения"), checked=pref_bool(OUT_REVEAL, True))
+        self.open_after.toggled.connect(lambda on: self._save(OUT_REVEAL, on))
+        g.addWidget(self.open_after, 5, 0, 1, 3)
 
         look, g2 = card(_("Внешний вид"))
         self.icon = QComboBox()
@@ -1316,6 +1320,8 @@ class Window(QMainWindow):
         self.status.setText(" · ".join(x for x in (_("Сохранено: {name}", name=out.name), clip_note(clipped)) if x))
         self.reveal_b.show()
         self._enable()
+        if pref_bool(OUT_REVEAL, True):
+            reveal(out)
 
     def _reveal(self):
         if self.last_saved:
