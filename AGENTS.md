@@ -85,7 +85,7 @@ Count-In inserts a drum count-in before a song's first downbeat and can turn gui
 
 ## Working on it
 
-- **Screenshots follow the UI.** Any change to the interface or a new visible feature ships with fresh screenshots in the same PR: `uv run python packaging/screenshots.py <any track with a clear beat>`. It rewrites `docs/screenshots/` (main window in both themes, preferences, progress, the 1280x640 social preview) from a copy of the track with neutral tags, so no real artist or title gets committed. After a merge, upload `social-preview.png` by hand: Settings → General → Social preview, since GitHub has no API for it. If a new screen matters, add it to the script and to both README sections.
+- **Screenshots follow the UI.** Any change to the interface or a new visible feature ships with fresh screenshots in the same PR: `uv run python docs/screenshots.py <any track with a clear beat>`. The script lives in `docs/`, so a screenshot-only PR does not trigger a build. It rewrites `docs/screenshots/` (main window in both themes, preferences, progress, the 1280x640 social preview) from a copy of the track with neutral tags, so no real artist or title gets committed. After a merge, upload `social-preview.png` by hand: Settings → General → Social preview, since GitHub has no API for it. If a new screen matters, add it to the script and to both README sections.
 
 - Python tooling is uv: `uv sync`, `uv run pytest -m 'not slow'`, `uv run countin-gui`.
 - Commits need a DCO sign-off (`git commit -s`). Work on a branch and open a PR.

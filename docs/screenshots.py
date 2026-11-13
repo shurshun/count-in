@@ -1,6 +1,6 @@
 """Regenerates docs/screenshots from the running app.
 
-    uv run python packaging/screenshots.py SONG [SONG2]
+    uv run python docs/screenshots.py SONG
 
 SONG is any track with a clear beat. A copy with neutral tags ("Demo Artist", "Demo Album") goes on screen,
 so no real names end up in the repository. Settings live in a temporary folder; the user's are untouched.
@@ -17,7 +17,7 @@ from PySide6.QtGui import QColor, QFont, QImage, QLinearGradient, QPainter
 from countin import gui
 from countin.core import io
 
-OUT = Path(__file__).resolve().parents[1] / "docs" / "screenshots"
+OUT = Path(__file__).resolve().parent / "screenshots"
 
 
 def neutral_copy(src: Path, dst: Path) -> Path:
