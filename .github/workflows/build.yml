@@ -15,7 +15,7 @@ jobs:
         include:
           - os: windows-latest
             name: Count-In-windows-x64
-          - os: macos-14
+          - os: macos-latest
             name: Count-In-macos-arm64
     runs-on: ${{ matrix.os }}
     permissions:
