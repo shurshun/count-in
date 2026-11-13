@@ -68,6 +68,7 @@ uv run countin-gui [files...]
 - Guitar and vocal sliders turn those stems down; both come from one separation pass.
 - Space or "Прослушать" plays the count-in plus 10 s of the song. With a stem slider down at start, that excerpt gets separated once; then both sliders change the mix live.
 - Long jobs show stage, percent and time left, and can be cancelled between chunks.
+- On start the app asks GitHub for the latest release in a background thread (10 s timeout). A newer version shows a banner with a download link for this platform.
 - "Сохранить" and "Сохранить все" write next to each source: `<name>_countin.<ext>`, or `<name>_backing_guitar-off_vocals-6dB.<ext>` for a backing track.
 
 ## Build
@@ -79,7 +80,7 @@ uv run pyinstaller packaging/countin.spec --noconfirm --distpath build/dist --wo
 
 Models and samples go into the bundle. ffmpeg comes from `bin/` when present, else from PATH.
 `packaging/build_ffmpeg.sh` builds an LGPL ffmpeg/ffprobe (audio only, LAME static) into `bin/`.
-CI (`.github/workflows/build.yml`) builds a Windows x64 zip and a macOS arm64 .app on every push; tags `v*` publish them as a release. Builds are unsigned; the spec has `codesign_identity` and `entitlements_file` for notarized builds.
+CI (`.github/workflows/build.yml`) builds a Windows x64 zip and a macOS arm64 .app on every push; tags `v*` publish them as a release. To release: bump `version` in `pyproject.toml`, then tag `v<version>`; the update check compares against that version. Builds are unsigned; the spec has `codesign_identity` and `entitlements_file` for notarized builds.
 
 ## Tests
 
