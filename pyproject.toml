@@ -1,6 +1,6 @@
 [project]
 name = "countin"
-version = "0.1.0"
+version = "0.2.0"
 description = "Insert a drum-stick count-in before the first downbeat of a song"
 authors = [
     { name = "Andrei Korviakov", email = "4lifenet@gmail.com" }
