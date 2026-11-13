@@ -27,8 +27,8 @@ jobs:
       run:
         shell: bash
     steps:
-      - uses: actions/checkout@v4
-      - uses: astral-sh/setup-uv@v6
+      - uses: actions/checkout@v7
+      - uses: astral-sh/setup-uv@v10
         with:
           enable-cache: true
 
@@ -45,7 +45,7 @@ jobs:
       - name: ffmpeg cache (macOS)
         if: runner.os == 'macOS'
         id: ffmpeg-cache
-        uses: actions/cache@v4
+        uses: actions/cache@v6
         with:
           path: bin
           key: ffmpeg-macos-${{ hashFiles('packaging/build_ffmpeg.sh') }}
@@ -56,7 +56,7 @@ jobs:
       - run: uv sync --locked
       - run: uv run pytest -m 'not slow' -q
 
-      - uses: actions/cache@v4
+      - uses: actions/cache@v6
         with:
           path: models
           key: models-final0-bsroformer-sw
@@ -72,20 +72,21 @@ jobs:
           ${{ matrix.cli }} smoke.wav --guitar-db=-12 --format mp3 --out smoke_out.mp3
           test -s smoke_out.mp3
 
-      # Stored, not compressed: weights and torch libraries barely shrink.
+      # Level 1: torch and Qt libraries halve, weights barely shrink. Higher levels save ~5% for 4x the time.
       - name: pack
         run: |
           if [ "$RUNNER_OS" = Windows ]; then
-            (cd dist && 7z a -tzip -mx=0 "../${{ matrix.name }}.zip" Count-In > /dev/null)
+            (cd dist && 7z a -tzip -mx=1 "../${{ matrix.name }}.zip" Count-In > /dev/null)
           else
-            ditto -c -k --zlibCompressionLevel 0 --keepParent dist/Count-In.app "${{ matrix.name }}.zip"
+            ditto -c -k --zlibCompressionLevel 1 --keepParent dist/Count-In.app "${{ matrix.name }}.zip"
           fi
-      - uses: actions/upload-artifact@v4
+
+      # Uploaded as-is, so the artifact is the release zip itself rather than a zip inside a zip.
+      - uses: actions/upload-artifact@v7
         with:
-          name: ${{ matrix.name }}
           path: ${{ matrix.name }}.zip
-          compression-level: 0
+          archive: false
       - if: startsWith(github.ref, 'refs/tags/v')
-        uses: softprops/action-gh-release@v2
+        uses: softprops/action-gh-release@v3
         with:
           files: ${{ matrix.name }}.zip
