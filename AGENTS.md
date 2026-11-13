@@ -61,7 +61,7 @@ Count-In inserts a drum count-in before a song's first downbeat and can turn gui
 - **Files from Finder.** `App.event` handles `QFileOpenEvent` for files dropped on the Dock icon.
 - **Space.** An application event filter plays or stops on Space unless the key goes to a text field or spin box, or a modal dialog is open.
 - **Preferences.** `PrefsDialog` saves to `QSettings` at once: `output/dir` (empty means next to the source), `output/group` and the `output/artist|year|album` levels, `output/reveal` (open the folder after saving, on by default), `appearance/icon`, `appearance/language`. `io.organized_dir` builds the folder from source tags; `io.safe_name` keeps names valid on Windows.
-- **Status bar.** File format from `io.describe`, save status, the version (`v0.4.0`) and, when a newer release exists, a round blue download badge next to it.
+- **Status bar.** File format from `io.describe`, save status, the version (`v0.5.0`) and, when a newer release exists, a round blue download badge left of it.
 - **Update check TLS.** `update.check` trusts the OS certificate store through `truststore`. The bundled Python's OpenSSL looks for certificates in a python.org-only folder, so without truststore HTTPS fails on most machines. CI runs `countin --check-update` from the bundle to catch that.
 - **Theme.** `style_sheet()` fills colour tokens in `STYLE` for light or dark appearance.
 - **App icon.** The preferences offer a light (default) or dark icon, saved under `appearance/icon`; anything else means light. `apply_icon()` sets the window and Dock icon at run time. Finder and Explorer always show the built-in light ICNS/ICO.

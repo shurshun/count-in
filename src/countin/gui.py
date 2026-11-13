@@ -935,15 +935,23 @@ class Window(QMainWindow):
         self.reveal_b.setFocusPolicy(Qt.NoFocus)
         self.version_l = QLabel(f"v{update.current_version()}")
 
-        # Round blue badge next to the version, shown only when a newer release exists.
+        # Round blue badge left of the version, shown only when a newer release exists.
         self.update_b = QPushButton("↓", objectName="update", clicked=self._download_update)
         self.update_b.setFocusPolicy(Qt.NoFocus)
         self.update_b.setCursor(Qt.PointingHandCursor)
         sb.addWidget(self.file_l)
         sb.addWidget(self.status, 1)
         sb.addPermanentWidget(self.reveal_b)
-        sb.addPermanentWidget(self.version_l)
-        sb.addPermanentWidget(self.update_b)
+
+        # Badge and version share one widget, so the status bar's item spacing stays out from between them.
+        ver = QWidget()
+        h = QHBoxLayout(ver)
+        h.setContentsMargins(0, 0, 8, 0)
+        h.setSpacing(0)
+        for x in (self.update_b, self.version_l):
+            x.setAttribute(Qt.WA_LayoutUsesWidgetRect)  # macOS style otherwise pads them unevenly
+            h.addWidget(x)
+        sb.addPermanentWidget(ver)
         self.reveal_b.hide()
         self._show_version()
 
