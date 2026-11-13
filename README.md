@@ -104,11 +104,10 @@ uv run pytest                  # including a neural network run
 ### Build and release
 
 ```bash
-uv run pyinstaller packaging/countin-app.spec --noconfirm --distpath build/dist --workpath build/work  # app
-uv run pyinstaller packaging/countin.spec --noconfirm --distpath build/dist --workpath build/work      # CLI
+uv run pyinstaller packaging/countin.spec --noconfirm --distpath build/dist --workpath build/work  # app and CLI in one bundle
 ```
 
-CI (`.github/workflows/build.yml`) builds Windows x64 and macOS arm64 on every push and runs the frozen CLI end to end. To release, bump `version` in `pyproject.toml` and tag `v<version>`. CI publishes both archives to Releases, and the in-app update check compares against that version.
+CI (`.github/workflows/build.yml`) builds Windows x64 and macOS arm64 for every pull request that touches code and runs the bundled CLI end to end; docs-only changes skip it. To release, bump `version` in `pyproject.toml` and tag `v<version>`. CI publishes both archives to Releases, and the in-app update check compares against that version.
 
 ## Third-party components
 
@@ -223,11 +222,10 @@ uv run pytest                  # вместе с прогоном нейросе
 #### Сборка и релиз
 
 ```bash
-uv run pyinstaller packaging/countin-app.spec --noconfirm --distpath build/dist --workpath build/work  # приложение
-uv run pyinstaller packaging/countin.spec --noconfirm --distpath build/dist --workpath build/work      # CLI
+uv run pyinstaller packaging/countin.spec --noconfirm --distpath build/dist --workpath build/work  # приложение и CLI в одном бандле
 ```
 
-CI (`.github/workflows/build.yml`) на каждый push собирает Windows x64 и macOS arm64 и прогоняет собранный CLI от начала до конца. Чтобы выпустить релиз, поднимите `version` в `pyproject.toml` и поставьте тег `v<версия>`. CI опубликует оба архива в Releases, а проверка обновлений в приложении сравнивает именно эту версию.
+CI (`.github/workflows/build.yml`) собирает Windows x64 и macOS arm64 для каждого PR с изменениями кода и прогоняет CLI из бандла от начала до конца; PR только с документацией сборку не запускают. Чтобы выпустить релиз, поднимите `version` в `pyproject.toml` и поставьте тег `v<версия>`. CI опубликует оба архива в Releases, а проверка обновлений в приложении сравнивает именно эту версию.
 
 ### Сторонние компоненты
 

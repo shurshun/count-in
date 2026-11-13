@@ -1,10 +1,11 @@
 name: build
 
+# PRs check every code change; tags publish a release. Docs-only changes skip the build.
 on:
   push:
-    branches: [main]
     tags: ["v*"]
   pull_request:
+    paths-ignore: ["**.md", "docs/**"]
   workflow_dispatch:
 
 jobs:
@@ -15,8 +16,10 @@ jobs:
         include:
           - os: windows-latest
             name: Count-In-windows-x64
+            cli: dist/Count-In/countin
           - os: macos-latest
             name: Count-In-macos-arm64
+            cli: dist/Count-In.app/Contents/MacOS/countin
     runs-on: ${{ matrix.os }}
     permissions:
       contents: write
@@ -26,6 +29,8 @@ jobs:
     steps:
       - uses: actions/checkout@v4
       - uses: astral-sh/setup-uv@v6
+        with:
+          enable-cache: true
 
       # LGPL builds only: libmp3lame is LGPL, nothing GPL goes into the bundle.
       - name: ffmpeg (Windows)
@@ -37,8 +42,15 @@ jobs:
           cp ffmpeg-*/bin/ffmpeg.exe ffmpeg-*/bin/ffprobe.exe bin/
           cp ffmpeg-*/LICENSE.txt bin/FFMPEG-LICENSE.txt
           bin/ffmpeg.exe -hide_banner -encoders | grep -q libmp3lame
-      - name: ffmpeg (macOS)
+      - name: ffmpeg cache (macOS)
         if: runner.os == 'macOS'
+        id: ffmpeg-cache
+        uses: actions/cache@v4
+        with:
+          path: bin
+          key: ffmpeg-macos-${{ hashFiles('packaging/build_ffmpeg.sh') }}
+      - name: ffmpeg (macOS)
+        if: runner.os == 'macOS' && steps.ffmpeg-cache.outputs.cache-hit != 'true'
         run: brew install lame mpg123 && packaging/build_ffmpeg.sh
 
       - run: uv sync --locked
@@ -50,22 +62,23 @@ jobs:
           key: models-final0-bsroformer-sw
       - run: packaging/fetch_models.sh
 
-      - run: uv run pyinstaller packaging/countin-app.spec --noconfirm --distpath dist --workpath build/work
+      - run: uv run pyinstaller packaging/countin.spec --noconfirm --distpath dist --workpath build/work
 
-      # Smoke test of the frozen code: 20 s of clicks at 120 BPM through detection, separation and mp3 export.
+      # Smoke test of the shipped bundle: 20 s of clicks at 120 BPM through detection, separation and mp3 export.
       - name: smoke test
         run: |
-          uv run pyinstaller packaging/countin.spec --noconfirm --distpath smoke --workpath build/smoke
           uv run python -c "import numpy as np, soundfile as sf; sr=44100; x=np.zeros((20*sr,2),np.float32); [x.__setitem__(slice(int(t*sr),int(t*sr)+400), 0.8) for t in np.arange(1,20,0.5)]; sf.write('smoke.wav', x, sr)"
-          smoke/countin/countin --version
-          smoke/countin/countin smoke.wav --guitar-db=-12 --format mp3 --out smoke_out.mp3
+          ${{ matrix.cli }} --version
+          ${{ matrix.cli }} smoke.wav --guitar-db=-12 --format mp3 --out smoke_out.mp3
           test -s smoke_out.mp3
+
+      # Stored, not compressed: weights and torch libraries barely shrink.
       - name: pack
         run: |
           if [ "$RUNNER_OS" = Windows ]; then
-            (cd dist && 7z a -tzip -mx=5 "../${{ matrix.name }}.zip" Count-In > /dev/null)
+            (cd dist && 7z a -tzip -mx=0 "../${{ matrix.name }}.zip" Count-In > /dev/null)
           else
-            ditto -c -k --keepParent dist/Count-In.app "${{ matrix.name }}.zip"
+            ditto -c -k --zlibCompressionLevel 0 --keepParent dist/Count-In.app "${{ matrix.name }}.zip"
           fi
       - uses: actions/upload-artifact@v4
         with:
