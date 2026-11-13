@@ -8,8 +8,8 @@ from dataclasses import dataclass, field
 from pathlib import Path
 
 import numpy as np
-from PySide6.QtCore import QEvent, QObject, QUrl, QPointF, QRectF, QRunnable, QSize, Qt, QThreadPool, QTimer, Signal
-from PySide6.QtGui import QDesktopServices, QKeySequence, QShortcut, QColor, QFont, QPainter, QPainterPath, QPen, QPixmap, QPolygonF
+from PySide6.QtCore import QEvent, QObject, QSettings, QUrl, QPointF, QRectF, QRunnable, QSize, Qt, QThreadPool, QTimer, Signal
+from PySide6.QtGui import QAction, QActionGroup, QDesktopServices, QIcon, QKeySequence, QShortcut, QColor, QFont, QPainter, QPainterPath, QPen, QPixmap, QPolygonF
 from PySide6.QtWidgets import (
     QApplication, QButtonGroup, QCheckBox, QComboBox, QDoubleSpinBox, QFileDialog, QFrame, QGridLayout,
     QHBoxLayout, QLabel, QListWidget, QListWidgetItem, QMainWindow, QMessageBox, QProgressBar, QPushButton,
@@ -20,6 +20,7 @@ from . import update
 from .core import analyze as an
 from .core import io
 from .core import render as rd
+from .core.io import resource
 
 AUDIO_EXT = {".mp3", ".flac", ".m4a", ".wav", ".aif", ".aiff", ".ogg"}
 PREVIEW_AFTER = 10.0  # seconds of song after the downbeat
@@ -61,6 +62,43 @@ QSlider::handle:horizontal { width: 16px; height: 16px; margin: -6px 0; border-r
                              background: white; border: 1px solid rgba(0,0,0,0.25); }
 QStatusBar { color: @FIELD@; }
 """
+
+
+# App icon variants. The built ICO/ICNS stay light; this only changes the window and Dock icon while running.
+ICON_CHOICES = {"light": "Светлая", "dark": "Тёмная", "system": "Как тема приложения"}
+ICON_KEY = "appearance/icon"
+ICON_SIZES = (16, 20, 24, 32, 40, 48, 64, 96, 128, 256, 512, 1024)
+
+
+def icon_choice() -> str:
+    """Saved icon choice; a missing or unknown value means light."""
+    v = QSettings().value(ICON_KEY, "light")
+    return v if v in ICON_CHOICES else "light"
+
+
+def icon_variant(choice: str, scheme: Qt.ColorScheme) -> str:
+    if choice == "system":
+        return "dark" if scheme == Qt.ColorScheme.Dark else "light"
+    return choice
+
+
+def app_icon(variant: str) -> QIcon:
+    icon = QIcon()
+    for size in ICON_SIZES:
+        path = resource("assets", "icons", variant, "png", f"Count-In-{size}.png")
+        if path.exists():
+            icon.addFile(str(path), QSize(size, size))
+    return icon
+
+
+def apply_icon(app: QApplication) -> str:
+    """Sets the app and window icon from the saved choice and the current color scheme. Returns the variant."""
+    variant = icon_variant(icon_choice(), app.styleHints().colorScheme())
+    icon = app_icon(variant)
+    app.setWindowIcon(icon)
+    for w in app.topLevelWidgets():
+        w.setWindowIcon(icon)
+    return variant
 
 
 class Cancelled(Exception):
@@ -578,6 +616,7 @@ class Window(QMainWindow):
         self.updates = UpdateSignals()
         self.updates.found.connect(self._update_found)
         self._build_toolbar()
+        self._build_menu()
         self._build_body()
         QShortcut(QKeySequence(Qt.Key_Space), self, activated=self._play)
         self._build_status()
@@ -585,6 +624,20 @@ class Window(QMainWindow):
         self._enable()
 
     # --- layout ---
+
+    def _build_menu(self):
+        menu = self.menuBar().addMenu("Настройки").addMenu("Значок приложения")
+        group = QActionGroup(self)
+        current = icon_choice()
+        for key, title in ICON_CHOICES.items():
+            act = QAction(title, self, checkable=True, checked=key == current)
+            act.triggered.connect(lambda _=False, k=key: self._set_icon(k))
+            group.addAction(act)
+            menu.addAction(act)
+
+    def _set_icon(self, choice: str):
+        QSettings().setValue(ICON_KEY, choice)
+        apply_icon(QApplication.instance())
 
     def _build_toolbar(self):
         tb = QToolBar(movable=False, floatable=False)
@@ -1127,7 +1180,12 @@ def style_sheet(app: QApplication) -> str:
 
 def main() -> int:
     app = App(sys.argv)
+    app.setOrganizationName("Count-In")
     app.setApplicationName("Count-In")
+    apply_icon(app)
+
+    # "Как тема приложения" follows the system appearance; the other choices ignore it.
+    app.styleHints().colorSchemeChanged.connect(lambda _: apply_icon(app))
     font = app.font()
     font.setPointSizeF(font.pointSizeF() + 1.5)
     app.setFont(font)

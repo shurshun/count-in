@@ -284,3 +284,25 @@ def test_update_check_offers_only_newer_releases():
     assert update.newer_release(rel, "0.10.0") is None
     assert update.newer_release({**rel, "prerelease": True}, "0.1.0") is None
     assert update.parse("v1.2.3rc1") == (1, 2, 3)
+
+
+def test_icon_choice_defaults_to_light_and_follows_theme_only_in_system_mode(tmp_path):
+    from PySide6.QtCore import QCoreApplication, QSettings, Qt
+
+    from countin import gui
+    from countin.core.io import resource
+
+    QCoreApplication.setOrganizationName("CountInTest")
+    QCoreApplication.setApplicationName("CountInTest")
+    QSettings.setDefaultFormat(QSettings.IniFormat)
+    QSettings.setPath(QSettings.IniFormat, QSettings.UserScope, str(tmp_path))
+
+    assert gui.icon_choice() == "light"
+    QSettings().setValue(gui.ICON_KEY, "neon")
+    assert gui.icon_choice() == "light"
+
+    dark, light = Qt.ColorScheme.Dark, Qt.ColorScheme.Light
+    assert [gui.icon_variant(c, dark) for c in ("light", "dark", "system")] == ["light", "dark", "dark"]
+    assert [gui.icon_variant(c, light) for c in ("light", "dark", "system")] == ["light", "dark", "light"]
+    for v in ("light", "dark"):
+        assert resource("assets", "icons", v, "png", "Count-In-256.png").exists()
