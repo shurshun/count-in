@@ -76,7 +76,7 @@ Count-In inserts a drum count-in before a song's first downbeat and can turn gui
 
 ## CI and releases
 
-- Pull requests that touch code build both platforms, run the fast tests, then run the bundled CLI on 20 s of synthetic clicks with separation and mp3 export. A broken bundle fails here, before packaging. Docs-only PRs and pushes to `main` build nothing.
+- Pull requests that touch code build both platforms, run the fast tests, then run the bundled CLI on 20 s of synthetic clicks with separation and mp3 export. A broken bundle fails here, before packaging. Docs-only PRs, PRs that only change `version = "…"` lines (the release bump) and pushes to `main` build nothing; the `changes` job decides from the diff.
 - Speed: uv and macOS ffmpeg are cached; archives use zip level 1, which halves the libraries while the weights barely shrink. Higher levels save about 5% for four times the packing time.
 - The app smoke test starts the bundled app offscreen with `COUNTIN_SMOKE=1`; it quits after two seconds and fails when the bundled icon is missing.
 - Release: bump `version` in `pyproject.toml`, tag `v<version>`. Builds check that the tag matches the version. A separate `release` job runs only after both builds pass and is the only job with write access; it attaches `Count-In-windows-x64.zip` and `Count-In-macos-arm64.zip`. `update.asset_suffix()` matches those names.

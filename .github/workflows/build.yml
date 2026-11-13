@@ -9,7 +9,29 @@ on:
   workflow_dispatch:
 
 jobs:
+  # A PR that only bumps the version needs no new bundles: the tag build makes the release ones.
+  changes:
+    if: github.event_name == 'pull_request'
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+    outputs:
+      build: ${{ steps.diff.outputs.build }}
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          fetch-depth: 0
+      - id: diff
+        run: |
+          other=$(git diff -U0 "origin/$GITHUB_BASE_REF...HEAD" -- . ':!*.md' ':!docs/' \
+            | grep -E '^[-+]' | grep -vE '^(\+\+\+|---) ' | grep -vE '^[-+]version = "[^"]+"$' || true)
+          echo "build=$([ -n "$other" ] && echo true || echo false)" >> "$GITHUB_OUTPUT"
+
   build:
+    needs: changes
+
+    # Tags and manual runs skip the check and always build; a failed check builds too.
+    if: ${{ !cancelled() && (needs.changes.result != 'success' || needs.changes.outputs.build == 'true') }}
     strategy:
       fail-fast: false
       matrix:
