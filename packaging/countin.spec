@@ -41,6 +41,8 @@ coll = COLLECT(app_exe, cli_exe, a.binaries, a.datas, name="Count-In")
 if sys.platform == "darwin":
     app = BUNDLE(coll, name="Count-In.app", bundle_identifier="local.countin",
                  icon=str(icons / "light" / "macos" / "Count-In.icns"),
-                 info_plist={"NSHighResolutionCapable": True, "CFBundleShortVersionString": version,
+                 # The CLI is the last EXE, so PyInstaller would mark the bundle background-only.
+                 info_plist={"NSHighResolutionCapable": True, "LSBackgroundOnly": False,
+                             "CFBundleShortVersionString": version,
                              "CFBundleDocumentTypes": [{"CFBundleTypeName": "Audio", "CFBundleTypeRole": "Viewer",
                                                         "LSItemContentTypes": ["public.audio"]}]})

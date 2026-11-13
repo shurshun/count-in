@@ -275,16 +275,21 @@ def test_output_name_tells_the_backing_levels():
 def test_update_check_offers_only_newer_releases():
     from countin import update
 
-    rel = {"tag_name": "v0.2.0", "html_url": "https://x/page",
-           "assets": [{"name": "Count-In-windows-x64.zip", "browser_download_url": "https://x/win"},
-                      {"name": "Count-In-macos-arm64.zip", "browser_download_url": "https://x/mac"}]}
+    base = f"https://github.com/{update.REPO}/releases/download/v0.2.0/"
+    rel = {"tag_name": "v0.2.0",
+           "assets": [{"name": "Count-In-windows-x64.zip", "browser_download_url": base + "Count-In-windows-x64.zip"},
+                      {"name": "Count-In-macos-arm64.zip", "browser_download_url": base + "Count-In-macos-arm64.zip"}]}
     found = update.newer_release(rel, "0.1.0")
-    assert found.version == "0.2.0" and found.url in ("https://x/win", "https://x/mac", "https://x/page")
+    assert found.version == "0.2.0" and found.url == base + f"Count-In-{update.asset_suffix()}"
     assert update.newer_release(rel, "0.2.0") is None
     assert update.newer_release(rel, "0.10.0") is None
-    assert update.newer_release({**rel, "prerelease": True}, "0.1.0") is None
-    assert update.parse("v1.2.3rc1") == (1, 2, 3)
+    assert update.newer_release(rel, "0.2.0rc1").version == "0.2.0"
+    assert update.newer_release({"tag_name": "v1.2.0"}, "1.2") is None
 
+    # Links outside the repository fall back to its release page.
+    evil = {"tag_name": "v9.0.0", "assets": [{"name": f"x-{update.asset_suffix()}",
+                                             "browser_download_url": "https://evil.example/app.zip"}]}
+    assert update.newer_release(evil, "0.1.0").url == f"https://github.com/{update.REPO}/releases/latest"
 
 def test_icon_choice_defaults_to_light_and_follows_theme_only_in_system_mode(tmp_path):
     from PySide6.QtCore import QCoreApplication, QSettings, Qt

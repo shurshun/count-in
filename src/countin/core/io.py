@@ -35,7 +35,9 @@ def tool(name: str) -> str:
 
 
 def _run(args: list[str], stdin: bytes | None = None) -> bytes:
-    p = subprocess.run(args, input=stdin, capture_output=True, creationflags=_NO_WINDOW)
+    # Without piped input ffmpeg gets /dev/null, so it cannot eat a shell loop's stdin.
+    feed = {"input": stdin} if stdin is not None else {"stdin": subprocess.DEVNULL}
+    p = subprocess.run(args, capture_output=True, creationflags=_NO_WINDOW, **feed)
     if p.returncode != 0:
         raise RuntimeError(f"{Path(args[0]).name} failed: {p.stderr.decode(errors='replace')[-800:]}")
     return p.stdout
@@ -65,7 +67,7 @@ def probe(path: str | Path) -> AudioInfo:
     out = _run([tool("ffprobe"), "-v", "error", "-select_streams", "a:0",
                 "-show_entries", "stream=codec_name,sample_rate,channels,bits_per_raw_sample,sample_fmt,bit_rate"
                 ":format=bit_rate,duration:format_tags:stream_tags",
-                "-of", "json", str(path)])
+                "-of", "json", str(Path(path).absolute())])
     data = json.loads(out)
     s, f = data["streams"][0], data.get("format", {})
 
@@ -92,7 +94,7 @@ def decode(path: str | Path) -> tuple[np.ndarray, AudioInfo]:
     Clicks get placed on beats found in this same decoded stream, so the source's encoder delay never moves them.
     """
     info = probe(path)
-    raw = _run([tool("ffmpeg"), "-v", "error", "-i", str(path), "-map", "0:a:0",
+    raw = _run([tool("ffmpeg"), "-v", "error", "-i", str(Path(path).absolute()), "-map", "0:a:0",
                 "-f", "f32le", "-acodec", "pcm_f32le", "-ac", str(info.channels), "-"])
     pcm = np.frombuffer(raw, dtype="<f4").reshape(-1, info.channels).copy()
     return pcm, info

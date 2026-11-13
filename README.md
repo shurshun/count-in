@@ -26,7 +26,7 @@ Get the latest version from [Releases](https://github.com/shurshun/count-in/rele
 The builds are unsigned, so the system warns on first launch.
 
 - **Windows.** Unzip and run `Count-In.exe`. If SmartScreen appears, click "More info" → "Run anyway".
-- **macOS.** Unzip and drag `Count-In.app` to Applications. On first launch, right-click it → "Open".
+- **macOS.** Unzip and drag `Count-In.app` to Applications. The first launch gets blocked. Open System Settings → Privacy & Security, scroll down and click "Open Anyway" next to Count-In.
 
 ## How to use
 
@@ -146,7 +146,7 @@ Count-In находит темп и первую сильную долю пес�
 Сборки не подписаны, поэтому система при первом запуске предупредит.
 
 - **Windows.** Распакуйте архив и запустите `Count-In.exe`. Если появится SmartScreen, нажмите «Подробнее» → «Выполнить в любом случае».
-- **macOS.** Распакуйте архив и перетащите `Count-In.app` в «Программы». При первом запуске откройте его через правый клик → «Открыть».
+- **macOS.** Распакуйте архив и перетащите `Count-In.app` в «Программы». Первый запуск система заблокирует. Откройте «Системные настройки» → «Конфиденциальность и безопасность», прокрутите вниз и нажмите «Всё равно открыть» рядом с Count-In.
 
 ### Как пользоваться
 
