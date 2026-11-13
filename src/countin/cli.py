@@ -2,12 +2,14 @@ import argparse
 import sys
 from pathlib import Path
 
+from . import update
 from .core import analyze as an
 from .core import io, render as rd
 
 
 def build_parser() -> argparse.ArgumentParser:
     p = argparse.ArgumentParser(prog="countin", description="Insert a drum-stick count-in before the first downbeat.")
+    p.add_argument("--version", action="version", version=update.current_version())
     p.add_argument("songs", nargs="+", type=Path, help="mp3, FLAC, ALAC or WAV files; several only with --dry-run")
     p.add_argument("--out", type=Path, help="output file; its extension picks the format (.mp3, .flac, .m4a, .wav)")
     p.add_argument("--format", choices=sorted(io.FORMATS),

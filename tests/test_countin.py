@@ -270,3 +270,17 @@ def test_output_name_tells_the_backing_levels():
     assert io.output_path(song, "mp3", {}).name == "Song_countin.mp3"
     assert io.output_path(song, "flac", {"guitar": float("-inf"), "vocals": -6.0}).name == \
         "Song_backing_guitar-off_vocals-6dB.flac"
+
+
+def test_update_check_offers_only_newer_releases():
+    from countin import update
+
+    rel = {"tag_name": "v0.2.0", "html_url": "https://x/page",
+           "assets": [{"name": "Count-In-windows-x64.zip", "browser_download_url": "https://x/win"},
+                      {"name": "Count-In-macos-arm64.zip", "browser_download_url": "https://x/mac"}]}
+    found = update.newer_release(rel, "0.1.0")
+    assert found.version == "0.2.0" and found.url in ("https://x/win", "https://x/mac", "https://x/page")
+    assert update.newer_release(rel, "0.2.0") is None
+    assert update.newer_release(rel, "0.10.0") is None
+    assert update.newer_release({**rel, "prerelease": True}, "0.1.0") is None
+    assert update.parse("v1.2.3rc1") == (1, 2, 3)

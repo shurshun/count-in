@@ -9,6 +9,11 @@ if (root / "samples").exists():
 if (root / "bin").exists():
     datas.append((str(root / "bin"), "bin"))
 
+# Package metadata carries the version the update check compares against.
+from PyInstaller.utils.hooks import copy_metadata
+
+datas += copy_metadata("countin")
+
 a = Analysis([str(root / "packaging" / "countin_cli.py")], pathex=[str(root / "src")], datas=datas,
              excludes=["PySide6", "tkinter", "matplotlib", "IPython"])
 pyz = PYZ(a.pure)

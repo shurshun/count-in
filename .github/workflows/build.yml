@@ -15,7 +15,7 @@ jobs:
         include:
           - os: windows-latest
             name: Count-In-windows-x64
-          - os: macos-14
+          - os: macos-latest
             name: Count-In-macos-arm64
     runs-on: ${{ matrix.os }}
     permissions:
@@ -31,7 +31,7 @@ jobs:
       - name: ffmpeg (Windows)
         if: runner.os == 'Windows'
         run: |
-          curl -fsSL -o ff.zip https://github.com/BtbN/FFmpeg-Builds/releases/download/latest/ffmpeg-n7.1-latest-win64-lgpl-7.1.zip
+          curl -fsSL -o ff.zip https://github.com/BtbN/FFmpeg-Builds/releases/download/latest/ffmpeg-n8.1-latest-win64-lgpl-8.1.zip
           7z x -y ff.zip > /dev/null
           mkdir -p bin
           cp ffmpeg-*/bin/ffmpeg.exe ffmpeg-*/bin/ffprobe.exe bin/
@@ -51,6 +51,15 @@ jobs:
       - run: packaging/fetch_models.sh
 
       - run: uv run pyinstaller packaging/countin-app.spec --noconfirm --distpath dist --workpath build/work
+
+      # Smoke test of the frozen code: 20 s of clicks at 120 BPM through detection, separation and mp3 export.
+      - name: smoke test
+        run: |
+          uv run pyinstaller packaging/countin.spec --noconfirm --distpath smoke --workpath build/smoke
+          uv run python -c "import numpy as np, soundfile as sf; sr=44100; x=np.zeros((20*sr,2),np.float32); [x.__setitem__(slice(int(t*sr),int(t*sr)+400), 0.8) for t in np.arange(1,20,0.5)]; sf.write('smoke.wav', x, sr)"
+          smoke/countin/countin --version
+          smoke/countin/countin smoke.wav --guitar-db=-12 --format mp3 --out smoke_out.mp3
+          test -s smoke_out.mp3
       - name: pack
         run: |
           if [ "$RUNNER_OS" = Windows ]; then

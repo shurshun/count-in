@@ -8,14 +8,15 @@ from dataclasses import dataclass, field
 from pathlib import Path
 
 import numpy as np
-from PySide6.QtCore import QEvent, QObject, QPointF, QRectF, QRunnable, QSize, Qt, QThreadPool, QTimer, Signal
-from PySide6.QtGui import QKeySequence, QShortcut, QColor, QFont, QPainter, QPainterPath, QPen, QPixmap, QPolygonF
+from PySide6.QtCore import QEvent, QObject, QUrl, QPointF, QRectF, QRunnable, QSize, Qt, QThreadPool, QTimer, Signal
+from PySide6.QtGui import QDesktopServices, QKeySequence, QShortcut, QColor, QFont, QPainter, QPainterPath, QPen, QPixmap, QPolygonF
 from PySide6.QtWidgets import (
     QApplication, QButtonGroup, QCheckBox, QComboBox, QDoubleSpinBox, QFileDialog, QFrame, QGridLayout,
     QHBoxLayout, QLabel, QListWidget, QListWidgetItem, QMainWindow, QMessageBox, QProgressBar, QPushButton,
     QSizePolicy, QSlider, QStackedWidget, QStatusBar, QStyle, QStyledItemDelegate, QToolBar, QVBoxLayout, QWidget,
 )
 
+from . import update
 from .core import analyze as an
 from .core import io
 from .core import render as rd
@@ -546,10 +547,14 @@ def row(grid: QGridLayout, label: str, *widgets) -> None:
 
 # --- window ---
 
+class UpdateSignals(QObject):
+    found = Signal(object)
+
+
 class Window(QMainWindow):
     def __init__(self):
         super().__init__()
-        self.setWindowTitle("Count-In")
+        self.setWindowTitle(f"Count-In {update.current_version()}")
         self.setAcceptDrops(True)
         self.setUnifiedTitleAndToolBarOnMac(True)
         self.resize(1180, 780)
@@ -570,6 +575,8 @@ class Window(QMainWindow):
         self.play_timer = QTimer(self, interval=30, timeout=self._tick)
         self.last_saved: Path | None = None
 
+        self.updates = UpdateSignals()
+        self.updates.found.connect(self._update_found)
         self._build_toolbar()
         self._build_body()
         QShortcut(QKeySequence(Qt.Key_Space), self, activated=self._play)
@@ -623,10 +630,43 @@ class Window(QMainWindow):
         h.addWidget(side)
         right = QVBoxLayout()
         right.setContentsMargins(0, 0, 0, 0)
+        right.addWidget(self._update_banner())
         right.addWidget(self.stack, 1)
         right.addWidget(self._progress_panel())
         h.addLayout(right, 1)
         self.setCentralWidget(body)
+
+    def _update_banner(self) -> QWidget:
+        panel = QFrame(objectName="card")
+        h = QHBoxLayout(panel)
+        h.setContentsMargins(16, 8, 10, 8)
+        self.update_l = QLabel(objectName="cardTitle")
+        get = QPushButton("Скачать", objectName="primary", clicked=self._download_update)
+        later = QPushButton("Позже", objectName="tool", clicked=lambda: self.update_wrap.hide())
+        h.addWidget(self.update_l, 1)
+        h.addWidget(get)
+        h.addWidget(later)
+        wrap = QWidget(objectName="progWrap")
+        v = QVBoxLayout(wrap)
+        v.setContentsMargins(22, 12, 22, 0)
+        v.addWidget(panel)
+        wrap.hide()
+        self.update_wrap, self.release = wrap, None
+        return wrap
+
+    def check_updates(self):
+        """Asks GitHub in a daemon thread; the answer comes back to the UI thread as a queued signal."""
+        threading.Thread(target=lambda: self.updates.found.emit(update.check()), daemon=True).start()
+
+    def _update_found(self, release):
+        if release:
+            self.release = release
+            self.update_l.setText(f"Доступна версия {release.version} (у вас {update.current_version()})")
+            self.update_wrap.show()
+
+    def _download_update(self):
+        QDesktopServices.openUrl(QUrl(self.release.url))
+        self.update_wrap.hide()
 
     def _progress_panel(self) -> QWidget:
         panel = QFrame(objectName="card")
@@ -1095,6 +1135,7 @@ def main() -> int:
     w = app.window = Window()
     w.add_files([Path(a) for a in sys.argv[1:]])
     w.show()
+    w.check_updates()
     return app.exec()
 
 
