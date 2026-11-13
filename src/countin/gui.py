@@ -948,8 +948,9 @@ class Window(QMainWindow):
         h = QHBoxLayout(ver)
         h.setContentsMargins(0, 0, 8, 0)
         h.setSpacing(0)
-        h.addWidget(self.update_b)
-        h.addWidget(self.version_l)
+        for x in (self.update_b, self.version_l):
+            x.setAttribute(Qt.WA_LayoutUsesWidgetRect)  # macOS style otherwise pads them unevenly
+            h.addWidget(x)
         sb.addPermanentWidget(ver)
         self.reveal_b.hide()
         self._show_version()
