@@ -1,10 +1,11 @@
 """Audio I/O through ffmpeg. All paths go as argv lists, so spaces and Cyrillic are safe on every OS."""
 
 import json
+import re
 import shutil
 import subprocess
 import sys
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from pathlib import Path
 
 import numpy as np
@@ -46,6 +47,9 @@ class AudioInfo:
     channels: int
     codec: str = "mp3"
     bits: int = 0  # bit depth of a lossless source, 0 for lossy
+    bitrate: int = 0  # bits per second as stored, 0 when unknown
+    duration: float = 0.0
+    tags: dict[str, str] = field(default_factory=dict)  # lowercase keys: artist, album, date, ...
 
     @property
     def lossless(self) -> bool:
@@ -59,9 +63,14 @@ class AudioInfo:
 
 def probe(path: str | Path) -> AudioInfo:
     out = _run([tool("ffprobe"), "-v", "error", "-select_streams", "a:0",
-                "-show_entries", "stream=codec_name,sample_rate,channels,bits_per_raw_sample,sample_fmt",
+                "-show_entries", "stream=codec_name,sample_rate,channels,bits_per_raw_sample,sample_fmt,bit_rate"
+                ":format=bit_rate,duration:format_tags:stream_tags",
                 "-of", "json", str(path)])
-    s = json.loads(out)["streams"][0]
+    data = json.loads(out)
+    s, f = data["streams"][0], data.get("format", {})
+
+    # FLAC and Ogg keep tags on the stream, mp3 and m4a on the container; keys vary in case.
+    tags = {k.lower(): v for k, v in {**s.get("tags", {}), **f.get("tags", {})}.items()}
     codec = s["codec_name"]
     lossless = codec in ("flac", "alac") or codec.startswith("pcm_")
     bits = int(s.get("bits_per_raw_sample") or 0) or (32 if "flt" in s.get("sample_fmt", "") else 16)
@@ -71,6 +80,9 @@ def probe(path: str | Path) -> AudioInfo:
         channels=int(s["channels"]),
         codec=codec,
         bits=bits if lossless else 0,
+        bitrate=int(s.get("bit_rate") or f.get("bit_rate") or 0),
+        duration=float(f.get("duration") or 0),
+        tags=tags,
     )
 
 
@@ -127,8 +139,45 @@ def encode(pcm: np.ndarray, info: AudioInfo, out: str | Path, tags_from: str | P
     _run(args, stdin=pcm.tobytes())
 
 
-def output_path(song: Path, fmt: str, levels: dict[str, float]) -> Path:
-    """Next to the source: song_countin.ext, or song_backing_guitar-off_vocals-6dB.ext when stems got turned down."""
+def output_path(song: Path, fmt: str, levels: dict[str, float], folder: Path | None = None) -> Path:
+    """In folder (default: next to the source): song_countin.ext, or song_backing_guitar-off_vocals-6dB.ext when stems got turned down."""
     parts = [f"{name}-off" if db == float("-inf") else f"{name}{db:g}dB" for name, db in levels.items()]
     tag = "_".join(["backing", *parts]) if parts else "countin"
-    return song.with_name(f"{song.stem}_{tag}{FORMATS[fmt]}")
+    return (folder or song.parent) / f"{song.stem}_{tag}{FORMATS[fmt]}"
+
+
+def describe(info: AudioInfo) -> str:
+    """One line about the file: format, bitrate or bit depth, rate, channels, compression."""
+    name = {"mp3": "MP3", "flac": "FLAC", "alac": "ALAC", "aac": "AAC", "vorbis": "Ogg Vorbis", "opus": "Opus"}
+    parts = [name.get(info.codec, "WAV" if info.codec.startswith("pcm_") else info.codec.upper())]
+    if info.lossless:
+        parts.append(f"{info.bits} бит")
+    elif info.bitrate:
+        parts.append(f"{round(info.bitrate / 1000)} kbps")
+    parts.append(f"{info.sr / 1000:g} кГц")
+    parts.append({1: "моно", 2: "стерео"}.get(info.channels, f"{info.channels} кан."))
+    if info.lossless and info.bitrate and not info.codec.startswith("pcm_"):
+        parts.append(f"сжатие до {info.bitrate / (info.sr * info.bits * info.channels):.0%}")
+    return " · ".join(parts)
+
+
+_UNSAFE = re.compile(r'[<>:"/\\|?*\x00-\x1f]')
+
+
+def safe_name(text: str) -> str:
+    """A folder name valid on macOS and Windows."""
+    return _UNSAFE.sub("_", text).strip().rstrip(".")[:120] or "_"
+
+
+def organized_dir(root: Path, tags: dict[str, str], artist: bool, year: bool, album: bool) -> Path:
+    """root/Artist/Year - Album from the source tags; levels left out are skipped."""
+    d = root
+    if artist:
+        d /= safe_name(tags.get("album_artist") or tags.get("artist") or "Неизвестный исполнитель")
+    y = (tags.get("date") or tags.get("year") or "")[:4]
+    if album:
+        a = tags.get("album") or "Без альбома"
+        d /= safe_name(f"{y} - {a}" if year and y else a)
+    elif year:
+        d /= safe_name(y or "Без года")
+    return d

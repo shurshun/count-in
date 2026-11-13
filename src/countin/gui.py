@@ -9,11 +9,11 @@ from pathlib import Path
 
 import numpy as np
 from PySide6.QtCore import QEvent, QObject, QSettings, QUrl, QPointF, QRectF, QRunnable, QSize, Qt, QThreadPool, QTimer, Signal
-from PySide6.QtGui import QAction, QActionGroup, QDesktopServices, QIcon, QKeySequence, QShortcut, QColor, QFont, QPainter, QPainterPath, QPen, QPixmap, QPolygonF
+from PySide6.QtGui import QAction, QDesktopServices, QIcon, QKeySequence, QColor, QPainter, QPainterPath, QPen, QPixmap, QPolygonF
 from PySide6.QtWidgets import (
-    QApplication, QButtonGroup, QCheckBox, QComboBox, QDoubleSpinBox, QFileDialog, QFrame, QGridLayout,
-    QHBoxLayout, QLabel, QListWidget, QListWidgetItem, QMainWindow, QMessageBox, QProgressBar, QPushButton,
-    QSizePolicy, QSlider, QStackedWidget, QStatusBar, QStyle, QStyledItemDelegate, QToolBar, QVBoxLayout, QWidget,
+    QAbstractSpinBox, QApplication, QButtonGroup, QCheckBox, QComboBox, QDialog, QDoubleSpinBox, QFileDialog, QFrame,
+    QGridLayout, QHBoxLayout, QLabel, QLineEdit, QMainWindow, QMessageBox, QProgressBar, QPushButton, QRadioButton,
+    QSlider, QStackedWidget, QStatusBar, QVBoxLayout, QWidget,
 )
 
 from . import update
@@ -30,12 +30,10 @@ ORANGE = QColor(255, 159, 10)
 GREEN = QColor(48, 209, 88)
 
 STYLE = """
-#sidebar { background: @SIDEBAR@; border-right: 1px solid @BORDER@; }
-QMainWindow, QStackedWidget > QWidget, #progWrap { background: @WINDOW@; }
-#sidebarTitle { color: @FIELD@; font-size: 12px; font-weight: 600; padding: 10px 14px 4px 14px; }
-QListWidget#tracks { background: transparent; border: none; outline: 0; }
-QListWidget#tracks::item { border-radius: 7px; margin: 1px 8px; }
-QListWidget#tracks::item:selected { background: palette(highlight); }
+QMainWindow, QStackedWidget > QWidget, #progWrap, #header { background: @WINDOW@; }
+QStatusBar { background: @SIDEBAR@; border-top: 1px solid @BORDER@; }
+QStatusBar QLabel { padding: 0 8px; }
+QPushButton#update { color: #ff9f0a; border: 1px solid #ff9f0a; border-radius: 6px; padding: 2px 10px; background: transparent; }
 #title { font-size: 24px; font-weight: 600; }
 #subtitle { color: @FIELD@; }
 #warning { color: #ff9f0a; }
@@ -60,7 +58,7 @@ QSlider::groove:horizontal { height: 4px; background: rgba(127,127,127,0.3); bor
 QSlider::sub-page:horizontal { background: palette(highlight); border-radius: 2px; }
 QSlider::handle:horizontal { width: 16px; height: 16px; margin: -6px 0; border-radius: 8px;
                              background: white; border: 1px solid rgba(0,0,0,0.25); }
-QStatusBar { color: @FIELD@; }
+QStatusBar, QStatusBar QLabel { color: @FIELD@; }
 """
 
 
@@ -125,6 +123,8 @@ class Settings:
     levels: dict[str, float] = field(default_factory=dict)  # stem -> dB, only turned-down stems
     pre_roll: str = "keep"
     fmt: str | None = None  # None follows the source
+    out_root: Path | None = None  # None: next to the source
+    group: tuple[bool, bool, bool] | None = None  # (artist, year, album) folders under out_root
 
 
 def clicks_for(t: Track, s: Settings) -> list[rd.Click]:
@@ -249,26 +249,27 @@ def preview_job(job: Job, track: Track, s: Settings, pcm: np.ndarray, sr: int, c
     return base, aligned, sr, o0 / sr - r.offset, new_cache
 
 
-def save_job(job: Job, tracks: list[Track], s: Settings, cached: dict[Path, tuple]):
-    """Writes each track next to its source. Returns (saved paths, {path: (0, stems)} of the last separated track)."""
+def save_job(job: Job, t: Track, s: Settings, cached):
+    """Writes the track. Returns (saved path, (0, stems) when separated, else None)."""
     from .core import stems
 
-    saved, last = [], {}
-    for k, t in enumerate(tracks, 1):
-        name = f"{k}/{len(tracks)} {t.path.name}" if len(tracks) > 1 else t.path.name
-        job.report(f"{name}: чтение")
-        pcm, info = io.decode(t.path)
-        if s.levels:
-            c = cached.get(t.path)
-            st = c[1] if _covers(c, 0, len(pcm)) and c[0] == 0 else _stems(job, pcm, info.sr, f"{name}: разделение")
-            last = {t.path: (0, st)}
-            pcm = stems.attenuate(pcm, st, s.levels)
-        job.report(f"{name}: запись")
-        r = rd.render(pcm, info.sr, clicks_for(t, s), t.t0, s.pre_roll, s.volume_db, rd.load_samples(info.sr))
-        out = io.output_path(t.path, s.fmt or info.format, s.levels)
-        io.encode(r.pcm, info, out, tags_from=t.path)
-        saved.append(out)
-    return saved, last
+    job.report(f"{t.path.name}: чтение")
+    pcm, info = io.decode(t.path)
+    full = None
+    if s.levels:
+        st = cached[1] if _covers(cached, 0, len(pcm)) and cached[0] == 0 else _stems(job, pcm, info.sr, f"{t.path.name}: разделение")
+        full = (0, st)
+        pcm = stems.attenuate(pcm, st, s.levels)
+    job.report(f"{t.path.name}: запись")
+    r = rd.render(pcm, info.sr, clicks_for(t, s), t.t0, s.pre_roll, s.volume_db, rd.load_samples(info.sr))
+    folder = s.out_root
+    if folder and s.group:
+        folder = io.organized_dir(folder, info.tags, *s.group)
+    if folder:
+        folder.mkdir(parents=True, exist_ok=True)
+    out = io.output_path(t.path, s.fmt or info.format, s.levels, folder)
+    io.encode(r.pcm, info, out, tags_from=t.path)
+    return out, full
 
 
 def keep(slider_value: int) -> float:
@@ -350,34 +351,6 @@ class Segmented(QWidget):
 
     def set_value(self, v):
         self.group.button(self.values.index(v)).setChecked(True)
-
-
-class TrackDelegate(QStyledItemDelegate):
-    """Two-line sidebar row: file name and detection summary."""
-
-    def sizeHint(self, option, index):
-        return QSize(200, 50)
-
-    def paint(self, p, option, index):
-        self.initStyleOption(option, index)
-        selected = option.state & QStyle.State_Selected
-        option.text = ""
-        option.widget.style().drawControl(QStyle.CE_ItemViewItem, option, p, option.widget)
-        r = option.rect.adjusted(18, 5, -14, -5)
-        pal = option.palette
-        p.save()
-        f = QFont(option.font)
-        f.setWeight(QFont.DemiBold)
-        p.setFont(f)
-        p.setPen(pal.highlightedText().color() if selected else pal.text().color())
-        name = p.fontMetrics().elidedText(index.data(Qt.DisplayRole), Qt.ElideMiddle, r.width())
-        p.drawText(r, Qt.AlignTop | Qt.AlignLeft, name)
-        f.setWeight(QFont.Normal)
-        f.setPointSizeF(f.pointSizeF() * 0.88)
-        p.setFont(f)
-        p.setPen(pal.highlightedText().color() if selected else QColor(140, 140, 145))
-        p.drawText(r, Qt.AlignBottom | Qt.AlignLeft, index.data(Qt.UserRole) or "")
-        p.restore()
 
 
 class Wave(QWidget):
@@ -583,6 +556,116 @@ def row(grid: QGridLayout, label: str, *widgets) -> None:
     grid.addLayout(h, r, 1)
 
 
+# --- preferences ---
+
+OUT_DIR, OUT_GROUP = "output/dir", "output/group"
+OUT_LEVELS = {"output/artist": "Исполнитель", "output/year": "Год", "output/album": "Альбом"}
+
+
+def pref_bool(key: str, default: bool) -> bool:
+    return QSettings().value(key, default) in (True, "true", "1", 1)
+
+
+def output_prefs() -> tuple[Path | None, tuple[bool, bool, bool] | None]:
+    """(root folder or None for next to the source, (artist, year, album) grouping or None)."""
+    root = QSettings().value(OUT_DIR, "") or None
+    if not root:
+        return None, None
+    group = tuple(pref_bool(k, True) for k in OUT_LEVELS) if pref_bool(OUT_GROUP, False) else None
+    return Path(root), group
+
+
+class PrefsDialog(QDialog):
+    """Output folder and layout, app icon. Every change is saved at once."""
+
+    def __init__(self, parent):
+        super().__init__(parent)
+        self.setWindowTitle("Настройки")
+        self.setMinimumWidth(520)
+        st = QSettings()
+
+        out, g = card("Сохранение")
+        self.next_to = QRadioButton("Рядом с исходным файлом")
+        self.to_dir = QRadioButton("В папку")
+        self.dir_l = QLabel(objectName="field")
+        pick = QPushButton("Выбрать…", objectName="small", clicked=self._pick)
+        g.addWidget(self.next_to, 0, 0, 1, 3)
+        g.addWidget(self.to_dir, 1, 0)
+        g.addWidget(self.dir_l, 1, 1)
+        g.addWidget(pick, 1, 2)
+        self.group = QCheckBox("Раскладывать по папкам")
+        g.addWidget(self.group, 2, 0, 1, 3)
+        levels = QHBoxLayout()
+        levels.setContentsMargins(24, 0, 0, 0)
+        self.levels = {}
+        for key, title in OUT_LEVELS.items():
+            box = QCheckBox(title, checked=pref_bool(key, True))
+            box.toggled.connect(lambda on, k=key: self._save(k, on))
+            self.levels[key] = box
+            levels.addWidget(box)
+        levels.addStretch()
+        g.addLayout(levels, 3, 0, 1, 3)
+        self.example = QLabel(objectName="field", wordWrap=True)
+        g.addWidget(self.example, 4, 0, 1, 3)
+
+        look, g2 = card("Внешний вид")
+        self.icon = QComboBox()
+        for key, title in ICON_CHOICES.items():
+            self.icon.addItem(title, key)
+        self.icon.setCurrentIndex(list(ICON_CHOICES).index(icon_choice()))
+        self.icon.currentIndexChanged.connect(self._icon)
+        row(g2, "Значок приложения", self.icon)
+
+        self.dir = st.value(OUT_DIR, "") or ""
+        self.group.setChecked(pref_bool(OUT_GROUP, False))
+        (self.to_dir if self.dir else self.next_to).setChecked(True)
+        self.to_dir.toggled.connect(self._mode)
+        self.group.toggled.connect(lambda on: self._save(OUT_GROUP, on))
+
+        close = QPushButton("Готово", objectName="primary", clicked=self.accept)
+        v = QVBoxLayout(self)
+        v.addWidget(out)
+        v.addWidget(look)
+        v.addWidget(close, 0, Qt.AlignRight)
+        self._update()
+
+    def _save(self, key, value):
+        QSettings().setValue(key, value)
+        self._update()
+
+    def _pick(self):
+        d = QFileDialog.getExistingDirectory(self, "Папка для сохранения", self.dir or str(Path.home()))
+        if d:
+            self.dir = d
+            self.to_dir.setChecked(True)
+            self._mode(True)
+
+    def _mode(self, to_dir: bool):
+        if to_dir and not self.dir:
+            self._pick()
+            return
+        QSettings().setValue(OUT_DIR, self.dir if to_dir else "")
+        self._update()
+
+    def _icon(self):
+        QSettings().setValue(ICON_KEY, self.icon.currentData())
+        apply_icon(QApplication.instance())
+
+    def _update(self):
+        to_dir = self.to_dir.isChecked() and bool(self.dir)
+        self.dir_l.setText(self.dir_l.fontMetrics().elidedText(self.dir or "не выбрана", Qt.ElideMiddle, 300))
+        self.dir_l.setToolTip(self.dir)
+        self.group.setEnabled(to_dir)
+        for box in self.levels.values():
+            box.setEnabled(to_dir and self.group.isChecked())
+        root, group = output_prefs()
+        tags = {"artist": "Исполнитель", "album": "Альбом", "date": "2005"}
+        folder = io.organized_dir(root, tags, *group) if root and group else root
+        sample = io.output_path(Path("Песня.mp3"), "mp3", {}, folder)
+        shown = sample.relative_to(root) if folder else None
+        self.example.setText(f"Пример: …/{shown.as_posix()}" if shown else "Файл ляжет рядом с исходником: Песня_countin.mp3")
+
+
 # --- window ---
 
 class UpdateSignals(QObject):
@@ -592,138 +675,108 @@ class UpdateSignals(QObject):
 class Window(QMainWindow):
     def __init__(self):
         super().__init__()
-        self.setWindowTitle(f"Count-In {update.current_version()}")
+        self.setWindowTitle("Count-In")
         self.setAcceptDrops(True)
-        self.setUnifiedTitleAndToolBarOnMac(True)
         self.resize(1180, 780)
 
-        self.tracks: list[Track] = []
         self.current: Track | None = None
+        self.info: io.AudioInfo | None = None
         self.pcm, self.sr = None, 0
-        self.stem_cache: dict[Path, dict] = {}  # stems of the current track
+        self.stem_cache = None  # (first sample, stems) of the current track
         self.taps: list[float] = []
         self.job: Job | None = None
+        self.analysis_job: Job | None = None
         self.analysis_pool = QThreadPool()
         self.analysis_pool.setMaxThreadCount(1)
         self.job_pool = QThreadPool()
         self.job_pool.setMaxThreadCount(1)
-        self.analysis_jobs = []
         self.player = Player()
         self.play_start = None
         self.play_timer = QTimer(self, interval=30, timeout=self._tick)
         self.last_saved: Path | None = None
+        self.release = None
 
         self.updates = UpdateSignals()
         self.updates.found.connect(self._update_found)
-        self._build_toolbar()
         self._build_menu()
         self._build_body()
-        QShortcut(QKeySequence(Qt.Key_Space), self, activated=self._play)
         self._build_status()
         self._labels()
         self._enable()
 
+        # Space plays from anywhere except text fields, so focus on a slider or checkbox does not swallow it.
+        QApplication.instance().installEventFilter(self)
+
+    def eventFilter(self, obj, e):
+        if (e.type() == QEvent.KeyPress and e.key() == Qt.Key_Space and not e.isAutoRepeat()
+                and not e.modifiers() and QApplication.activeModalWidget() is None):
+            # Key events go to the focused widget first, so obj is what would type the space.
+            if not isinstance(obj, (QLineEdit, QAbstractSpinBox)):
+                self._play()
+                return True
+        return super().eventFilter(obj, e)
+
     # --- layout ---
 
     def _build_menu(self):
-        menu = self.menuBar().addMenu("Настройки").addMenu("Значок приложения")
-        group = QActionGroup(self)
-        current = icon_choice()
-        for key, title in ICON_CHOICES.items():
-            act = QAction(title, self, checkable=True, checked=key == current)
-            act.triggered.connect(lambda _=False, k=key: self._set_icon(k))
-            group.addAction(act)
-            menu.addAction(act)
+        mb = self.menuBar()
+        file = mb.addMenu("Файл")
+        self.open_a = file.addAction("Открыть…", QKeySequence.Open, self._open_dialog)
+        self.save_a = file.addAction("Сохранить", QKeySequence.Save, self._save)
+        self.reveal_a = file.addAction("Показать сохранённый файл", self._reveal)
+        file.addSeparator()
+        prefs = file.addAction("Настройки…", QKeySequence.Preferences, self._prefs)
+        prefs.setMenuRole(QAction.PreferencesRole)
 
-    def _set_icon(self, choice: str):
-        QSettings().setValue(ICON_KEY, choice)
-        apply_icon(QApplication.instance())
+        play = mb.addMenu("Воспроизведение")
+        self.play_a = play.addAction("Прослушать / Стоп (Пробел)", self._play)
 
-    def _build_toolbar(self):
-        tb = QToolBar(movable=False, floatable=False)
-        tb.setContextMenuPolicy(Qt.PreventContextMenu)
-        self.addToolBar(tb)
-        add = QPushButton("＋  Добавить треки", objectName="tool", clicked=self._add_dialog)
-        spacer = QWidget()
-        spacer.setSizePolicy(QSizePolicy.Expanding, QSizePolicy.Preferred)
+        help_ = mb.addMenu("Справка")
+        about = help_.addAction("О программе Count-In", self._about)
+        about.setMenuRole(QAction.AboutRole)
+        help_.addAction("Проверить обновления", lambda: self.check_updates(manual=True))
+        help_.addAction("Страница проекта", lambda: QDesktopServices.openUrl(QUrl(f"https://github.com/{update.REPO}")))
+
+    def _header(self) -> QWidget:
+        head = QWidget(objectName="header")
+        h = QHBoxLayout(head)
+        h.setContentsMargins(22, 14, 22, 6)
+        text = QVBoxLayout()
+        text.setSpacing(2)
+        self.title = QLabel("Count-In", objectName="title")
+        self.subtitle = QLabel(objectName="subtitle")
+        text.addWidget(self.title)
+        text.addWidget(self.subtitle)
+        h.addLayout(text, 1)
+        self.open_b = QPushButton("Открыть…", objectName="tool", clicked=self._open_dialog)
         self.play_b = QPushButton("▶  Прослушать", objectName="primary", clicked=self._play, toolTip="Пробел")
-        self.save_b = QPushButton("Сохранить", objectName="tool", clicked=self._save)
-        self.save_all_b = QPushButton("Сохранить все", objectName="tool", clicked=self._save_all)
-        for w in (add, spacer, self.play_b, self.save_b, self.save_all_b):
-            tb.addWidget(w)
-            w.setFocusPolicy(Qt.NoFocus)
-            if w is not spacer:
-                tb.addWidget(QWidget(minimumWidth=6))
+        self.save_b = QPushButton("Сохранить", objectName="tool", clicked=self._save, toolTip="⌘S")
+        for b in (self.open_b, self.play_b, self.save_b):
+            b.setFocusPolicy(Qt.NoFocus)
+            h.addWidget(b)
+        return head
 
     def _build_body(self):
-        side = QWidget(objectName="sidebar")
-        side.setFixedWidth(260)
-        sv = QVBoxLayout(side)
-        sv.setContentsMargins(0, 0, 0, 8)
-        sv.addWidget(QLabel("ТРЕКИ", objectName="sidebarTitle"))
-        self.list = QListWidget(objectName="tracks")
-        self.list.setItemDelegate(TrackDelegate(self.list))
-        self.list.currentRowChanged.connect(self._select)
-        sv.addWidget(self.list)
-
         self.stack = QStackedWidget()
-        drop = QLabel("Перетащите сюда треки или папки\n\nmp3, FLAC, ALAC, WAV", objectName="drop",
-                      alignment=Qt.AlignCenter)
         drop_page = QWidget()
         dv = QVBoxLayout(drop_page)
-        dv.setContentsMargins(40, 40, 40, 40)
+        dv.setContentsMargins(40, 20, 40, 40)
+        drop = QLabel("Перетащите сюда трек\n\nmp3, FLAC, ALAC, WAV", objectName="drop", alignment=Qt.AlignCenter)
         dv.addWidget(drop)
         self.stack.addWidget(drop_page)
         self.stack.addWidget(self._editor())
 
         body = QWidget()
-        h = QHBoxLayout(body)
-        h.setContentsMargins(0, 0, 0, 0)
-        h.setSpacing(0)
-        h.addWidget(side)
-        right = QVBoxLayout()
-        right.setContentsMargins(0, 0, 0, 0)
-        right.addWidget(self._update_banner())
-        right.addWidget(self.stack, 1)
-        right.addWidget(self._progress_panel())
-        h.addLayout(right, 1)
+        v = QVBoxLayout(body)
+        v.setContentsMargins(0, 0, 0, 0)
+        v.setSpacing(0)
+        v.addWidget(self._header())
+        v.addWidget(self.stack, 1)
+        v.addWidget(self._progress_panel())
         self.setCentralWidget(body)
-
-    def _update_banner(self) -> QWidget:
-        panel = QFrame(objectName="card")
-        h = QHBoxLayout(panel)
-        h.setContentsMargins(16, 8, 10, 8)
-        self.update_l = QLabel(objectName="cardTitle")
-        get = QPushButton("Скачать", objectName="primary", clicked=self._download_update)
-        later = QPushButton("Позже", objectName="tool", clicked=lambda: self.update_wrap.hide())
-        h.addWidget(self.update_l, 1)
-        h.addWidget(get)
-        h.addWidget(later)
-        wrap = QWidget(objectName="progWrap")
-        v = QVBoxLayout(wrap)
-        v.setContentsMargins(22, 12, 22, 0)
-        v.addWidget(panel)
-        wrap.hide()
-        self.update_wrap, self.release = wrap, None
-        return wrap
-
-    def check_updates(self):
-        """Asks GitHub in a daemon thread; the answer comes back to the UI thread as a queued signal."""
-        threading.Thread(target=lambda: self.updates.found.emit(update.check()), daemon=True).start()
-
-    def _update_found(self, release):
-        if release:
-            self.release = release
-            self.update_l.setText(f"Доступна версия {release.version} (у вас {update.current_version()})")
-            self.update_wrap.show()
-
-    def _download_update(self):
-        QDesktopServices.openUrl(QUrl(self.release.url))
-        self.update_wrap.hide()
 
     def _progress_panel(self) -> QWidget:
         panel = QFrame(objectName="card")
-        panel.setContentsMargins(0, 0, 0, 0)
         g = QGridLayout(panel)
         g.setContentsMargins(16, 10, 16, 12)
         self.prog_label = QLabel(objectName="cardTitle")
@@ -744,15 +797,13 @@ class Window(QMainWindow):
         return wrap
 
     def _editor(self) -> QWidget:
-        self.title = QLabel(objectName="title")
-        self.subtitle = QLabel(objectName="subtitle")
+        self.detector = QLabel(objectName="subtitle")
         self.warning = QLabel(objectName="warning", wordWrap=True)
         self.wave = Wave()
         self.wave.t0Changed.connect(self._marker_moved)
         hint = QLabel("Тяните оранжевый маркер «1» на первую сильную долю. Колесо — масштаб, перетаскивание — сдвиг, "
                       "⌥ — без прилипания к долям.", objectName="subtitle", wordWrap=True)
 
-        # Tempo card.
         tempo, g = card("Темп и первая доля")
         self.bpm_spin = QDoubleSpinBox(decimals=2, minimum=30, maximum=320, singleStep=0.1, suffix=" BPM")
         self.bpm_spin.valueChanged.connect(self._bpm_edited)
@@ -767,8 +818,9 @@ class Window(QMainWindow):
         row(g, "Доля «1»", self.t0_spin, prev_b, next_b)
         self.alt_b = QPushButton("Взять кандидата детектора", objectName="small", clicked=self._use_alt)
         g.addWidget(self.alt_b, g.rowCount(), 1)
+        for b in (x2, half, tap, prev_b, next_b, self.alt_b):
+            b.setFocusPolicy(Qt.NoFocus)
 
-        # Count-in card.
         count, g = card("Отсчёт")
         self.style_seg = Segmented([("Ровный", "even"), ("Нарастание", "buildup"), ("MIDI…", "midi")], "buildup")
         self.style_seg.changed.connect(self._style_changed)
@@ -784,7 +836,6 @@ class Window(QMainWindow):
         row(g, "Громкость", self.volume, self.volume_l)
         self.pattern: Path | None = None
 
-        # Backing track card.
         mix, g = card("Бэктрек")
         self.guitar = QSlider(Qt.Horizontal, minimum=MUTE, maximum=0, value=0, minimumWidth=140)
         self.guitar_l = QLabel(minimumWidth=90)
@@ -812,10 +863,9 @@ class Window(QMainWindow):
 
         page = QWidget()
         v = QVBoxLayout(page)
-        v.setContentsMargins(22, 16, 22, 12)
+        v.setContentsMargins(22, 4, 22, 12)
         v.setSpacing(8)
-        v.addWidget(self.title)
-        v.addWidget(self.subtitle)
+        v.addWidget(self.detector)
         v.addWidget(self.warning)
         v.addWidget(self.wave, 1)
         v.addWidget(hint)
@@ -825,13 +875,58 @@ class Window(QMainWindow):
 
     def _build_status(self):
         sb = QStatusBar()
+        sb.setSizeGripEnabled(False)
         self.setStatusBar(sb)
+        self.file_l = QLabel()
         self.status = QLabel()
         self.reveal_b = QPushButton("Показать в Finder" if sys.platform == "darwin" else "Показать в папке",
-                                    objectName="small", clicked=lambda: reveal(self.last_saved))
+                                    objectName="small", clicked=self._reveal)
+        self.reveal_b.setFocusPolicy(Qt.NoFocus)
+        self.version_l = QLabel(f"Count-In {update.current_version()}")
+        self.update_b = QPushButton(objectName="update", clicked=self._download_update)
+        self.update_b.setFocusPolicy(Qt.NoFocus)
+        sb.addWidget(self.file_l)
         sb.addWidget(self.status, 1)
         sb.addPermanentWidget(self.reveal_b)
+        sb.addPermanentWidget(self.update_b)
+        sb.addPermanentWidget(self.version_l)
         self.reveal_b.hide()
+        self._show_version()
+
+    def _show_version(self):
+        self.update_b.setVisible(self.release is not None)
+        if self.release:
+            self.update_b.setText(f"Обновить до {self.release.version}")
+
+    # --- dialogs ---
+
+    def _prefs(self):
+        PrefsDialog(self).exec()
+
+    def _about(self):
+        QMessageBox.about(self, "О программе Count-In", (
+            f"<h3>Count-In {update.current_version()}</h3>"
+            "<p>Барабанный отсчёт перед первой сильной долей и бэктреки без гитары или вокала.</p>"
+            f'<p><a href="https://github.com/{update.REPO}">github.com/{update.REPO}</a></p>'
+            "<p>beat_this (MIT), BS-RoFormer (MIT), FFmpeg (LGPL), Qt for Python (LGPL), PyTorch (BSD).</p>"))
+
+    # --- updates ---
+
+    def check_updates(self, manual: bool = False):
+        """Asks GitHub in a daemon thread; the answer comes back to the UI thread as a queued signal."""
+        self._manual_check = manual
+        threading.Thread(target=lambda: self.updates.found.emit(update.check()), daemon=True).start()
+
+    def _update_found(self, release):
+        if release:
+            self.release = release
+            self._show_version()
+        elif getattr(self, "_manual_check", False):
+            self.status.setText(f"Установлена последняя версия, {update.current_version()}")
+
+    def _download_update(self, *_):
+        if self.release:
+            QDesktopServices.openUrl(QUrl(self.release.url))
 
     # --- files ---
 
@@ -840,73 +935,65 @@ class Window(QMainWindow):
             e.acceptProposedAction()
 
     def dropEvent(self, e):
-        self.add_files([Path(u.toLocalFile()) for u in e.mimeData().urls()])
+        self.open_files([Path(u.toLocalFile()) for u in e.mimeData().urls()])
 
-    def _add_dialog(self):
+    def _open_dialog(self):
         exts = " ".join(f"*{x}" for x in sorted(AUDIO_EXT))
-        files, _ = QFileDialog.getOpenFileNames(self, "Треки", "", f"Аудио ({exts})")
-        self.add_files([Path(f) for f in files])
+        f, _ = QFileDialog.getOpenFileName(self, "Трек", "", f"Аудио ({exts})")
+        if f:
+            self.open_files([Path(f)])
 
-    def add_files(self, paths: list[Path]):
-        found = []
-        for p in paths:
-            found += sorted(q for q in p.rglob("*") if q.suffix.lower() in AUDIO_EXT) if p.is_dir() else [p]
-        known = {t.path for t in self.tracks}
-        for p in found:
-            if p in known or p.suffix.lower() not in AUDIO_EXT:
-                continue
-            t = Track(p)
-            self.tracks.append(t)
-            item = QListWidgetItem(p.name)
-            item.setData(Qt.UserRole, "Анализ…")
-            self.list.addItem(item)
-            job = Job(analyze_job, t)
-            job.signals.done.connect(self._analyzed)
-            self.analysis_jobs.append(job)
-            self.analysis_pool.start(job)
-        if self.list.currentRow() < 0 and self.tracks:
-            self.list.setCurrentRow(0)
-        self._enable()
-
-    def _analyzed(self, t: Track):
-        if t.analysis:
-            t.bpm = 60.0 / an.beat_period(t.analysis, rd.METERS[self.meter_seg.value()][0])[0]
-            t.t0 = t.analysis.first_downbeat
-        self._update_item(t)
-        if t is self.current:
-            self._select(self.tracks.index(t))
-        self._enable()
-
-    def _update_item(self, t: Track):
-        item = self.list.item(self.tracks.index(t))
-        if t.error:
-            item.setData(Qt.UserRole, "⚠︎ " + t.error)
-        elif t.analysis:
-            item.setData(Qt.UserRole, f"{t.bpm:.1f} BPM · «1» на {fmt_time(t.t0)}")
-
-    def _select(self, row: int):
+    def open_files(self, paths: list[Path]):
+        """Opens the first audio file; the app works on one track at a time."""
+        path = next((p for p in paths if p.is_file() and p.suffix.lower() in AUDIO_EXT), None)
+        if not path or self.job:
+            if paths and not path:
+                self.status.setText("Это не аудиофайл: mp3, FLAC, ALAC или WAV")
+            return
         self._stop()
-        self.current = self.tracks[row] if 0 <= row < len(self.tracks) else None
-        t = self.current
-        self.pcm = None
-        self.stem_cache = {k: v for k, v in self.stem_cache.items() if t and k == t.path}
-        self.stack.setCurrentIndex(1 if t else 0)
+        if self.analysis_job:
+            self.analysis_job.cancelled.set()
+        t = self.current = Track(path)
+        self.pcm, self.info, self.stem_cache, self.last_saved = None, None, None, None
+        self.reveal_b.hide()
+        self.status.setText("")
+        self.stack.setCurrentIndex(1)
         self.wave.env, self.wave.t0, self.wave.beats, self.wave.downs, self.wave.clicks = None, None, [], [], []
         self.wave._cache = (None, None)
+        self.wave.update()
         self.warning.hide()
-        if not t:
-            self._enable()
-            return
-        self.title.setText(t.path.stem)
-        if not t.analysis:
-            self.subtitle.setText("Анализ…" if not t.error else "")
-            if t.error:
-                self.warning.setText(t.error)
-                self.warning.show()
-            self.wave.update()
-            self._enable()
-            return
+        self.title.setText(path.stem)
+        self.subtitle.setText("")
+        self.detector.setText("Анализ…")
+        try:
+            self.info = io.probe(path)
+            self._show_file()
+        except RuntimeError as e:
+            self.file_l.setText(str(e)[:120])
+        self.analysis_job = Job(analyze_job, t)
+        self.analysis_job.signals.done.connect(self._analyzed)
+        self.analysis_pool.start(self.analysis_job)
+        self._enable()
 
+    def _show_file(self):
+        i = self.info
+        tags = i.tags
+        who = " — ".join(x for x in (tags.get("artist"), tags.get("album")) if x)
+        year = (tags.get("date") or "")[:4]
+        self.subtitle.setText(who + (f" ({year})" if year and who else year))
+        self.file_l.setText(f"{io.describe(i)} · {fmt_time(i.duration)[:-4]}")
+
+    def _analyzed(self, t: Track):
+        if t is not self.current:
+            return
+        if t.error:
+            self.detector.setText("")
+            self.warning.setText(t.error)
+            self.warning.show()
+            self._enable()
+            return
+        t.bpm = 60.0 / an.beat_period(t.analysis, rd.METERS[self.meter_seg.value()][0])[0]
+        t.t0 = t.analysis.first_downbeat
         QApplication.setOverrideCursor(Qt.WaitCursor)
         try:
             self.pcm, info = io.decode(t.path)
@@ -916,8 +1003,8 @@ class Window(QMainWindow):
         a = t.analysis
         self.wave.set_audio(self.pcm, self.sr)
         self.wave.beats, self.wave.downs = list(a.beats), list(a.downbeats)
-        self.subtitle.setText(f"Детектор: {a.bpm:.2f} BPM · «1» на {fmt_time(a.first_downbeat)} · "
-                              f"уверенность {a.confidence:.0%} · {fmt_time(t.duration)}")
+        self.detector.setText(f"Детектор: {a.bpm:.2f} BPM · «1» на {fmt_time(a.first_downbeat)} · "
+                              f"уверенность {a.confidence:.0%}")
         notes = [translate(n) for n in a.notes]
         if a.confidence < 0.4:
             notes.insert(0, "детектор не уверен, проверьте маркер «1» на слух")
@@ -935,7 +1022,6 @@ class Window(QMainWindow):
             spin.blockSignals(True)
             spin.setValue(v)
             spin.blockSignals(False)
-        self._update_item(t)
         self._refresh()
 
     # --- edits ---
@@ -943,7 +1029,6 @@ class Window(QMainWindow):
     def _bpm_edited(self, v: float):
         if self.current:
             self.current.bpm = v
-            self._update_item(self.current)
             self._refresh()
 
     def _scale_bpm(self, k: float):
@@ -969,7 +1054,6 @@ class Window(QMainWindow):
     def _t0_edited(self, v: float):
         if self.current:
             self.current.t0 = v
-            self._update_item(self.current)
             self._refresh()
 
     def _marker_moved(self, t0: float):
@@ -977,7 +1061,6 @@ class Window(QMainWindow):
         self.t0_spin.blockSignals(True)
         self.t0_spin.setValue(t0)
         self.t0_spin.blockSignals(False)
-        self._update_item(self.current)
         self._refresh()
 
     def _shift_beat(self, k: int):
@@ -1015,10 +1098,12 @@ class Window(QMainWindow):
         for name, s in (("guitar", self.guitar), ("vocals", self.vocals)):
             if s.value() < 0:
                 levels[name] = float("-inf") if s.value() == MUTE else float(s.value())
+        out_root, group = output_prefs()
         return Settings(
             style=self.style_seg.value(), bars=self.bars_seg.value(), meter=self.meter_seg.value(),
             pattern=self.pattern, volume_db=float(self.volume.value()),
             levels=levels, pre_roll="trim" if self.trim.isChecked() else "keep", fmt=self.fmt.currentData(),
+            out_root=out_root, group=group,
         )
 
     def _refresh(self, *_):
@@ -1037,10 +1122,14 @@ class Window(QMainWindow):
 
     def _enable(self):
         busy = self.job is not None
-        ready = bool(self.current and self.current.analysis)
+        ready = bool(self.current and self.current.analysis and self.pcm is not None)
         self.play_b.setEnabled(ready and (not busy or self.play_start is not None))
+        self.play_a.setEnabled(self.play_b.isEnabled())
         self.save_b.setEnabled(ready and not busy)
-        self.save_all_b.setEnabled(any(t.analysis for t in self.tracks) and not busy)
+        self.save_a.setEnabled(ready and not busy)
+        self.open_b.setEnabled(not busy)
+        self.open_a.setEnabled(not busy)
+        self.reveal_a.setEnabled(self.last_saved is not None)
         self.prog_panel.setVisible(busy)
 
     def _run(self, fn, *args, on_done):
@@ -1091,17 +1180,17 @@ class Window(QMainWindow):
         if self.play_start is not None:
             self._stop()
             return
-        if self.job or not (self.current and self.current.analysis):
+        if self.job or not (self.current and self.current.analysis and self.pcm is not None):
             return
-        t, s = self.current, self.settings()
-        self._run(preview_job, t, s, self.pcm, self.sr, self.stem_cache.get(t.path), bool(s.levels),
+        s = self.settings()
+        self._run(preview_job, self.current, s, self.pcm, self.sr, self.stem_cache, bool(s.levels),
                   on_done=self._preview_ready)
 
     def _preview_ready(self, result):
         self._finish()
         base, stems, sr, start, new_cache = result
         if new_cache:
-            self.stem_cache = {self.current.path: new_cache}
+            self.stem_cache = new_cache
         self.status.setText("Гитару и вокал можно менять на ходу" if stems
                             else "Чтобы менять гитару и вокал на ходу, опустите ползунок до прослушивания")
         self._gains()
@@ -1130,22 +1219,24 @@ class Window(QMainWindow):
         self._enable()
 
     def _save(self):
+        if not self.save_b.isEnabled():
+            return
         self._stop()
-        self._run(save_job, [self.current], self.settings(), dict(self.stem_cache), on_done=self._saved)
-
-    def _save_all(self):
-        self._stop()
-        tracks = [t for t in self.tracks if t.analysis]
-        self._run(save_job, tracks, self.settings(), dict(self.stem_cache), on_done=self._saved)
+        self._run(save_job, self.current, self.settings(), self.stem_cache, on_done=self._saved)
 
     def _saved(self, result):
-        saved, st = result
+        out, full = result
         self._finish()
-        if self.current and self.current.path in st:
-            self.stem_cache = st
-        self.last_saved = saved[-1]
-        self.status.setText(f"Сохранено: {saved[0].name}" if len(saved) == 1 else f"Сохранено файлов: {len(saved)}")
+        if full:
+            self.stem_cache = full
+        self.last_saved = out
+        self.status.setText(f"Сохранено: {out.name}")
         self.reveal_b.show()
+        self._enable()
+
+    def _reveal(self):
+        if self.last_saved:
+            reveal(self.last_saved)
 
     def closeEvent(self, e):
         self._stop()
@@ -1160,7 +1251,7 @@ class App(QApplication):
 
     def event(self, e):
         if e.type() == QEvent.FileOpen and self.window:
-            self.window.add_files([Path(e.file())])
+            self.window.open_files([Path(e.file())])
             return True
         return super().event(e)
 
@@ -1191,7 +1282,7 @@ def main() -> int:
     app.setFont(font)
     app.setStyleSheet(style_sheet(app))
     w = app.window = Window()
-    w.add_files([Path(a) for a in sys.argv[1:]])
+    w.open_files([Path(a) for a in sys.argv[1:]])
     w.show()
     w.check_updates()
     return app.exec()

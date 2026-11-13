@@ -32,12 +32,14 @@ The builds are unsigned, so the system warns on first launch.
 
 ![Main window](docs/screenshots/main-dark.png)
 
-1. Drop tracks or folders onto the window. Each track gets analyzed in the background; the list on the left shows its tempo and first downbeat.
+1. Drop a track onto the window or open it with ⌘O. The app works on one track at a time and analyzes it in the background.
 2. Check the orange "1" marker on the waveform. If the detector got it wrong, drag the marker to the right beat. It snaps to detected beats; hold ⌥/Alt to place it freely. The mouse wheel zooms, dragging the waveform pans.
 3. Pick the pattern, length and meter. Blue marks on the waveform show where the clicks will sound.
 4. For a backing track, lower the "Гитара" (guitar) and "Вокал" (vocals) sliders.
 5. Press "Прослушать" (preview) or Space to hear the count-in and 10 seconds of the song. The guitar and vocal sliders change the sound while it plays.
-6. Press "Сохранить" (save) or "Сохранить все" (save all). Files go next to the originals.
+6. Press "Сохранить" (save) or ⌘S. By default the file goes next to the original.
+
+In Settings (⌘,) you can pick one output folder and have files sorted into Artist / Year - Album subfolders from the source tags; each level is a checkbox. The bottom bar shows the file format, bitrate or bit depth, sample rate and length, plus the app version.
 
 When the detector is unsure, an orange hint appears above the waveform. ×2 and ÷2 fix a doubled or halved tempo; Tap sets the tempo by tapping.
 
@@ -56,7 +58,7 @@ The count-in and analysis take seconds. Separating guitar and vocals takes longe
 
 ### Updates
 
-On start, the app checks GitHub for a newer version in the background. If there is one, a banner at the top offers to download it.
+On start, the app checks GitHub for a newer version in the background. If there is one, an "Обновить до …" button appears in the bottom bar. Справка → Проверить обновления checks again.
 
 ---
 
@@ -150,12 +152,14 @@ Count-In находит темп и первую сильную долю пес�
 
 ![Главное окно](docs/screenshots/main-dark.png)
 
-1. Перетащите треки или папки в окно. Каждый трек анализируется в фоне, в списке слева появятся темп и время первой доли.
+1. Перетащите трек в окно или откройте его через ⌘O. Приложение работает с одним треком и анализирует его в фоне.
 2. Проверьте оранжевый маркер «1» на волне. Если детектор ошибся, перетащите маркер на нужную долю: он прилипает к найденным долям, с ⌥/Alt ставится свободно. Колесо мыши меняет масштаб, перетаскивание волны сдвигает её.
 3. Выберите рисунок, длину и размер отсчёта. Синие отметки на волне показывают, где прозвучат клики.
 4. Для бэктрека опустите ползунки «Гитара» и «Вокал».
 5. Нажмите «Прослушать» или пробел: прозвучит отсчёт и 10 секунд песни. Во время прослушивания ползунки гитары и вокала меняют звук сразу.
-6. Нажмите «Сохранить» или «Сохранить все». Файлы ложатся рядом с исходниками.
+6. Нажмите «Сохранить» или ⌘S. По умолчанию файл ложится рядом с исходником.
+
+В настройках (⌘,) можно один раз выбрать папку для всех файлов и раскладывать их по подпапкам «Исполнитель / Год - Альбом» по тегам исходника, каждый уровень включается галочкой. В нижней панели видны формат файла, битрейт или разрядность, частота дискретизации, длительность и версия приложения.
 
 Если детектор не уверен в результате, над волной появляется оранжевая подсказка. Кнопки ×2 и ÷2 исправляют удвоенный или половинный темп, Tap задаёт темп постукиванием.
 
@@ -174,7 +178,7 @@ Count-In находит темп и первую сильную долю пес�
 
 #### Обновления
 
-При запуске приложение в фоне проверяет, нет ли новой версии на GitHub. Если есть, сверху появляется предложение скачать её.
+При запуске приложение в фоне проверяет, нет ли новой версии на GitHub. Если есть, в нижней панели появляется кнопка «Обновить до …». Справка → Проверить обновления проверяет ещё раз.
 
 ---
 
