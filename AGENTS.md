@@ -14,7 +14,7 @@ Count-In inserts a drum count-in before a song's first downbeat and can turn gui
 | `src/countin/gui.py` | the app: window, waveform, jobs, live preview player |
 | `src/countin/update.py` | GitHub release check |
 | `src/countin/cli.py`, `verify.py` | CLI and the timing check tool |
-| `packaging/` | PyInstaller specs, ffmpeg build, model download |
+| `packaging/` | PyInstaller spec, ffmpeg build, model download |
 | `.github/workflows/build.yml` | Windows and macOS builds, smoke test, releases |
 
 ## Pipeline
@@ -63,14 +63,15 @@ Count-In inserts a drum count-in before a song's first downbeat and can turn gui
 
 - `io.resource()` resolves `models/`, `samples/` and `bin/` against `sys._MEIPASS` in a bundle and the project root in development.
 - `countin/__init__.py` puts `bin/` first on `PATH` at import.
-- Specs bundle `models/final0.ckpt`, `models/separator/`, `samples/`, `bin/` and the `countin` package metadata (the update check reads the version from it).
+- `packaging/countin.spec` builds one bundle with two executables sharing its libraries: `Count-In` (app) and `countin` (CLI). It bundles `models/final0.ckpt`, `models/separator/`, `samples/`, `bin/` and the `countin` package metadata (the update check reads the version from it).
 - `packaging/build_ffmpeg.sh` builds a static, audio-only LGPL ffmpeg on macOS. ffmpeg 7+ needs the `fd` protocol for `-` pipes. Windows CI downloads a BtbN LGPL build instead.
 - `packaging/fetch_models.sh` downloads the weights. CI caches `models/`.
 - The windowed Windows build has no stderr; `packaging/countin_app.py` points it at devnull before anything prints.
 
 ## CI and releases
 
-- Each push builds both platforms, runs the fast tests, then runs the frozen CLI on 20 s of synthetic clicks with separation and mp3 export. A broken bundle fails here, before packaging.
+- Pull requests that touch code build both platforms, run the fast tests, then run the bundled CLI on 20 s of synthetic clicks with separation and mp3 export. A broken bundle fails here, before packaging. Docs-only PRs and pushes to `main` build nothing.
+- Speed: uv and macOS ffmpeg are cached; archives are stored uncompressed because weights and torch barely shrink.
 - Release: bump `version` in `pyproject.toml`, tag `v<version>`. CI attaches `Count-In-windows-x64.zip` and `Count-In-macos-arm64.zip` to the release. `update.asset_suffix()` matches those names.
 - Builds are unsigned. The specs have `codesign_identity` and `entitlements_file` placeholders for notarization.
 
