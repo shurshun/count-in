@@ -8,7 +8,7 @@ sha() { if command -v sha256sum >/dev/null; then sha256sum "$1"; else shasum -a 
 
 # fetch <file> <url> <sha256>: downloads when missing, fails and removes the file on a hash mismatch.
 fetch() {
-  [ -f "$1" ] || curl -fsSL -o "$1" "$2"
+  [ -f "$1" ] || curl -fsSL --retry 5 --retry-all-errors -o "$1" "$2"
   got=$(sha "$1")
   if [ "$got" != "$3" ]; then
     rm -f "$1"

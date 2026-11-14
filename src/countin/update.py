@@ -158,15 +158,17 @@ WIN_SWAP = r"""@echo off
 rem `timeout` needs a console, which a detached helper lacks, so ping does the waiting.
 rem Waits for the app to quit, swaps the folder, starts the new one. A failed move puts the old one back.
 set "pid=%~1" & set "root=%~2" & set "new=%~3" & set "stage=%~4" & set "relaunch=%~5"
+rem System tools by full path: Git for Windows puts its own find.exe ahead of them on PATH.
+set "sys=%SystemRoot%\System32"
 :wait
-tasklist /FI "PID eq %pid%" 2>nul | find "%pid%" >nul && (ping -n 2 127.0.0.1 >nul & goto wait)
+"%sys%\tasklist.exe" /FI "PID eq %pid%" /NH 2>nul | "%sys%\find.exe" "%pid%" >nul && ("%sys%\PING.EXE" -n 2 127.0.0.1 >nul & goto wait)
 if exist "%root%.old" rmdir /s /q "%root%.old"
 rem Antivirus or a running countin.exe can hold the folder for a moment.
 set tries=0
 :move
 move "%root%" "%root%.old" >nul 2>&1 && goto swap
 set /a tries+=1
-if %tries% lss 20 (ping -n 2 127.0.0.1 >nul & goto move)
+if %tries% lss 20 ("%sys%\PING.EXE" -n 2 127.0.0.1 >nul & goto move)
 goto start
 :swap
 move "%new%" "%root%" >nul 2>&1 && (rmdir /s /q "%root%.old") || move "%root%.old" "%root%" >nul
