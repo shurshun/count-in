@@ -145,6 +145,7 @@ def download(r: Release, root: Path, progress=lambda done, total: None) -> Path:
 MAC_SWAP = """#!/bin/sh
 # Waits for the app to quit, swaps the bundle, starts the new one. A failed move puts the old one back.
 pid="$1"; root="$2"; new="$3"; stage="$4"; relaunch="$5"
+exec >>"$6" 2>&1; set -x
 while kill -0 "$pid" 2>/dev/null; do sleep 0.2; done
 rm -rf "$root.old"
 if mv "$root" "$root.old"; then
@@ -154,7 +155,7 @@ rm -rf "$stage" "$0"
 [ "$relaunch" = 1 ] && open "$root"
 """
 
-WIN_SWAP = r"""@echo off
+WIN_SWAP = r"""@echo on
 rem `timeout` needs a console, which a detached helper lacks, so ping does the waiting.
 rem Waits for the app to quit, swaps the folder, starts the new one. A failed move puts the old one back.
 set "pid=%~1" & set "root=%~2" & set "new=%~3" & set "stage=%~4" & set "relaunch=%~5"
@@ -179,6 +180,9 @@ if "%relaunch%"=="1" start "" "%root%\Count-In.exe"
 """
 
 
+HELPER_LOG = Path(tempfile.gettempdir()) / "count-in-update.log"
+
+
 def install_on_exit(root: Path, new: Path, relaunch: bool, pid: int | None = None) -> None:
     """Starts a detached helper that replaces root with new once process pid (default: this one) exits."""
     pid = pid or os.getpid()
@@ -186,13 +190,14 @@ def install_on_exit(root: Path, new: Path, relaunch: bool, pid: int | None = Non
     fd, script = tempfile.mkstemp(suffix=".cmd" if win else ".sh")
     with os.fdopen(fd, "w", newline="\r\n" if win else "\n") as f:
         f.write(WIN_SWAP if win else MAC_SWAP)
-    args = [str(pid), str(root), str(new), str(staging_dir(root)), "1" if relaunch else "0"]
+    args = [str(pid), str(root), str(new), str(staging_dir(root)), "1" if relaunch else "0", str(HELPER_LOG)]
 
     # The helper runs outside the bundle, so nothing in it holds the folder being moved.
     if win:
         flags = subprocess.DETACHED_PROCESS | subprocess.CREATE_NEW_PROCESS_GROUP | subprocess.CREATE_NO_WINDOW
-        subprocess.Popen(["cmd", "/c", script, *args], cwd=tempfile.gettempdir(), creationflags=flags,
-                         stdin=subprocess.DEVNULL, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+        with open(HELPER_LOG, "a") as log:
+            subprocess.Popen(["cmd", "/c", script, *args], cwd=tempfile.gettempdir(), creationflags=flags,
+                             stdin=subprocess.DEVNULL, stdout=log, stderr=log)
     else:
         subprocess.Popen(["/bin/sh", script, *args], cwd="/", start_new_session=True,
                          stdin=subprocess.DEVNULL, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)

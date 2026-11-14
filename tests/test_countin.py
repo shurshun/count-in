@@ -322,7 +322,8 @@ def test_update_helper_swaps_the_bundle_after_the_app_exits(tmp_path):
         if (root / "lib" / "v").read_text() == "new" and not update.staging_dir(root).exists():
             break
         time.sleep(0.2)
-    assert (root / "lib" / "v").read_text() == "new"
+    log = update.HELPER_LOG.read_text(errors="replace") if update.HELPER_LOG.exists() else ""
+    assert (root / "lib" / "v").read_text() == "new", log[-3000:]
     assert not update.staging_dir(root).exists() and not root.with_name(root.name + ".old").exists()
 
 def test_icon_choice_is_light_or_dark_and_defaults_to_light(tmp_path):
