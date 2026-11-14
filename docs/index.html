@@ -1,4 +1,5 @@
 <!doctype html>
+<!-- Generated from _page.html by build_site.py -->
 <html lang="en" data-theme="light">
 <head>
 <meta charset="utf-8">
@@ -6,6 +7,9 @@
 <title>Count-In — drum count-in and backing tracks for any song</title>
 <meta name="description" content="Count-In finds a song's tempo and first downbeat, adds a drum count-in in front of it and can turn guitar and vocals down for a backing track. Free for macOS and Windows, works offline.">
 <link rel="canonical" href="https://count-in.app/">
+<link rel="alternate" hreflang="en" href="https://count-in.app/">
+<link rel="alternate" hreflang="ru" href="https://count-in.app/ru/">
+<link rel="alternate" hreflang="x-default" href="https://count-in.app/">
 <meta name="theme-color" content="#fbfbfd">
 <meta property="og:type" content="website">
 <meta property="og:site_name" content="Count-In">
@@ -34,8 +38,15 @@
   "downloadUrl": "https://github.com/shurshun/count-in/releases/latest",
   "screenshot": "https://count-in.app/screenshots/main-light-en.png",
   "image": "https://count-in.app/icon.png",
-  "inLanguage": ["en", "ru"]
+  "inLanguage": "en"
 }
+</script>
+<script>
+  // First visit to the English page follows the system language; a saved choice wins
+  try {
+    if (document.documentElement.lang === "en" &&
+        (localStorage.getItem("lang") || navigator.language.slice(0, 2)) === "ru") location.replace("ru/" + location.hash);
+  } catch {}
 </script>
 <link rel="stylesheet" href="site.css">
 <script src="site.js" defer></script>
@@ -45,32 +56,30 @@
 
 <nav>
   <a class="name" href="#"><img src="favicon.png" alt="">Count-In</a>
-  <a class="link" href="#demo"><span lang="en">Demo</span><span lang="ru">Демо</span></a>
+  <a class="link" href="#demo"><span lang="en">Demo</span></a>
   <a class="link" href="https://github.com/shurshun/count-in">GitHub</a>
   <button type="button" data-toggle="theme" aria-label="Theme"><span class="light-only">☾</span><span class="dark-only">☀</span></button>
-  <button type="button" data-toggle="lang" title="Language"><span lang="en">RU</span><span lang="ru">EN</span></button>
+  <a class="lang" href="ru/" hreflang="ru" data-lang="ru">RU</a>
 </nav>
 
 <div class="hero">
-  <h1><span lang="en">A count-in for every song</span><span lang="ru">Отсчёт перед любой песней</span></h1>
+  <h1><span lang="en">A count-in for every song</span></h1>
   <p class="lead">
     <span lang="en">Count-In finds the tempo and the first downbeat and adds a drum count-in that lands exactly on the “one”. It can also turn guitar and vocals down for a backing track.</span>
-    <span lang="ru">Count-In находит темп и первую долю и добавляет отсчёт палочками, который точно попадает в «раз». А ещё убирает гитару и вокал, чтобы получилась минусовка.</span>
-  </p>
+    </p>
   <div class="downloads">
     <a class="dl" href="https://github.com/shurshun/count-in/releases/latest/download/Count-In-macos-arm64.zip">
       <svg viewBox="0 0 24 24"><path d="M11 3h2v10.2l3.6-3.6 1.4 1.4-6 6-6-6 1.4-1.4 3.6 3.6zM5 19h14v2H5z"/></svg>
-      <span><span lang="en">Download for Mac</span><span lang="ru">Скачать для Mac</span><small>macOS 12+ · Apple Silicon</small></span>
+      <span><span lang="en">Download for Mac</span><small>macOS 12+ · Apple Silicon</small></span>
     </a>
     <a class="dl alt" href="https://github.com/shurshun/count-in/releases/latest/download/Count-In-windows-x64.zip">
       <svg viewBox="0 0 24 24"><path d="M11 3h2v10.2l3.6-3.6 1.4 1.4-6 6-6-6 1.4-1.4 3.6 3.6zM5 19h14v2H5z"/></svg>
-      <span><span lang="en">Download for Windows</span><span lang="ru">Скачать для Windows</span><small>Windows 10/11 · x64</small></span>
+      <span><span lang="en">Download for Windows</span><small>Windows 10/11 · x64</small></span>
     </a>
   </div>
   <p class="note">
     <span lang="en">Free · works offline · updates itself · <a href="https://github.com/shurshun/count-in/releases/latest">release notes</a></span>
-    <span lang="ru">Бесплатно · работает без интернета · обновляется сама · <a href="https://github.com/shurshun/count-in/releases/latest">что нового</a></span>
-  </p>
+    </p>
 </div>
 
 <div class="player" id="demo" data-player data-src="demo/"></div>
@@ -79,102 +88,87 @@
   <div class="window">
     <img class="light-only" lang="en" src="screenshots/main-light-en-1600.webp" srcset="screenshots/main-light-en-800.webp 800w, screenshots/main-light-en-1600.webp 1600w" sizes="(max-width: 1048px) calc(100vw - 48px), 1000px" alt="Count-In window" width="1600" height="1085" loading="lazy">
     <img class="dark-only" lang="en" src="screenshots/main-dark-en-1600.webp" srcset="screenshots/main-dark-en-800.webp 800w, screenshots/main-dark-en-1600.webp 1600w" sizes="(max-width: 1048px) calc(100vw - 48px), 1000px" alt="Count-In window" width="1600" height="1085" loading="lazy">
-    <img class="light-only" lang="ru" src="screenshots/main-light-1600.webp" srcset="screenshots/main-light-800.webp 800w, screenshots/main-light-1600.webp 1600w" sizes="(max-width: 1048px) calc(100vw - 48px), 1000px" alt="Окно Count-In" width="1600" height="1085" loading="lazy">
-    <img class="dark-only" lang="ru" src="screenshots/main-dark-1600.webp" srcset="screenshots/main-dark-800.webp 800w, screenshots/main-dark-1600.webp 1600w" sizes="(max-width: 1048px) calc(100vw - 48px), 1000px" alt="Окно Count-In" width="1600" height="1085" loading="lazy">
-  </div>
+    </div>
 </div>
 
 <section>
-  <h2><span lang="en">What it does</span><span lang="ru">Что умеет</span></h2>
-  <p class="sub"><span lang="en">Everything runs on your computer, from beat detection to separation.</span><span lang="ru">Всё работает на вашем компьютере, от поиска долей до разделения инструментов.</span></p>
+  <h2><span lang="en">What it does</span></h2>
+  <p class="sub"><span lang="en">Everything runs on your computer, from beat detection to separation.</span></p>
   <div class="grid">
     <div class="card">
       <div class="ico">♩</div>
-      <h3><span lang="en">Sample-accurate count-in</span><span lang="ru">Отсчёт с точностью до сэмпла</span></h3>
+      <h3><span lang="en">Sample-accurate count-in</span></h3>
       <p lang="en">A neural beat tracker finds the tempo and the first downbeat. Each click is placed on its own sample, so the timing never drifts.</p>
-      <p lang="ru">Нейросеть находит темп и первую сильную долю. Каждый щелчок ставится на свой сэмпл, поэтому ритм не уплывает.</p>
-    </div>
+      </div>
     <div class="card">
       <div class="ico">♬</div>
-      <h3><span lang="en">Your pattern</span><span lang="ru">Свой рисунок</span></h3>
+      <h3><span lang="en">Your pattern</span></h3>
       <p lang="en">One or two bars in 4/4, 3/4 or 6/8. Even, build-up with the last hits louder, or your own pattern from a MIDI file.</p>
-      <p lang="ru">Один или два такта в 4/4, 3/4 или 6/8. Ровный, с нарастанием и акцентом в конце или свой рисунок из MIDI-файла.</p>
-    </div>
+      </div>
     <div class="card">
       <div class="ico">≋</div>
-      <h3><span lang="en">Backing tracks</span><span lang="ru">Минусовки</span></h3>
+      <h3><span lang="en">Backing tracks</span></h3>
       <p lang="en">BS-RoFormer separates guitar and vocals in one pass. Each gets its own slider, from a few dB down to fully removed.</p>
-      <p lang="ru">BS-RoFormer отделяет гитару и вокал за один проход. У каждого свой ползунок: приглушить на пару дБ или убрать совсем.</p>
-    </div>
+      </div>
     <div class="card">
       <div class="ico">▶</div>
-      <h3><span lang="en">Listen before saving</span><span lang="ru">Прослушивание до сохранения</span></h3>
+      <h3><span lang="en">Listen before saving</span></h3>
       <p lang="en">Space plays the count-in and the first seconds of the song. The sliders change the mix while it plays.</p>
-      <p lang="ru">Пробел проигрывает отсчёт и начало песни. Ползунки меняют звук прямо во время прослушивания.</p>
-    </div>
+      </div>
     <div class="card">
       <div class="ico">♫</div>
-      <h3><span lang="en">Formats and tags</span><span lang="ru">Форматы и теги</span></h3>
+      <h3><span lang="en">Formats and tags</span></h3>
       <p lang="en">Opens mp3, FLAC, ALAC and WAV. Saves MP3 320 kbps, FLAC, ALAC or WAV with tags and cover art, sorted into Artist / Album folders if you like.</p>
-      <p lang="ru">Открывает mp3, FLAC, ALAC и WAV. Сохраняет MP3 320 кбит/с, FLAC, ALAC или WAV с тегами и обложкой, по желанию раскладывает по папкам «Исполнитель / Альбом».</p>
-    </div>
+      </div>
     <div class="card">
       <div class="ico">↻</div>
-      <h3><span lang="en">Offline, updates itself</span><span lang="ru">Без облака, обновляется сама</span></h3>
+      <h3><span lang="en">Offline, updates itself</span></h3>
       <p lang="en">Your music never leaves the computer. The network is used only to fetch new versions, which install on restart.</p>
-      <p lang="ru">Музыка никуда не отправляется. Интернет нужен только для новых версий, они ставятся при перезапуске.</p>
-    </div>
+      </div>
   </div>
 </section>
 
 <section>
-  <h2><span lang="en">How it works</span><span lang="ru">Как пользоваться</span></h2>
-  <p class="sub"><span lang="en">A count-in takes seconds. Separating a 4-minute song takes about 2.5 minutes on Apple Silicon, longer on Windows.</span><span lang="ru">Отсчёт готов за секунды. Разделение 4-минутной песни занимает около 2,5 минуты на Apple Silicon и дольше на Windows.</span></p>
+  <h2><span lang="en">How it works</span></h2>
+  <p class="sub"><span lang="en">A count-in takes seconds. Separating a 4-minute song takes about 2.5 minutes on Apple Silicon, longer on Windows.</span></p>
   <div class="grid four">
     <div class="card step">
       <div class="ico">1</div>
       <p lang="en">Drop a track onto the window. The app finds the tempo and the first downbeat.</p>
-      <p lang="ru">Перетащите трек в окно. Программа найдёт темп и первую сильную долю.</p>
-    </div>
+      </div>
     <div class="card step">
       <div class="ico">2</div>
       <p lang="en">Check the orange “1” marker. If the detector missed, drag it to the right beat.</p>
-      <p lang="ru">Проверьте оранжевую метку «1». Если детектор ошибся, перетащите её на нужную долю.</p>
-    </div>
+      </div>
     <div class="card step">
       <div class="ico">3</div>
       <p lang="en">Pick the pattern, length and meter. For a backing track, lower guitar and vocals.</p>
-      <p lang="ru">Выберите рисунок, длину и размер. Для минусовки уберите гитару и вокал.</p>
-    </div>
+      </div>
     <div class="card step">
       <div class="ico">4</div>
       <p lang="en">Preview with Space and save. The new file opens in Finder or Explorer.</p>
-      <p lang="ru">Прослушайте пробелом и сохраните. Готовый файл откроется в Finder или Проводнике.</p>
-    </div>
+      </div>
   </div>
 </section>
 
 <section>
-  <h2><span lang="en">First launch</span><span lang="ru">Первый запуск</span></h2>
-  <p class="sub"><span lang="en">The app is not signed yet, so the system asks once.</span><span lang="ru">Программа пока не подписана, поэтому система один раз переспросит.</span></p>
+  <h2><span lang="en">First launch</span></h2>
+  <p class="sub"><span lang="en">The app is not signed yet, so the system asks once.</span></p>
   <div class="grid two">
     <div class="card">
       <h3>macOS</h3>
       <p lang="en">Unzip and drag <code>Count-In.app</code> to Applications. When the first launch gets blocked, open System Settings → Privacy &amp; Security and click “Open Anyway”.</p>
-      <p lang="ru">Распакуйте и перетащите <code>Count-In.app</code> в «Программы». Когда первый запуск заблокируется, откройте Системные настройки → Конфиденциальность и безопасность и нажмите «Всё равно открыть».</p>
-    </div>
+      </div>
     <div class="card">
       <h3>Windows</h3>
       <p lang="en">Unzip and run <code>Count-In.exe</code>. If SmartScreen appears, click “More info” → “Run anyway”.</p>
-      <p lang="ru">Распакуйте и запустите <code>Count-In.exe</code>. Если появится SmartScreen, нажмите «Подробнее» → «Выполнить в любом случае».</p>
-    </div>
+      </div>
   </div>
 </section>
 
 <footer>
   <span lang="en">Source code, issues and release notes are on <a href="https://github.com/shurshun/count-in">GitHub</a>. Demo song made with Suno.</span>
-  <span lang="ru">Исходный код, вопросы и описания версий — на <a href="https://github.com/shurshun/count-in">GitHub</a>. Демо-песня сделана в Suno.</span>
-</footer>
+  </footer>
 
 </div>
 </body>

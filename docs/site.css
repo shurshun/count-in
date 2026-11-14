@@ -26,11 +26,11 @@ html[lang=en] [lang=ru], html[lang=ru] [lang=en] { display: none !important; }
 nav { display: flex; align-items: center; gap: 8px; padding: 16px 0; }
 nav .name { font-weight: 700; font-size: 18px; margin-right: auto; display: flex; align-items: center; gap: 10px; text-decoration: none; color: inherit; }
 nav .name img { width: 28px; height: 28px; }
-nav a.link, nav button {
+nav a.link, nav a.lang, nav button {
   color: var(--muted); text-decoration: none; font: inherit; font-size: 14px; line-height: 20px;
   background: none; border: 1px solid transparent; border-radius: 8px; padding: 6px 10px; cursor: pointer;
 }
-nav a.link:hover, nav button:hover { color: var(--text); border-color: var(--border); }
+nav a.link:hover, nav a.lang:hover, nav button:hover { color: var(--text); border-color: var(--border); }
 
 /* Buttons */
 .downloads { display: flex; gap: 10px; flex-wrap: wrap; }

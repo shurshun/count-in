@@ -10,6 +10,7 @@
 
 ## Links
 
+- [Website](https://count-in.app/) · [на русском](https://count-in.app/ru/)
 - [Download for macOS](https://github.com/shurshun/count-in/releases/latest/download/Count-In-macos-arm64.zip)
 - [Download for Windows](https://github.com/shurshun/count-in/releases/latest/download/Count-In-windows-x64.zip)
 - [Source code and documentation](https://github.com/shurshun/count-in)

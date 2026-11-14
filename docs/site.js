@@ -1,12 +1,13 @@
-// Language follows the system unless chosen; theme is light unless chosen
+// The language link remembers an explicit choice (read by the redirect in _page.html).
+// The theme is light unless chosen.
 const root = document.documentElement;
 const pref = k => { try { return localStorage.getItem(k); } catch { return null; } };
 const save = (k, v) => { try { localStorage.setItem(k, v); } catch {} };
-root.lang = pref("lang") || (navigator.language.startsWith("ru") ? "ru" : "en");
 root.dataset.theme = pref("theme") || "light";
 
 document.addEventListener("click", e => {
-  if (e.target.closest("[data-toggle=lang]")) save("lang", root.lang = root.lang === "ru" ? "en" : "ru");
+  const lang = e.target.closest("[data-lang]");
+  if (lang) save("lang", lang.dataset.lang);
   if (e.target.closest("[data-toggle=theme]")) save("theme", root.dataset.theme = root.dataset.theme === "dark" ? "light" : "dark");
 });
 
