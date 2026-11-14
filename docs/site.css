@@ -156,16 +156,35 @@ footer { padding: 88px 0 40px; color: var(--muted); font-size: 14px; text-align:
 .mock.settings { height: 76%; display: grid; grid-template-columns: 44% 1fr; }
 .mock .side { background: var(--bg2); padding: 12px 10px; display: flex; flex-direction: column; gap: 6px; color: var(--muted); }
 .mock .side span { white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
-.mock .side .on { background: var(--blue); color: #fff; border-radius: 6px; padding: 3px 6px; margin: 0 -6px; }
+.mock .side .on { background: #0062cc; color: #fff; border-radius: 6px; padding: 3px 6px; margin: 0 -6px; }
 .mock .main { padding: 14px; display: flex; flex-direction: column; gap: 10px; }
 .mock p { margin: 0; line-height: 1.35; }
 .mock .btn { align-self: flex-start; font-weight: 600; border: 1px solid var(--border); background: var(--card); border-radius: 6px; padding: 4px 10px; box-shadow: 0 0 0 3px rgba(255,159,10,.5); }
 .mock.menu { width: auto; min-width: 150px; padding: 6px; }
 .mock.menu div { padding: 5px 10px; border-radius: 5px; color: var(--muted); }
-.mock.menu .on { background: var(--blue); color: #fff; }
+.mock.menu .on { background: #0062cc; color: #fff; }
 .mock.smartscreen { width: 92%; background: #0063b1; border: none; color: #fff; padding: 16px; display: flex; flex-direction: column; gap: 8px; }
 .mock.smartscreen b { font-size: 15px; font-weight: 600; }
 .mock.smartscreen u { opacity: .9; }
 .mock.smartscreen .btn { align-self: flex-end; background: #0063b1; color: #fff; border: 1px solid #fff; }
 
 @media (max-width: 860px) { .steps3 { grid-template-columns: 1fr; } }
+
+/* Coffee tip: a quiet, optional thank-you to the author */
+.coffee { display: flex; align-items: center; gap: 22px; background: linear-gradient(100deg, rgba(255,159,10,.10), rgba(255,159,10,.03)); border: 1px solid rgba(255,159,10,.30); border-radius: 20px; padding: 24px 28px; text-align: left; }
+.coffee .cup { flex: none; width: 56px; height: 56px; border-radius: 50%; background: rgba(255,159,10,.16); display: grid; place-items: center; font-size: 28px; }
+.coffee .txt { flex: 1; }
+.coffee p { margin: 0; }
+.coffee small { display: block; margin-top: 4px; color: var(--muted); font-size: 13px; }
+.coffee .tip { flex: none; display: inline-flex; align-items: center; gap: 8px; border: 1px solid var(--border); background: var(--card); color: var(--text); text-decoration: none; font-weight: 600; padding: 11px 20px; border-radius: 12px; }
+.coffee .tip:hover { border-color: var(--muted); }
+.coffee .tip svg { width: 15px; height: 15px; fill: none; stroke: var(--muted); stroke-width: 2; stroke-linecap: round; stroke-linejoin: round; }
+.steps3 ~ .coffee { margin: 0 0 32px; }
+.coffee .tip span { white-space: nowrap; }
+@media (max-width: 760px) {
+  .coffee { flex-wrap: wrap; padding: 20px; gap: 16px; }
+  .coffee .tip { width: 100%; justify-content: center; padding: 11px 14px; }
+}
+@media (max-width: 600px) {
+  .coffee .cup { display: none; }  /* the button already carries the cup */
+}
