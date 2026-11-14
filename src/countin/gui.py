@@ -11,7 +11,7 @@ from pathlib import Path
 
 import numpy as np
 from PySide6.QtCore import QEvent, QObject, QSettings, QStandardPaths, QUrl, QPointF, QRectF, QRunnable, QSize, Qt, QThreadPool, QTimer, Signal
-from PySide6.QtGui import QAction, QDesktopServices, QIcon, QKeySequence, QColor, QPainter, QPainterPath, QPen, QPixmap, QPolygonF
+from PySide6.QtGui import QAction, QDesktopServices, QIcon, QKeySequence, QColor, QPainter, QPainterPath, QPen, QPalette, QPixmap, QPolygonF
 from PySide6.QtWidgets import (
     QAbstractSpinBox, QApplication, QButtonGroup, QCheckBox, QComboBox, QDialog, QDoubleSpinBox, QFileDialog, QFrame,
     QGridLayout, QHBoxLayout, QLabel, QLineEdit, QMainWindow, QMessageBox, QProgressBar, QPushButton, QRadioButton,
@@ -53,7 +53,7 @@ QPushButton[seg] { border: 1px solid rgba(127,127,127,0.35); background: rgba(12
 QPushButton[seg="first"] { border-top-left-radius: 6px; border-bottom-left-radius: 6px; }
 QPushButton[seg="last"] { border-top-right-radius: 6px; border-bottom-right-radius: 6px; }
 QPushButton[seg]:checked { background: palette(highlight); color: palette(highlighted-text); border-color: palette(highlight); }
-QPushButton#primary { background: palette(highlight); color: white; border: none;
+QPushButton#primary { background: @PRIMARY@; color: white; border: none;
                       border-radius: 9px; padding: 8px 26px; font-size: 15px; font-weight: 600; min-height: 22px; }
 QPushButton#primary:disabled { background: rgba(127,127,127,0.25); }
 QPushButton#tool { border: 1px solid @BORDER@; border-radius: 9px; padding: 8px 18px; font-size: 15px;
@@ -1443,6 +1443,9 @@ def style_sheet(app: QApplication) -> str:
                "@FIELD@": "#a1a1a6"} if dark else
               {"@WINDOW@": "#f5f5f7", "@SIDEBAR@": "#ececee", "@CARD@": "#ffffff", "@BORDER@": "#d8d8dc",
                "@FIELD@": "#6e6e73"})
+
+    # Light highlight is a pale selection blue; white text needs the stronger accent
+    colors["@PRIMARY@"] = "palette(highlight)" if dark else app.palette().color(QPalette.Accent).name()
     out = STYLE
     for k, v in colors.items():
         out = out.replace(k, v)
