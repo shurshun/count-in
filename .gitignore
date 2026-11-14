@@ -8,3 +8,7 @@ models/separator/
 build/
 bin/
 !docs/demo/*.mp3
+
+# Local test tracks; only the count-in clicks belong to the repo
+samples/*
+!samples/stick_*.wav

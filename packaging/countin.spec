@@ -11,9 +11,11 @@ version = tomllib.loads((root / "pyproject.toml").read_text(encoding="utf-8"))["
 
 datas = [(str(root / "models" / "final0.ckpt"), "models"),
          (str(root / "models" / "separator"), "models/separator")]
-for extra in ("samples", "bin"):
-    if (root / extra).exists():
-        datas.append((str(root / extra), extra))
+
+# Only the click sounds: samples/ may also hold local test tracks.
+datas += [(str(p), "samples") for p in sorted((root / "samples").glob("stick_*.wav"))]
+if (root / "bin").exists():
+    datas.append((str(root / "bin"), "bin"))
 
 # Window and Dock icons the app switches at run time; the ICO/ICNS below are the fixed, light build icons.
 icons = root / "assets" / "icons"
