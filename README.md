@@ -2,7 +2,7 @@
 
 # Count-In
 
-[English](#count-in) · [Русский](#русский)
+[count-in.app](https://count-in.app) · [English](#count-in) · [Русский](#русский)
 
 Count-In finds a song's tempo and first downbeat and puts a drum count-in in front of it. The last click lands exactly one beat before the "one". The same song can become a backing track with the guitar and vocals removed or turned down.
 

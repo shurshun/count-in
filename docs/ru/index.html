@@ -1,0 +1,175 @@
+<!doctype html>
+<!-- Generated from _page.html by build_site.py -->
+<html lang="ru" data-theme="light">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Count-In — отсчёт перед песней и минусовки без гитары и вокала</title>
+<meta name="description" content="Count-In находит темп и первую долю песни, добавляет перед ней отсчёт палочками и убирает гитару и вокал для минусовки. Бесплатно для macOS и Windows, работает без интернета.">
+<link rel="canonical" href="https://count-in.app/ru/">
+<link rel="alternate" hreflang="en" href="https://count-in.app/">
+<link rel="alternate" hreflang="ru" href="https://count-in.app/ru/">
+<link rel="alternate" hreflang="x-default" href="https://count-in.app/">
+<meta name="theme-color" content="#fbfbfd">
+<meta property="og:type" content="website">
+<meta property="og:site_name" content="Count-In">
+<meta property="og:url" content="https://count-in.app/ru/">
+<meta property="og:title" content="Count-In — отсчёт перед любой песней">
+<meta property="og:description" content="Отсчёт палочками, который точно попадает в первую долю, и минусовки без гитары и вокала. Бесплатно для macOS и Windows.">
+<meta property="og:image" content="https://count-in.app/screenshots/social-preview.png">
+<meta property="og:image:width" content="1280">
+<meta property="og:image:height" content="640">
+<meta property="og:image:alt" content="Окно Count-In с волной песни и щелчками отсчёта">
+<meta property="og:locale" content="ru_RU">
+<meta property="og:locale:alternate" content="en_US">
+<meta name="twitter:card" content="summary_large_image">
+<link rel="icon" href="../favicon.png" type="image/png">
+<link rel="apple-touch-icon" href="../apple-touch-icon.png">
+<script type="application/ld+json">
+{
+  "@context": "https://schema.org",
+  "@type": "SoftwareApplication",
+  "name": "Count-In",
+  "url": "https://count-in.app/ru/",
+  "description": "Находит темп и первую долю песни, добавляет отсчёт с точностью до сэмпла и убирает гитару и вокал для минусовки.",
+  "applicationCategory": "MultimediaApplication",
+  "operatingSystem": "macOS 12+ (Apple Silicon), Windows 10/11 (x64)",
+  "offers": { "@type": "Offer", "price": "0", "priceCurrency": "USD" },
+  "downloadUrl": "https://github.com/shurshun/count-in/releases/latest",
+  "screenshot": "https://count-in.app/screenshots/main-light-en.png",
+  "image": "https://count-in.app/icon.png",
+  "inLanguage": "ru"
+}
+</script>
+<script>
+  // First visit to the English page follows the system language; a saved choice wins
+  try {
+    if (document.documentElement.lang === "en" &&
+        (localStorage.getItem("lang") || navigator.language.slice(0, 2)) === "ru") location.replace("ru/" + location.hash);
+  } catch {}
+</script>
+<link rel="stylesheet" href="../site.css">
+<script src="../site.js" defer></script>
+</head>
+<body>
+<div class="wrap">
+
+<nav>
+  <a class="name" href="#"><img src="../favicon.png" alt="">Count-In</a>
+  <a class="link" href="#demo"><span lang="ru">Демо</span></a>
+  <a class="link" href="https://github.com/shurshun/count-in">GitHub</a>
+  <button type="button" data-toggle="theme" aria-label="Theme"><span class="light-only">☾</span><span class="dark-only">☀</span></button>
+  <a class="lang" href="../" hreflang="en" data-lang="en">EN</a>
+</nav>
+
+<div class="hero">
+  <h1><span lang="ru">Отсчёт перед любой песней</span></h1>
+  <p class="lead">
+    <span lang="ru">Count-In находит темп и первую долю и добавляет отсчёт палочками, который точно попадает в «раз». А ещё убирает гитару и вокал, чтобы получилась минусовка.</span>
+  </p>
+  <div class="downloads">
+    <a class="dl" href="https://github.com/shurshun/count-in/releases/latest/download/Count-In-macos-arm64.zip">
+      <svg viewBox="0 0 24 24"><path d="M11 3h2v10.2l3.6-3.6 1.4 1.4-6 6-6-6 1.4-1.4 3.6 3.6zM5 19h14v2H5z"/></svg>
+      <span><span lang="ru">Скачать для Mac</span><small>macOS 12+ · Apple Silicon</small></span>
+    </a>
+    <a class="dl alt" href="https://github.com/shurshun/count-in/releases/latest/download/Count-In-windows-x64.zip">
+      <svg viewBox="0 0 24 24"><path d="M11 3h2v10.2l3.6-3.6 1.4 1.4-6 6-6-6 1.4-1.4 3.6 3.6zM5 19h14v2H5z"/></svg>
+      <span><span lang="ru">Скачать для Windows</span><small>Windows 10/11 · x64</small></span>
+    </a>
+  </div>
+  <p class="note">
+    <span lang="ru">Бесплатно · работает без интернета · обновляется сама · <a href="https://github.com/shurshun/count-in/releases/latest">что нового</a></span>
+  </p>
+</div>
+
+<div class="player" id="demo" data-player data-src="../demo/"></div>
+
+<div class="shot">
+  <div class="window">
+    <img class="light-only" lang="ru" src="../screenshots/main-light-1600.webp" srcset="../screenshots/main-light-800.webp 800w, ../screenshots/main-light-1600.webp 1600w" sizes="(max-width: 1048px) calc(100vw - 48px), 1000px" alt="Окно Count-In" width="1600" height="1085" loading="lazy">
+    <img class="dark-only" lang="ru" src="../screenshots/main-dark-1600.webp" srcset="../screenshots/main-dark-800.webp 800w, ../screenshots/main-dark-1600.webp 1600w" sizes="(max-width: 1048px) calc(100vw - 48px), 1000px" alt="Окно Count-In" width="1600" height="1085" loading="lazy">
+  </div>
+</div>
+
+<section>
+  <h2><span lang="ru">Что умеет</span></h2>
+  <p class="sub"><span lang="ru">Всё работает на вашем компьютере, от поиска долей до разделения инструментов.</span></p>
+  <div class="grid">
+    <div class="card">
+      <div class="ico">♩</div>
+      <h3><span lang="ru">Отсчёт с точностью до сэмпла</span></h3>
+      <p lang="ru">Нейросеть находит темп и первую сильную долю. Каждый щелчок ставится на свой сэмпл, поэтому ритм не уплывает.</p>
+    </div>
+    <div class="card">
+      <div class="ico">♬</div>
+      <h3><span lang="ru">Свой рисунок</span></h3>
+      <p lang="ru">Один или два такта в 4/4, 3/4 или 6/8. Ровный, с нарастанием и акцентом в конце или свой рисунок из MIDI-файла.</p>
+    </div>
+    <div class="card">
+      <div class="ico">≋</div>
+      <h3><span lang="ru">Минусовки</span></h3>
+      <p lang="ru">BS-RoFormer отделяет гитару и вокал за один проход. У каждого свой ползунок: приглушить на пару дБ или убрать совсем.</p>
+    </div>
+    <div class="card">
+      <div class="ico">▶</div>
+      <h3><span lang="ru">Прослушивание до сохранения</span></h3>
+      <p lang="ru">Пробел проигрывает отсчёт и начало песни. Ползунки меняют звук прямо во время прослушивания.</p>
+    </div>
+    <div class="card">
+      <div class="ico">♫</div>
+      <h3><span lang="ru">Форматы и теги</span></h3>
+      <p lang="ru">Открывает mp3, FLAC, ALAC и WAV. Сохраняет MP3 320 кбит/с, FLAC, ALAC или WAV с тегами и обложкой, по желанию раскладывает по папкам «Исполнитель / Альбом».</p>
+    </div>
+    <div class="card">
+      <div class="ico">↻</div>
+      <h3><span lang="ru">Без облака, обновляется сама</span></h3>
+      <p lang="ru">Музыка никуда не отправляется. Интернет нужен только для новых версий, они ставятся при перезапуске.</p>
+    </div>
+  </div>
+</section>
+
+<section>
+  <h2><span lang="ru">Как пользоваться</span></h2>
+  <p class="sub"><span lang="ru">Отсчёт готов за секунды. Разделение 4-минутной песни занимает около 2,5 минуты на Apple Silicon и дольше на Windows.</span></p>
+  <div class="grid four">
+    <div class="card step">
+      <div class="ico">1</div>
+      <p lang="ru">Перетащите трек в окно. Программа найдёт темп и первую сильную долю.</p>
+    </div>
+    <div class="card step">
+      <div class="ico">2</div>
+      <p lang="ru">Проверьте оранжевую метку «1». Если детектор ошибся, перетащите её на нужную долю.</p>
+    </div>
+    <div class="card step">
+      <div class="ico">3</div>
+      <p lang="ru">Выберите рисунок, длину и размер. Для минусовки уберите гитару и вокал.</p>
+    </div>
+    <div class="card step">
+      <div class="ico">4</div>
+      <p lang="ru">Прослушайте пробелом и сохраните. Готовый файл откроется в Finder или Проводнике.</p>
+    </div>
+  </div>
+</section>
+
+<section>
+  <h2><span lang="ru">Первый запуск</span></h2>
+  <p class="sub"><span lang="ru">Программа пока не подписана, поэтому система один раз переспросит.</span></p>
+  <div class="grid two">
+    <div class="card">
+      <h3>macOS</h3>
+      <p lang="ru">Распакуйте и перетащите <code>Count-In.app</code> в «Программы». Когда первый запуск заблокируется, откройте Системные настройки → Конфиденциальность и безопасность и нажмите «Всё равно открыть».</p>
+    </div>
+    <div class="card">
+      <h3>Windows</h3>
+      <p lang="ru">Распакуйте и запустите <code>Count-In.exe</code>. Если появится SmartScreen, нажмите «Подробнее» → «Выполнить в любом случае».</p>
+    </div>
+  </div>
+</section>
+
+<footer>
+  <span lang="ru">Исходный код, вопросы и описания версий — на <a href="https://github.com/shurshun/count-in">GitHub</a>. Демо-песня сделана в Suno.</span>
+</footer>
+
+</div>
+</body>
+</html>

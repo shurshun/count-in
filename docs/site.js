@@ -1,12 +1,13 @@
-// Language follows the system unless chosen; theme is light unless chosen
+// The language link remembers an explicit choice (read by the redirect in _page.html).
+// The theme is light unless chosen.
 const root = document.documentElement;
 const pref = k => { try { return localStorage.getItem(k); } catch { return null; } };
 const save = (k, v) => { try { localStorage.setItem(k, v); } catch {} };
-root.lang = pref("lang") || (navigator.language.startsWith("ru") ? "ru" : "en");
 root.dataset.theme = pref("theme") || "light";
 
 document.addEventListener("click", e => {
-  if (e.target.closest("[data-toggle=lang]")) save("lang", root.lang = root.lang === "ru" ? "en" : "ru");
+  const lang = e.target.closest("[data-lang]");
+  if (lang) save("lang", lang.dataset.lang);
   if (e.target.closest("[data-toggle=theme]")) save("theme", root.dataset.theme = root.dataset.theme === "dark" ? "light" : "dark");
 });
 
@@ -28,14 +29,12 @@ const ICON_PAUSE = '<svg viewBox="0 0 24 24"><path d="M6 4h4.5v16H6zM13.5 4H18v1
 
 function player(el) {
   const N = DEMO.peaks.length, W = N * 3;
-  const bars = DEMO.peaks.map((p, i) => {
+  // One path per layer keeps the DOM small
+  const bars = `<path d="${DEMO.peaks.map((p, i) => {
     const h = Math.max(2, p * 80);
-    return `<rect x="${i * 3}" y="${(96 - h) / 2 + 4}" width="2" height="${h}" rx="1"/>`;
-  }).join("");
-  const clicks = DEMO.clicks.map(t => {
-    const x = t / DEMO.duration * W;
-    return `<line x1="${x}" x2="${x}" y1="22" y2="82"/>`;
-  }).join("");
+    return `M${i * 3} ${(96 - h) / 2 + 4}h2v${h}h-2z`;
+  }).join("")}"/>`;
+  const clicks = `<path d="${DEMO.clicks.map(t => `M${t / DEMO.duration * W} 22V82`).join("")}"/>`;
   el.innerHTML = `
     <div class="top">
       <button class="play" type="button" aria-label="Play">${ICON_PLAY}</button>
@@ -61,12 +60,27 @@ function player(el) {
   const fmt = t => Math.floor(t / 60) + ":" + String(Math.floor(t % 60)).padStart(2, "0");
   const position = () => playing ? Math.min(ctx.currentTime - startedAt, DEMO.duration) : offset;
 
+  // Downloads start on the first scroll, pointer move, touch or key after load, so they never compete
+  // with the page itself; decoding waits for the click that creates the AudioContext
+  let files = null;
+  const fetchFiles = () => files = files || Promise.all(DEMO.variants.map(([v]) =>
+    fetch(el.dataset.src + v + ".mp3")
+      .then(r => { if (!r.ok) throw new Error(r.status + " " + r.url); return r.arrayBuffer(); })))
+    .catch(e => { files = null; throw e; });
+  addEventListener("load", () => {
+    if (navigator.connection?.saveData) return;
+    const events = ["scroll", "pointermove", "touchstart", "keydown"];
+    const go = () => {
+      events.forEach(e => removeEventListener(e, go));
+      fetchFiles().catch(() => {});
+    };
+    events.forEach(e => addEventListener(e, go, { once: true, passive: true }));
+  });
+
   async function load() {
     ctx = ctx || new AudioContext();
-    buffers = await Promise.all(DEMO.variants.map(([v]) =>
-      fetch(el.dataset.src + v + ".mp3")
-        .then(r => { if (!r.ok) throw new Error(r.status + " " + r.url); return r.arrayBuffer(); })
-        .then(b => ctx.decodeAudioData(b))));
+    const data = await fetchFiles();
+    buffers = await Promise.all(data.map(b => ctx.decodeAudioData(b.slice(0))));
     gains = DEMO.variants.map(([v]) => {
       const g = ctx.createGain();
       g.gain.value = v === current ? 1 : 0;
@@ -81,11 +95,13 @@ function player(el) {
       return s;
     });
     sources[0].onended = () => stop(0);
-    startedAt = ctx.currentTime - at; playing = true; playBtn.innerHTML = ICON_PAUSE;
+    startedAt = ctx.currentTime - at; playing = true; playBtn.innerHTML = ICON_PAUSE; playBtn.ariaLabel = "Pause";
+    requestAnimationFrame(loop);
   }
   function stop(at) {
     sources.forEach(s => { s.onended = null; s.stop(); });
-    sources = []; playing = false; offset = at; playBtn.innerHTML = ICON_PLAY;
+    sources = []; playing = false; offset = at; playBtn.innerHTML = ICON_PLAY; playBtn.ariaLabel = "Play";
+    draw();
   }
 
   playBtn.onclick = async () => {
@@ -107,14 +123,18 @@ function player(el) {
   wave.onclick = e => {
     const r = wave.getBoundingClientRect();
     const at = Math.max(0, Math.min(1, (e.clientX - r.left) / r.width)) * DEMO.duration;
-    if (playing) { stop(at); start(at); } else offset = at;
+    if (playing) { stop(at); start(at); } else { offset = at; draw(); }
   };
-  (function tick() {
+  // Redraws per frame only while playing
+  function draw() {
     const t = position(), f = t / DEMO.duration;
     cut.setAttribute("width", f * W);
     head.style.left = f * 100 + "%";
     time.textContent = fmt(t) + " / " + fmt(DEMO.duration);
-    requestAnimationFrame(tick);
-  })();
+  }
+  function loop() {
+    draw();
+    if (playing) requestAnimationFrame(loop);
+  }
 }
 document.querySelectorAll("[data-player]").forEach(player);
