@@ -10,7 +10,7 @@ Count-In finds a song's tempo and first downbeat and puts a drum count-in in fro
 - Patterns: even, build-up (twice as dense in the second half, the last hits louder) or your own from a MIDI file.
 - A neural network separates guitar and vocals in one pass; each has its own level.
 - Input: mp3, FLAC, ALAC, WAV. Output: MP3 320 kbps, FLAC, ALAC or WAV, with tags and cover art kept.
-- Works offline. The network is used only for the update check.
+- Works offline. The network is used only for updates.
 
 The interface is in English and Russian; it follows the system language, and Settings can switch it.
 
@@ -62,7 +62,9 @@ The count-in and analysis take seconds. Separating guitar and vocals takes longe
 
 ### Updates
 
-On start, the app checks GitHub for a newer version in the background. If there is one, a round blue download badge appears next to the version in the bottom right corner. Справка → Проверить обновления checks again.
+On start, the app checks GitHub for a newer version and downloads it in the background (about 800 MB), checking its SHA-256 against the release. When it is ready, a round blue badge appears left of the version in the bottom right corner, and the menu offers "Restart to Update". Without a restart, the update installs when you quit. "Check for Updates…" sits in the app menu on macOS and under Help on Windows.
+
+The app updates itself only from a folder it can write to. Run from Downloads on macOS without moving it, or from a protected folder, the badge opens the download page instead.
 
 ---
 
@@ -136,7 +138,7 @@ Count-In находит темп и первую сильную долю пес�
 - Рисунок: ровный, «нарастание» (во второй половине вдвое чаще, последние удары громче) или свой из MIDI-файла.
 - Гитара и вокал отделяются нейросетью за один проход, уровень каждого настраивается отдельно.
 - Вход: mp3, FLAC, ALAC, WAV. Выход: MP3 320 kbps, FLAC, ALAC или WAV, теги и обложка сохраняются.
-- Работает без интернета. Сеть нужна только для проверки обновлений.
+- Работает без интернета. Сеть нужна только для обновлений.
 - Интерфейс на русском и английском: язык берётся из системы, его можно сменить в настройках.
 
 ### Скачать
@@ -187,7 +189,9 @@ Count-In находит темп и первую сильную долю пес�
 
 #### Обновления
 
-При запуске приложение в фоне проверяет, нет ли новой версии на GitHub. Если есть, справа внизу рядом с версией появляется круглый голубой значок загрузки. Справка → Проверить обновления проверяет ещё раз.
+При запуске приложение проверяет, нет ли новой версии на GitHub, и в фоне скачивает её (около 800 МБ), сверяя SHA-256 с релизом. Когда загрузка готова, справа внизу слева от версии появляется круглый голубой значок, а в меню — пункт «Перезапустить и обновить». Если не перезапускать, обновление установится при выходе. «Проверить обновления…» находится в меню приложения на macOS и в меню «Справка» на Windows.
+
+Само обновляется только приложение из папки, куда можно писать. Если на macOS запускать его прямо из «Загрузок», не перенося, или из защищённой папки, значок открывает страницу загрузки.
 
 ---
 

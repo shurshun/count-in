@@ -35,7 +35,7 @@ Count-In inserts a drum count-in before a song's first downbeat and can turn gui
 - The last click lands exactly one click before the downbeat. `countin-verify` checks it: "vs planned" must stay at 0.00 ms.
 - Stems come back sample-aligned with the input and of its shape. `test_stems_sum_back_to_the_mix_without_shift` guards it.
 - Clicks never clip the song. `render` only counts overs the clicks add.
-- Nothing downloads at run time. Models ship in the bundle; `update.check` is the only network call.
+- Models ship in the bundle. The only network traffic is the update check and the update download.
 
 ## Why these technologies
 
@@ -63,6 +63,7 @@ Count-In inserts a drum count-in before a song's first downbeat and can turn gui
 - **Preferences.** `PrefsDialog` saves to `QSettings` at once: `output/dir` (empty means next to the source), `output/group` and the `output/artist|year|album` levels, `output/reveal` (open the folder after saving, on by default), `appearance/icon`, `appearance/language`. `io.organized_dir` builds the folder from source tags; `io.safe_name` keeps names valid on Windows.
 - **Status bar.** File format from `io.describe`, save status, the version (`v0.5.0`) and, when a newer release exists, a round blue download badge left of it.
 - **Update check TLS.** `update.check` trusts the OS certificate store through `truststore`. The bundled Python's OpenSSL looks for certificates in a python.org-only folder, so without truststore HTTPS fails on most machines. CI runs `countin --check-update` from the bundle to catch that.
+- **Self-update.** `update.can_self_update` needs the asset's `sha256` digest from the API and a frozen bundle in a writable folder outside App Translocation; otherwise the badge opens the download page. `update.download` streams the zip into `.count-in-update/` next to the bundle, hashes it on the way and unpacks it (`ditto` on macOS keeps symlinks and permissions). `update.install_on_exit` starts a detached `sh`/`cmd` helper that waits for the app's PID, renames the bundle to `.old`, moves the new one in, restores the old one on failure and relaunches. "Restart to Update" relaunches; quitting with a staged update installs without relaunching. `test_update_helper_swaps_the_bundle_after_the_app_exits` runs the real helper on both CI platforms.
 - **Theme.** `style_sheet()` fills colour tokens in `STYLE` for light or dark appearance.
 - **App icon.** The preferences offer a light (default) or dark icon, saved under `appearance/icon`; anything else means light. `apply_icon()` sets the window and Dock icon at run time. Finder and Explorer always show the built-in light ICNS/ICO.
 - **Languages.** `i18n.py` holds the English text. Strings in the code are Russian and pass through `_()`; `_("… {name}", name=x)` formats. The preferences save `appearance/language` (`system`, `en`, `ru`); `system` picks Russian for a Russian system locale and English otherwise. The language applies at start, together with the number format, so a change needs a restart. Detector notes come from `analyze.py` in English and get translated only for the Russian UI. `test_every_ui_string_has_an_english_version` fails on any `_()` string missing from `i18n.EN`; add the English line when you add a string. Folder names for missing tags (`Unknown Artist`) follow the language too.
@@ -73,7 +74,7 @@ Count-In inserts a drum count-in before a song's first downbeat and can turn gui
 - `io.tool()` finds ffmpeg/ffprobe in `bin/` by full path; nothing relies on `PATH`.
 - `packaging/countin.spec` builds one bundle with two executables sharing its libraries: `Count-In` (app) and `countin` (CLI). It bundles `models/final0.ckpt`, `models/separator/`, `samples/`, `bin/`, the light and dark PNGs from `assets/icons/` and the `countin` package metadata (the update check reads the version from it).
 - `packaging/build_ffmpeg.sh` builds a static, audio-only LGPL ffmpeg on macOS. ffmpeg 7+ needs the `fd` protocol for `-` pipes. Windows CI downloads a BtbN LGPL build instead.
-- `packaging/fetch_models.sh` downloads the weights and checks their sha256; `build_ffmpeg.sh` checks the ffmpeg tarball. Windows CI pins a dated BtbN build by hash; BtbN prunes old autobuilds, so a 404 there means moving the URL and hash to a newer one. CI caches `models/` keyed by the fetch script.
+- `packaging/fetch_models.sh` downloads the weights and checks their sha256. When the JKU server fails, `final0.ckpt` comes out of the latest release zip through HTTP range requests (`packaging/fetch_from_release.py`); `build_ffmpeg.sh` checks the ffmpeg tarball. Windows CI pins a dated BtbN build by hash; BtbN prunes old autobuilds, so a 404 there means moving the URL and hash to a newer one. CI caches `models/` keyed by the fetch script.
 - The windowed Windows build has no stderr; `packaging/countin_app.py` points it at devnull before anything prints.
 
 ## CI and releases

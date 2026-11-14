@@ -724,6 +724,8 @@ class PrefsDialog(QDialog):
 
 class Window(QMainWindow):
     updateFound = Signal(object)
+    updateProgress = Signal(int)
+    updateReady = Signal(object)
 
     def __init__(self):
         super().__init__()
@@ -747,8 +749,11 @@ class Window(QMainWindow):
         self.play_timer = QTimer(self, interval=30, timeout=self._tick)
         self.last_saved: Path | None = None
         self.release = None
+        self.staged: Path | None = None  # unpacked update waiting for a restart or quit
 
         self.updateFound.connect(self._update_found)
+        self.updateProgress.connect(self._update_progress)
+        self.updateReady.connect(self._update_ready)
         self._build_menu()
         self._build_body()
         self._build_status()
@@ -785,7 +790,10 @@ class Window(QMainWindow):
         help_ = mb.addMenu(_("Справка"))
         about = help_.addAction(_("О программе Count-In"), self._about)
         about.setMenuRole(QAction.AboutRole)
-        help_.addAction(_("Проверить обновления"), lambda: self.check_updates(manual=True))
+
+        # ApplicationSpecificRole puts it into the app menu on macOS, under Settings, as macOS apps do.
+        self.update_a = help_.addAction(_("Проверить обновления…"), self._update_action)
+        self.update_a.setMenuRole(QAction.ApplicationSpecificRole)
         help_.addAction(_("Страница проекта"), lambda: QDesktopServices.openUrl(QUrl(f"https://github.com/{update.REPO}")))
 
     def _header(self) -> QWidget:
@@ -936,7 +944,7 @@ class Window(QMainWindow):
         self.version_l = QLabel(f"v{update.current_version()}")
 
         # Round blue badge left of the version, shown only when a newer release exists.
-        self.update_b = QPushButton("↓", objectName="update", clicked=self._download_update)
+        self.update_b = QPushButton("↓", objectName="update", clicked=self._update_action)
         self.update_b.setFocusPolicy(Qt.NoFocus)
         self.update_b.setCursor(Qt.PointingHandCursor)
         sb.addWidget(self.file_l)
@@ -956,9 +964,13 @@ class Window(QMainWindow):
         self._show_version()
 
     def _show_version(self):
-        self.update_b.setVisible(self.release is not None)
-        if self.release:
-            self.update_b.setToolTip(_("Доступна v{version}, скачать", version=self.release.version))
+        """The badge shows once an update is ready to install, or when it can only be downloaded by hand."""
+        r = self.release
+        self.update_b.setVisible(bool(r) and (self.staged is not None or not update.can_self_update(r)))
+        if self.staged:
+            self.update_b.setToolTip(_("Перезапустить и обновить до v{version}", version=r.version))
+        elif r:
+            self.update_b.setToolTip(_("Доступна v{version}, скачать", version=r.version))
 
     # --- dialogs ---
 
@@ -977,6 +989,7 @@ class Window(QMainWindow):
     def check_updates(self, manual: bool = False):
         """Asks GitHub in a daemon thread; the answer comes back to the UI thread as a queued signal."""
         self._manual_check = manual
+        self._update_menu(_("Проверка обновлений…"), enabled=False)
         threading.Thread(target=self._check_in_thread, daemon=True).start()
 
     def _check_in_thread(self):
@@ -985,24 +998,84 @@ class Window(QMainWindow):
         except Exception as e:  # offline, TLS, rate limit
             log.warning("update check failed: %s", e)
             release = e
+        self._emit(self.updateFound, release)
+
+    def _emit(self, signal, value):
         try:
-            self.updateFound.emit(release)
-        except RuntimeError:  # the window closed while GitHub was answering
+            signal.emit(value)
+        except RuntimeError:  # the window closed while the thread worked
             pass
 
-    def _update_found(self, release):
-        if isinstance(release, Exception):
-            if getattr(self, "_manual_check", False):
-                self.status.setText(_("Не удалось проверить обновления: {e}", e=release))
-        elif release:
-            self.release = release
-            self._show_version()
-        elif getattr(self, "_manual_check", False):
-            self.status.setText(_("Установлена последняя версия, v{version}", version=update.current_version()))
+    def _update_menu(self, text: str, enabled: bool = True):
+        self.update_a.setText(text)
+        self.update_a.setEnabled(enabled)
 
-    def _download_update(self, *_):
-        if self.release:
+    def _update_found(self, release):
+        manual = getattr(self, "_manual_check", False)
+        self._update_menu(_("Проверить обновления…"))
+        if isinstance(release, Exception):
+            if manual:
+                self.status.setText(_("Не удалось проверить обновления: {e}", e=release))
+        elif not release:
+            if manual:
+                self.status.setText(_("Установлена последняя версия, v{version}", version=update.current_version()))
+        elif update.can_self_update(release):
+            self.release = release
+            if manual:
+                QMessageBox.information(self, "Count-In", _(
+                    "Доступна новая версия v{version}. Она скачается и установится автоматически.",
+                    version=release.version))
+            self._update_menu(_("Загрузка обновления…"), enabled=False)
+            threading.Thread(target=self._download_in_thread, args=(release,), daemon=True).start()
+        else:
+            self.release = release
+        self._show_version()
+
+    def _download_in_thread(self, release):
+        last = -1
+
+        def progress(done, total):
+            nonlocal last
+            pct = done * 100 // total if total else 0
+            if pct != last:
+                last = pct
+                self._emit(self.updateProgress, pct)
+
+        try:
+            result = update.download(release, update.installed_bundle(), progress)
+        except Exception as e:
+            log.warning("update download failed: %s", e)
+            result = e
+        self._emit(self.updateReady, result)
+
+    def _update_progress(self, pct: int):
+        self._update_menu(_("Загрузка обновления… {p}%", p=pct), enabled=False)
+
+    def _update_ready(self, result):
+        if isinstance(result, Exception):
+            self._update_menu(_("Проверить обновления…"))
+            self.status.setText(_("Не удалось загрузить обновление: {e}", e=result))
+
+            # The badge falls back to the download page.
+            self.release.sha256 = ""
+        else:
+            self.staged = result
+            self._update_menu(_("Перезапустить и обновить до v{version}", version=self.release.version))
+        self._show_version()
+
+    def _update_action(self, *_args):
+        """Menu item and badge: restart into a ready update, open the download page, or check again."""
+        if self.staged:
+            if self.job:
+                self.status.setText(_("Дождитесь окончания сохранения"))
+                return
+            update.install_on_exit(update.installed_bundle(), self.staged, relaunch=True)
+            self.staged = None
+            self.close()
+        elif self.release and not update.can_self_update(self.release):
             QDesktopServices.openUrl(QUrl(self.release.url))
+        else:
+            self.check_updates(manual=True)
 
     # --- files ---
 
@@ -1336,6 +1409,10 @@ class Window(QMainWindow):
             reveal(self.last_saved)
 
     def closeEvent(self, e):
+        # A ready update installs on quit too, like Sparkle does; it just does not relaunch.
+        if self.staged:
+            update.install_on_exit(update.installed_bundle(), self.staged, relaunch=False)
+            self.staged = None
         self._stop()
         self._cancel()
         if self.analysis_job:
