@@ -146,5 +146,6 @@ jobs:
           skip-decompress: true
       - uses: softprops/action-gh-release@v3
         with:
+          name: Count-In ${{ github.ref_name }}
           files: "*.zip"
           fail_on_unmatched_files: true
