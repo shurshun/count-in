@@ -61,12 +61,20 @@ function player(el) {
   const fmt = t => Math.floor(t / 60) + ":" + String(Math.floor(t % 60)).padStart(2, "0");
   const position = () => playing ? Math.min(ctx.currentTime - startedAt, DEMO.duration) : offset;
 
+  // Downloads start once the page has loaded; decoding waits for the click that creates the AudioContext
+  let files = null;
+  const fetchFiles = () => files = files || Promise.all(DEMO.variants.map(([v]) =>
+    fetch(el.dataset.src + v + ".mp3")
+      .then(r => { if (!r.ok) throw new Error(r.status + " " + r.url); return r.arrayBuffer(); })))
+    .catch(e => { files = null; throw e; });
+  addEventListener("load", () => {
+    if (!navigator.connection?.saveData) (window.requestIdleCallback || setTimeout)(() => fetchFiles().catch(() => {}));
+  });
+
   async function load() {
     ctx = ctx || new AudioContext();
-    buffers = await Promise.all(DEMO.variants.map(([v]) =>
-      fetch(el.dataset.src + v + ".mp3")
-        .then(r => { if (!r.ok) throw new Error(r.status + " " + r.url); return r.arrayBuffer(); })
-        .then(b => ctx.decodeAudioData(b))));
+    const data = await fetchFiles();
+    buffers = await Promise.all(data.map(b => ctx.decodeAudioData(b.slice(0))));
     gains = DEMO.variants.map(([v]) => {
       const g = ctx.createGain();
       g.gain.value = v === current ? 1 : 0;
