@@ -291,6 +291,40 @@ def test_update_check_offers_only_newer_releases():
                                              "browser_download_url": "https://evil.example/app.zip"}]}
     assert update.newer_release(evil, "0.1.0").url == f"https://github.com/{update.REPO}/releases/latest"
 
+    # The asset's sha256 digest enables self-update; any other digest leaves it off.
+    asset = {"name": f"Count-In-{update.asset_suffix()}", "browser_download_url": base + "x.zip"}
+    def sha(**extra):
+        return update.newer_release({"tag_name": "v0.2.0", "assets": [{**asset, **extra}]}, "0.1.0").sha256
+    assert sha(digest="sha256:ab12") == "ab12" and sha(digest="md5:ab12") == "" and sha() == ""
+
+
+def test_update_helper_swaps_the_bundle_after_the_app_exits(tmp_path):
+    """Runs the real sh or cmd helper: it waits for the process, swaps folders and cleans up."""
+    import subprocess
+    import sys
+    import time
+
+    from countin import update
+
+    root = tmp_path / ("Count-In" if sys.platform == "win32" else "Count-In.app")
+    (root / "lib").mkdir(parents=True)
+    (root / "lib" / "v").write_text("old")
+    new = update.staging_dir(root) / "new" / root.name
+    (new / "lib").mkdir(parents=True)
+    (new / "lib" / "v").write_text("new")
+
+    app = subprocess.Popen([sys.executable, "-c", "import time; time.sleep(2)"])
+    update.install_on_exit(root, new, relaunch=False, pid=app.pid)
+    time.sleep(0.5)
+    assert (root / "lib" / "v").read_text() == "old"  # still waiting for the app
+    app.wait()
+    for _ in range(100):
+        if (root / "lib" / "v").read_text() == "new" and not update.staging_dir(root).exists():
+            break
+        time.sleep(0.2)
+    assert (root / "lib" / "v").read_text() == "new"
+    assert not update.staging_dir(root).exists() and not root.with_name(root.name + ".old").exists()
+
 def test_icon_choice_is_light_or_dark_and_defaults_to_light(tmp_path):
     from PySide6.QtCore import QCoreApplication, QSettings
 
