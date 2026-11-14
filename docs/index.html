@@ -1,252 +1,140 @@
 <!doctype html>
-<html lang="en">
+<html lang="en" data-theme="light">
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>Count-In — drum count-in and backing tracks</title>
-<meta name="description" content="Count-In finds a song's tempo and first downbeat, puts a drum count-in in front of it and can turn guitar and vocals down for a backing track. Free for macOS and Windows.">
+<meta name="description" content="Count-In finds a song's tempo and first downbeat, adds a drum count-in in front of it and can turn guitar and vocals down for a backing track. Free for macOS and Windows.">
 <meta property="og:title" content="Count-In">
 <meta property="og:description" content="A drum count-in before the first downbeat, and backing tracks without guitar or vocals.">
 <meta property="og:image" content="screenshots/social-preview.png">
 <meta name="twitter:card" content="summary_large_image">
 <link rel="icon" href="favicon.png">
-<style>
-  :root {
-    --bg: #f5f5f7; --card: #fff; --border: #d8d8dc; --text: #1d1d1f; --muted: #6e6e73;
-    --accent: #ff9f0a; --blue: #0a84ff; --btn: #1d1d1f; --btn-text: #fff;
-    color-scheme: light dark;
-  }
-  @media (prefers-color-scheme: dark) {
-    :root {
-      --bg: #1e1e20; --card: #2c2c2e; --border: #3a3a3c; --text: #f5f5f7; --muted: #a1a1a6;
-      --btn: #f5f5f7; --btn-text: #1d1d1f;
-    }
-  }
-  * { box-sizing: border-box; }
-  body {
-    margin: 0; background: var(--bg); color: var(--text);
-    font: 17px/1.55 -apple-system, BlinkMacSystemFont, "Segoe UI", Inter, Roboto, sans-serif;
-  }
-  a { color: var(--blue); }
-  .wrap { max-width: 1080px; margin: 0 auto; padding: 0 20px; }
-
-  /* Language: [lang] spans for the other language are hidden */
-  html[lang=en] [lang=ru], html[lang=ru] [lang=en] { display: none; }
-
-  nav { display: flex; align-items: center; gap: 12px; padding: 18px 0; }
-  nav .name { font-weight: 700; font-size: 18px; margin-right: auto; display: flex; align-items: center; gap: 10px; text-decoration: none; color: inherit; }
-  nav .name img { width: 28px; height: 28px; }
-  nav a.link, nav button {
-    color: var(--muted); text-decoration: none; font: inherit; font-size: 15px;
-    background: none; border: 1px solid var(--border); border-radius: 8px; padding: 4px 10px; cursor: pointer;
-  }
-  nav a.link:hover, nav button:hover { color: var(--text); }
-
-  header { text-align: center; padding: 48px 0 32px; }
-  header .icon { width: 128px; height: 128px; }
-  h1 { font-size: clamp(40px, 7vw, 64px); line-height: 1.05; margin: 16px 0 12px; letter-spacing: -0.02em; }
-  .lead { font-size: clamp(18px, 2.4vw, 22px); color: var(--muted); max-width: 680px; margin: 0 auto; }
-  .lead b { color: var(--text); font-weight: 600; }
-
-  .downloads { display: flex; gap: 12px; justify-content: center; flex-wrap: wrap; margin: 32px 0 10px; }
-  .dl {
-    display: inline-flex; flex-direction: column; align-items: flex-start; min-width: 220px;
-    padding: 12px 22px; border-radius: 12px; text-decoration: none;
-    background: var(--btn); color: var(--btn-text); font-weight: 600; font-size: 17px;
-  }
-  .dl small { font-weight: 400; opacity: .7; font-size: 13px; }
-  .dl.alt { background: var(--card); color: var(--text); border: 1px solid var(--border); }
-  .dl:hover { opacity: .9; }
-  .note { color: var(--muted); font-size: 14px; }
-
-  .shot { margin: 40px auto 0; max-width: 1000px; }
-  .shot img {
-    width: 100%; height: auto; display: block; border-radius: 12px;
-    border: 1px solid var(--border); box-shadow: 0 24px 60px rgba(0,0,0,.18);
-  }
-
-  section { padding: 72px 0 0; }
-  h2 { font-size: clamp(28px, 4vw, 36px); letter-spacing: -0.01em; margin: 0 0 24px; }
-  .grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(280px, 1fr)); gap: 16px; }
-  .card { background: var(--card); border: 1px solid var(--border); border-radius: 14px; padding: 22px 22px 18px; }
-  .card h3 { margin: 0 0 6px; font-size: 18px; }
-  .card p { margin: 0; color: var(--muted); font-size: 15.5px; }
-  .card .dot { display: inline-block; width: 10px; height: 10px; border-radius: 50%; background: var(--accent); margin-right: 8px; }
-
-  .split { display: grid; grid-template-columns: 1fr 1fr; gap: 32px; align-items: center; }
-  .split img { width: 100%; height: auto; border-radius: 12px; border: 1px solid var(--border); }
-  ol.steps { padding-left: 22px; margin: 0; }
-  ol.steps li { margin-bottom: 10px; }
-  ol.steps li::marker { color: var(--accent); font-weight: 700; }
-
-  .install { display: grid; grid-template-columns: 1fr 1fr; gap: 16px; }
-  code { font: 14px ui-monospace, SFMono-Regular, Menlo, monospace; background: var(--bg); padding: 1px 5px; border-radius: 5px; }
-
-  footer { padding: 72px 0 40px; color: var(--muted); font-size: 14px; text-align: center; }
-
-  @media (max-width: 760px) {
-    .split, .install { grid-template-columns: 1fr; }
-    header { padding-top: 24px; }
-    header .icon { width: 96px; height: 96px; }
-    .dl { min-width: 0; width: 100%; }
-    nav a.link { display: none; }
-  }
-  .player { background: var(--card); border: 1px solid var(--border); border-radius: 14px; padding: 20px; }
-  .player .row { display: flex; align-items: center; gap: 14px; flex-wrap: wrap; }
-  .play {
-    width: 52px; height: 52px; border-radius: 50%; border: none; cursor: pointer; flex: none;
-    background: var(--accent); color: #fff; font-size: 20px; line-height: 52px; padding: 0;
-  }
-  .play:disabled { opacity: .5; cursor: default; }
-  .seg { display: flex; border: 1px solid var(--border); border-radius: 9px; overflow: hidden; flex-wrap: wrap; }
-  .seg button {
-    font: inherit; font-size: 15px; padding: 8px 14px; border: none; cursor: pointer;
-    background: none; color: var(--text); border-right: 1px solid var(--border);
-  }
-  .seg button:last-child { border-right: none; }
-  .seg button[aria-pressed=true] { background: var(--blue); color: #fff; }
-  .time { color: var(--muted); font-size: 14px; font-variant-numeric: tabular-nums; margin-left: auto; }
-  .bar { position: relative; height: 8px; background: var(--border); border-radius: 4px; margin: 18px 0 6px; cursor: pointer; }
-  .bar .fill { position: absolute; inset: 0 auto 0 0; width: 0; background: var(--blue); border-radius: 4px; }
-  .bar .one {
-    position: absolute; top: -7px; width: 22px; height: 22px; margin-left: -11px; border-radius: 50%;
-    background: var(--accent); color: #fff; font-size: 13px; font-weight: 700; text-align: center; line-height: 22px;
-  }
-  @media (max-width: 760px) { .seg { width: 100%; } .seg button { flex: 1 1 50%; } .time { margin-left: 0; } }
-</style>
+<link rel="stylesheet" href="site.css">
+<script src="site.js" defer></script>
 </head>
 <body>
 <div class="wrap">
 
 <nav>
   <a class="name" href="#"><img src="favicon.png" alt="">Count-In</a>
+  <a class="link" href="#demo"><span lang="en">Demo</span><span lang="ru">Демо</span></a>
   <a class="link" href="https://github.com/shurshun/count-in">GitHub</a>
-  <button id="lang" type="button" aria-label="Switch language"><span lang="en">Русский</span><span lang="ru">English</span></button>
+  <button type="button" data-toggle="theme" aria-label="Theme"><span class="light-only">☾</span><span class="dark-only">☀</span></button>
+  <button type="button" data-toggle="lang"><span lang="en">RU</span><span lang="ru">EN</span></button>
 </nav>
 
-<header>
-  <img class="icon" src="icon.png" alt="Count-In icon">
-  <h1>Count-In</h1>
+<div class="hero">
+  <h1><span lang="en">A count-in for every song</span><span lang="ru">Отсчёт перед любой песней</span></h1>
   <p class="lead">
-    <span lang="en">Finds the tempo and the first downbeat, then puts a <b>drum count-in</b> in front of the song. The last click lands exactly one beat before the “one”. The same song can become a <b>backing track</b> without guitar or vocals.</span>
-    <span lang="ru">Находит темп и первую сильную долю и ставит перед песней <b>отсчёт палочками</b>. Последний щелчок звучит ровно за долю до «раз». Ту же песню можно превратить в <b>минусовку</b> без гитары или вокала.</span>
+    <span lang="en">Count-In finds the tempo and the first downbeat and adds a drum count-in that lands exactly on the “one”. It can also turn guitar and vocals down for a backing track.</span>
+    <span lang="ru">Count-In находит темп и первую долю и добавляет отсчёт палочками, который точно попадает в «раз». А ещё убирает гитару и вокал, чтобы получилась минусовка.</span>
   </p>
-
   <div class="downloads">
     <a class="dl" href="https://github.com/shurshun/count-in/releases/latest/download/Count-In-macos-arm64.zip">
-      <span lang="en">Download for Mac</span><span lang="ru">Скачать для Mac</span>
-      <small>macOS 12+, Apple Silicon</small>
+      <svg viewBox="0 0 24 24"><path d="M11 3h2v10.2l3.6-3.6 1.4 1.4-6 6-6-6 1.4-1.4 3.6 3.6zM5 19h14v2H5z"/></svg>
+      <span><span lang="en">Download for Mac</span><span lang="ru">Скачать для Mac</span><small>macOS 12+ · Apple Silicon</small></span>
     </a>
     <a class="dl alt" href="https://github.com/shurshun/count-in/releases/latest/download/Count-In-windows-x64.zip">
-      <span lang="en">Download for Windows</span><span lang="ru">Скачать для Windows</span>
-      <small>Windows 10/11, x64</small>
+      <svg viewBox="0 0 24 24"><path d="M11 3h2v10.2l3.6-3.6 1.4 1.4-6 6-6-6 1.4-1.4 3.6 3.6zM5 19h14v2H5z"/></svg>
+      <span><span lang="en">Download for Windows</span><span lang="ru">Скачать для Windows</span><small>Windows 10/11 · x64</small></span>
     </a>
   </div>
   <p class="note">
-    <span lang="en">Free · about 800 MB · works offline · <a href="https://github.com/shurshun/count-in/releases/latest">all releases</a></span>
-    <span lang="ru">Бесплатно · около 800 МБ · работает без интернета · <a href="https://github.com/shurshun/count-in/releases/latest">все версии</a></span>
+    <span lang="en">Free · works offline · updates itself · <a href="https://github.com/shurshun/count-in/releases/latest">release notes</a></span>
+    <span lang="ru">Бесплатно · работает без интернета · обновляется сама · <a href="https://github.com/shurshun/count-in/releases/latest">что нового</a></span>
   </p>
+</div>
 
-  <div class="shot">
-    <picture lang="en">
-      <source srcset="screenshots/main-dark-en.png" media="(prefers-color-scheme: dark)">
-      <img src="screenshots/main-light-en.png" alt="Count-In main window" width="2360" height="1600">
-    </picture>
-    <picture lang="ru">
-      <source srcset="screenshots/main-dark.png" media="(prefers-color-scheme: dark)">
-      <img src="screenshots/main-light.png" alt="Главное окно Count-In" width="2360" height="1600" loading="lazy">
-    </picture>
-  </div>
-</header>
+<div class="player" id="demo" data-player data-src="demo/"></div>
 
-<section id="demo">
-  <h2><span lang="en">Hear it</span><span lang="ru">Послушайте</span></h2>
-  <div class="player">
-    <div class="row">
-      <button class="play" id="play" type="button" aria-label="Play">▶</button>
-      <div class="seg" id="variants">
-        <button type="button" data-v="original" aria-pressed="false"><span lang="en">Original</span><span lang="ru">Оригинал</span></button>
-        <button type="button" data-v="countin" aria-pressed="true"><span lang="en">Count-in</span><span lang="ru">С отсчётом</span></button>
-        <button type="button" data-v="noguitar" aria-pressed="false"><span lang="en">No guitar</span><span lang="ru">Без гитары</span></button>
-        <button type="button" data-v="novocals" aria-pressed="false"><span lang="en">No vocals</span><span lang="ru">Без вокала</span></button>
-      </div>
-      <span class="time" id="time">0:00 / 0:32</span>
-    </div>
-    <div class="bar" id="bar"><div class="fill" id="fill"></div><div class="one" id="one">1</div></div>
+<div class="shot">
+  <div class="window">
+    <img class="light-only" lang="en" src="screenshots/main-light-en.png" alt="Count-In window" width="2360" height="1600" loading="lazy">
+    <img class="dark-only" lang="en" src="screenshots/main-dark-en.png" alt="Count-In window" width="2360" height="1600" loading="lazy">
+    <img class="light-only" lang="ru" src="screenshots/main-light.png" alt="Окно Count-In" width="2360" height="1600" loading="lazy">
+    <img class="dark-only" lang="ru" src="screenshots/main-dark.png" alt="Окно Count-In" width="2360" height="1600" loading="lazy">
   </div>
-  <p class="note">
-    <span lang="en">All four versions play in sync, so switch while it plays. A 2-bar build-up count-in, 121 BPM. Song: “The First Clear Mile”, made with Suno.</span>
-    <span lang="ru">Все четыре версии играют синхронно, переключайте прямо во время воспроизведения. Отсчёт в два такта с нарастанием, 121 BPM. Песня «The First Clear Mile» сделана в Suno.</span>
-  </p>
-</section>
+</div>
 
 <section>
   <h2><span lang="en">What it does</span><span lang="ru">Что умеет</span></h2>
+  <p class="sub"><span lang="en">Everything runs on your computer, from beat detection to separation.</span><span lang="ru">Всё работает на вашем компьютере, от поиска долей до разделения инструментов.</span></p>
   <div class="grid">
     <div class="card">
-      <h3><span class="dot"></span><span lang="en">Sample-accurate count-in</span><span lang="ru">Отсчёт с точностью до сэмпла</span></h3>
-      <p lang="en">A neural beat tracker finds the tempo and the first downbeat. Clicks are placed sample by sample, so the timing never drifts.</p>
-      <p lang="ru">Нейросеть находит темп и первую сильную долю. Каждый щелчок ставится с точностью до сэмпла, поэтому ритм не уплывает.</p>
+      <div class="ico">♩</div>
+      <h3><span lang="en">Sample-accurate count-in</span><span lang="ru">Отсчёт с точностью до сэмпла</span></h3>
+      <p lang="en">A neural beat tracker finds the tempo and the first downbeat. Each click is placed on its own sample, so the timing never drifts.</p>
+      <p lang="ru">Нейросеть находит темп и первую сильную долю. Каждый щелчок ставится на свой сэмпл, поэтому ритм не уплывает.</p>
     </div>
     <div class="card">
-      <h3><span class="dot"></span><span lang="en">Your pattern</span><span lang="ru">Свой рисунок</span></h3>
+      <div class="ico">♬</div>
+      <h3><span lang="en">Your pattern</span><span lang="ru">Свой рисунок</span></h3>
       <p lang="en">One or two bars in 4/4, 3/4 or 6/8. Even, build-up with the last hits louder, or your own pattern from a MIDI file.</p>
       <p lang="ru">Один или два такта в 4/4, 3/4 или 6/8. Ровный, с нарастанием и акцентом в конце или свой рисунок из MIDI-файла.</p>
     </div>
     <div class="card">
-      <h3><span class="dot"></span><span lang="en">Backing tracks</span><span lang="ru">Минусовки</span></h3>
+      <div class="ico">≋</div>
+      <h3><span lang="en">Backing tracks</span><span lang="ru">Минусовки</span></h3>
       <p lang="en">BS-RoFormer separates guitar and vocals in one pass. Each gets its own slider, from a few dB down to fully removed.</p>
       <p lang="ru">BS-RoFormer отделяет гитару и вокал за один проход. У каждого свой ползунок: приглушить на пару дБ или убрать совсем.</p>
     </div>
     <div class="card">
-      <h3><span class="dot"></span><span lang="en">Listen before saving</span><span lang="ru">Прослушивание до сохранения</span></h3>
-      <p lang="en">Press Space to hear the count-in and the first seconds of the song. The sliders change the mix while it plays.</p>
+      <div class="ico">▶</div>
+      <h3><span lang="en">Listen before saving</span><span lang="ru">Прослушивание до сохранения</span></h3>
+      <p lang="en">Space plays the count-in and the first seconds of the song. The sliders change the mix while it plays.</p>
       <p lang="ru">Пробел проигрывает отсчёт и начало песни. Ползунки меняют звук прямо во время прослушивания.</p>
     </div>
     <div class="card">
-      <h3><span class="dot"></span><span lang="en">Formats and tags</span><span lang="ru">Форматы и теги</span></h3>
-      <p lang="en">Opens mp3, FLAC, ALAC and WAV. Saves MP3 320 kbps, FLAC, ALAC or WAV with tags and cover art kept, sorted into Artist / Album folders if you like.</p>
+      <div class="ico">♫</div>
+      <h3><span lang="en">Formats and tags</span><span lang="ru">Форматы и теги</span></h3>
+      <p lang="en">Opens mp3, FLAC, ALAC and WAV. Saves MP3 320 kbps, FLAC, ALAC or WAV with tags and cover art, sorted into Artist / Album folders if you like.</p>
       <p lang="ru">Открывает mp3, FLAC, ALAC и WAV. Сохраняет MP3 320 кбит/с, FLAC, ALAC или WAV с тегами и обложкой, по желанию раскладывает по папкам «Исполнитель / Альбом».</p>
     </div>
     <div class="card">
-      <h3><span class="dot"></span><span lang="en">Offline and private</span><span lang="ru">Без облака</span></h3>
-      <p lang="en">Everything runs on your computer. The network is used only to check for updates, which install themselves.</p>
-      <p lang="ru">Всё работает на вашем компьютере. Интернет нужен только для обновлений, и они ставятся сами.</p>
+      <div class="ico">↻</div>
+      <h3><span lang="en">Offline, updates itself</span><span lang="ru">Без облака, обновляется сама</span></h3>
+      <p lang="en">Your music never leaves the computer. The network is used only to fetch new versions, which install on restart.</p>
+      <p lang="ru">Музыка никуда не отправляется. Интернет нужен только для новых версий, они ставятся при перезапуске.</p>
     </div>
   </div>
 </section>
 
 <section>
   <h2><span lang="en">How it works</span><span lang="ru">Как пользоваться</span></h2>
-  <div class="split">
-    <ol class="steps">
-      <li lang="en">Drop a track onto the window. The app finds the tempo and the first downbeat in seconds.</li>
-      <li lang="ru">Перетащите трек в окно. Программа за секунды найдёт темп и первую сильную долю.</li>
-      <li lang="en">Check the orange “1” marker. If the detector missed, drag it to the right beat.</li>
-      <li lang="ru">Проверьте оранжевую метку «1». Если детектор ошибся, перетащите её на нужную долю.</li>
-      <li lang="en">Pick the pattern, length and meter. For a backing track, lower guitar and vocals.</li>
-      <li lang="ru">Выберите рисунок, длину и размер. Для минусовки уберите гитару и вокал.</li>
-      <li lang="en">Preview with Space, then save. The new file opens in Finder or Explorer.</li>
-      <li lang="ru">Прослушайте пробелом и сохраните. Готовый файл откроется в Finder или Проводнике.</li>
-    </ol>
-    <div>
-      <img lang="en" src="screenshots/progress-dark-en.png" alt="Separating guitar and vocals" loading="lazy" width="2360" height="1600">
-      <img lang="ru" src="screenshots/progress-dark.png" alt="Разделение гитары и вокала" loading="lazy" width="2360" height="1600">
+  <p class="sub"><span lang="en">A count-in takes seconds. Separating a 4-minute song takes about 2.5 minutes on Apple Silicon, longer on Windows.</span><span lang="ru">Отсчёт готов за секунды. Разделение 4-минутной песни занимает около 2,5 минуты на Apple Silicon и дольше на Windows.</span></p>
+  <div class="grid four">
+    <div class="card step">
+      <div class="ico">1</div>
+      <p lang="en">Drop a track onto the window. The app finds the tempo and the first downbeat.</p>
+      <p lang="ru">Перетащите трек в окно. Программа найдёт темп и первую сильную долю.</p>
+    </div>
+    <div class="card step">
+      <div class="ico">2</div>
+      <p lang="en">Check the orange “1” marker. If the detector missed, drag it to the right beat.</p>
+      <p lang="ru">Проверьте оранжевую метку «1». Если детектор ошибся, перетащите её на нужную долю.</p>
+    </div>
+    <div class="card step">
+      <div class="ico">3</div>
+      <p lang="en">Pick the pattern, length and meter. For a backing track, lower guitar and vocals.</p>
+      <p lang="ru">Выберите рисунок, длину и размер. Для минусовки уберите гитару и вокал.</p>
+    </div>
+    <div class="card step">
+      <div class="ico">4</div>
+      <p lang="en">Preview with Space and save. The new file opens in Finder or Explorer.</p>
+      <p lang="ru">Прослушайте пробелом и сохраните. Готовый файл откроется в Finder или Проводнике.</p>
     </div>
   </div>
-  <p class="note">
-    <span lang="en">Separation takes about 2.5 minutes for a 4-minute song on an Apple Silicon Mac and longer on Windows, where it runs on the CPU.</span>
-    <span lang="ru">Разделение 4-минутной песни занимает около 2,5 минуты на Mac с Apple Silicon и дольше на Windows, где считает только процессор.</span>
-  </p>
 </section>
 
 <section>
   <h2><span lang="en">First launch</span><span lang="ru">Первый запуск</span></h2>
-  <div class="install">
+  <p class="sub"><span lang="en">The app is not signed yet, so the system asks once.</span><span lang="ru">Программа пока не подписана, поэтому система один раз переспросит.</span></p>
+  <div class="grid two">
     <div class="card">
       <h3>macOS</h3>
-      <p lang="en">Unzip and drag <code>Count-In.app</code> to Applications. The first launch gets blocked because the app is unsigned: open System Settings → Privacy &amp; Security and click “Open Anyway”.</p>
-      <p lang="ru">Распакуйте и перетащите <code>Count-In.app</code> в «Программы». Первый запуск система заблокирует, потому что программа не подписана. Откройте Системные настройки → Конфиденциальность и безопасность и нажмите «Всё равно открыть».</p>
+      <p lang="en">Unzip and drag <code>Count-In.app</code> to Applications. When the first launch gets blocked, open System Settings → Privacy &amp; Security and click “Open Anyway”.</p>
+      <p lang="ru">Распакуйте и перетащите <code>Count-In.app</code> в «Программы». Когда первый запуск заблокируется, откройте Системные настройки → Конфиденциальность и безопасность и нажмите «Всё равно открыть».</p>
     </div>
     <div class="card">
       <h3>Windows</h3>
@@ -257,84 +145,10 @@
 </section>
 
 <footer>
-  <span lang="en">The source code, issues and release notes are on <a href="https://github.com/shurshun/count-in">GitHub</a>.</span>
-  <span lang="ru">Исходный код, вопросы и описания версий — на <a href="https://github.com/shurshun/count-in">GitHub</a>.</span>
+  <span lang="en">Source code, issues and release notes are on <a href="https://github.com/shurshun/count-in">GitHub</a>. Demo song made with Suno.</span>
+  <span lang="ru">Исходный код, вопросы и описания версий — на <a href="https://github.com/shurshun/count-in">GitHub</a>. Демо-песня сделана в Suno.</span>
 </footer>
 
 </div>
-<script>
-  // Saved choice, then the browser language
-  const root = document.documentElement;
-  let lang;
-  try { lang = localStorage.getItem("lang"); } catch {}
-  root.lang = lang || (navigator.language.startsWith("ru") ? "ru" : "en");
-  document.getElementById("lang").onclick = () => {
-    root.lang = root.lang === "ru" ? "en" : "ru";
-    try { localStorage.setItem("lang", root.lang); } catch {}
-  };
-  // Demo: all variants run in sync through Web Audio; switching only moves the gain
-  const DOWNBEAT = 3.965;  // first downbeat in the clips, seconds
-  const names = ["original", "countin", "noguitar", "novocals"];
-  const $ = id => document.getElementById(id);
-  let ctx, buffers, gains, sources = [], current = "countin", offset = 0, startedAt = 0, playing = false;
-  const fmt = t => Math.floor(t / 60) + ":" + String(Math.floor(t % 60)).padStart(2, "0");
-  const duration = () => buffers ? buffers[0].duration : 32;
-  const position = () => playing ? Math.min(ctx.currentTime - startedAt, duration()) : offset;
-  $("one").style.left = (DOWNBEAT / 32 * 100) + "%";
-
-  async function load() {
-    ctx = new AudioContext();
-    buffers = await Promise.all(names.map(n =>
-      fetch("demo/" + n + ".mp3").then(r => r.arrayBuffer()).then(b => ctx.decodeAudioData(b))));
-    gains = names.map(n => {
-      const g = ctx.createGain();
-      g.gain.value = n === current ? 1 : 0;
-      g.connect(ctx.destination);
-      return g;
-    });
-  }
-
-  function start(at) {
-    sources = buffers.map((b, i) => {
-      const s = ctx.createBufferSource();
-      s.buffer = b; s.connect(gains[i]); s.start(0, at);
-      return s;
-    });
-    sources[0].onended = () => { if (playing && position() >= duration() - 0.05) stop(0); };
-    startedAt = ctx.currentTime - at; playing = true; $("play").textContent = "❚❚";
-  }
-
-  function stop(at) {
-    sources.forEach(s => { s.onended = null; s.stop(); });
-    sources = []; playing = false; offset = at; $("play").textContent = "▶";
-  }
-
-  $("play").onclick = async () => {
-    if (!ctx) { $("play").disabled = true; await load(); $("play").disabled = false; }
-    await ctx.resume();
-    playing ? stop(position()) : start(offset >= duration() ? 0 : offset);
-  };
-
-  $("variants").onclick = e => {
-    const b = e.target.closest("button");
-    if (!b) return;
-    current = b.dataset.v;
-    document.querySelectorAll("#variants button").forEach(x => x.setAttribute("aria-pressed", x === b));
-    if (gains) names.forEach((n, i) => gains[i].gain.setTargetAtTime(n === current ? 1 : 0, ctx.currentTime, 0.015));
-  };
-
-  $("bar").onclick = e => {
-    const r = $("bar").getBoundingClientRect();
-    const at = (e.clientX - r.left) / r.width * duration();
-    if (playing) { stop(at); start(at); } else offset = at;
-  };
-
-  (function tick() {
-    const t = position();
-    $("fill").style.width = (t / duration() * 100) + "%";
-    $("time").textContent = fmt(t) + " / " + fmt(duration());
-    requestAnimationFrame(tick);
-  })();
-</script>
 </body>
 </html>
