@@ -3,7 +3,7 @@
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
-<title>Download Count-In for {{os}}</title>
+<title>Download Count-In for {{os_short}}</title>
 <meta name="robots" content="noindex">
 <link rel="icon" href="/favicon.png" type="image/png">
 <script>
@@ -28,22 +28,17 @@
   <a class="link" href="https://github.com/shurshun/count-in">GitHub</a>
 </nav>
 
-<div class="started">
-  <img class="icon" src="/icon.png" alt="">
-  <h1><span lang="en">Your download has started</span><span lang="ru">Загрузка началась</span></h1>
-  <p class="lead">
-    <span lang="en">Count-In for {{os}} is on its way. While it downloads, here is how to install it.</span>
-    <span lang="ru">Count-In для {{os}} уже скачивается. А пока — как его установить.</span>
+<div class="ty">
+  <div class="check"><svg viewBox="0 0 24 24"><path d="M5 12.5l4.5 4.5L19 7.5" fill="none" stroke="#fff" stroke-width="3" stroke-linecap="round" stroke-linejoin="round"/></svg></div>
+  <h1><span lang="en">Thanks for downloading<br>Count-In for {{os_short}}</span><span lang="ru">Спасибо, что скачали<br>Count-In для {{os_short}}</span></h1>
+  <p class="again">
+    <span lang="en">Download didn’t start? <a href="{{url}}">Click here</a>.</span>
+    <span lang="ru">Загрузка не началась? <a href="{{url}}">Нажмите сюда</a>.</span>
   </p>
-  <div class="bar"></div>
-  <div class="file">
-    <svg viewBox="0 0 24 24"><path d="M6 2h8l6 6v14H6zM14 2v6h6"/></svg>
-    <span><b>{{asset}}</b><small><span lang="en">about 800 MB</span><span lang="ru">около 800 МБ</span> · {{req}}</small></span>
-    <span class="badge"><span lang="en">Download started</span><span lang="ru">Загрузка началась</span></span>
-  </div>
+  <p class="req"><span id="ver"></span>{{req}}</p>
 </div>
 
-<div class="grid install">
+<div class="steps3">
 {{steps}}
 </div>
 
@@ -51,6 +46,15 @@
   <span lang="en">Need {{other_os}}? <a href="/download/{{other_slug}}/">Download for {{other_os}}</a> · <a href="https://github.com/shurshun/count-in/releases/latest">Release notes</a></span>
   <span lang="ru">Нужна версия для {{other_os}}? <a href="/download/{{other_slug}}/">Скачать для {{other_os}}</a> · <a href="https://github.com/shurshun/count-in/releases/latest">Что нового</a></span>
 </p>
+<div class="back"><a href="/"><span lang="en">Back to Count-In</span><span lang="ru">Вернуться на сайт</span></a></div>
+
+<script>
+  // Version and size of the latest release; without them the line shows only the requirements
+  fetch("https://api.github.com/repos/shurshun/count-in/releases/latest").then(r => r.json()).then(r => {
+    const a = r.assets.find(a => a.name === "{{asset}}");
+    if (a) document.getElementById("ver").textContent = r.tag_name + " · " + Math.round(a.size / 1048576) + (document.documentElement.lang === "ru" ? " МБ · " : " MB · ");
+  }).catch(() => {});
+</script>
 
 </div>
 <!-- Cloudflare Web Analytics --><script type='module' src='https://static.cloudflareinsights.com/beacon.min.js' data-cf-beacon='{"token": "233b03e9efac47f49997b5e79752c396"}'></script><!-- End Cloudflare Web Analytics -->

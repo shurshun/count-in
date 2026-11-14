@@ -124,26 +124,48 @@ footer { padding: 88px 0 40px; color: var(--muted); font-size: 14px; text-align:
 }
 
 /* Download page */
-.file { display: flex; align-items: center; gap: 12px; background: var(--card); border: 1px solid var(--border); border-radius: 12px; padding: 12px 16px; text-align: left; }
-.file svg { width: 28px; height: 28px; fill: none; stroke: var(--muted); stroke-width: 1.5; flex: none; }
-.file b { display: block; font-size: 15px; word-break: break-all; }
-.file small { color: var(--muted); font-size: 13px; }
-.file .badge { margin-left: auto; }
-.badge { display: inline-flex; align-items: center; gap: 6px; background: rgba(48,209,88,.12); color: #1a7f32; font-weight: 600; font-size: 13.5px; padding: 5px 11px; border-radius: 999px; white-space: nowrap; }
-.badge::before { content: "✓"; }
-:root[data-theme=dark] .badge { color: #4cd964; }
-.started { text-align: center; padding: 40px 0 28px; max-width: 720px; margin: 0 auto; }
-.started .icon { width: 96px; height: 96px; }
-.started h1 { font-size: clamp(32px, 4.5vw, 46px); line-height: 1.1; letter-spacing: -0.02em; margin: 18px 0 10px; }
-.started .lead { margin-bottom: 24px; }
-.bar { height: 4px; border-radius: 2px; background: var(--bg2); overflow: hidden; margin: 0 auto 24px; max-width: 320px; }
-.bar::after { content: ""; display: block; height: 100%; width: 35%; background: var(--accent); border-radius: 2px; animation: slide 1.4s ease-in-out infinite; }
-@keyframes slide { from { transform: translateX(-100%); } to { transform: translateX(290%); } }
-@media (prefers-reduced-motion: reduce) { .bar::after { animation: none; width: 100%; } }
-.install { margin: 24px 0 32px; }
-.install .card h3 { margin-top: 2px; }
-.after { text-align: center; color: var(--muted); font-size: 14px; padding-bottom: 48px; }
-@media (max-width: 600px) {
-  .file { flex-wrap: wrap; }
-  .file .badge { margin-left: 40px; }
-}
+.ty { text-align: center; padding: 48px 0 24px; }
+.ty .check { width: 76px; height: 76px; border-radius: 50%; background: linear-gradient(180deg, #34c759, #28a745); display: grid; place-items: center; margin: 0 auto 26px; box-shadow: 0 8px 24px rgba(52,199,89,.35); }
+.ty .check svg { width: 38px; height: 38px; }
+.ty h1 { font-size: clamp(30px, 4.4vw, 48px); line-height: 1.12; letter-spacing: -.02em; margin: 0 0 18px; }
+.ty .again { color: var(--muted); font-size: 17px; margin: 0; }
+.ty .req { color: var(--muted); font-size: 14px; margin: 14px 0 0; }
+.steps3 { display: grid; grid-template-columns: repeat(3, 1fr); gap: 28px; margin: 36px 0 40px; }
+.steps3 .n { font-weight: 700; font-size: 18px; margin: 18px 0 4px; }
+.steps3 p { margin: 0; color: var(--muted); }
+.after { text-align: center; color: var(--muted); font-size: 14px; margin: 0 0 20px; }
+.back { display: flex; justify-content: center; padding-bottom: 56px; }
+.back a { border: 1px solid var(--border); border-radius: 12px; padding: 13px 34px; text-decoration: none; color: var(--text); font-weight: 600; background: var(--card); }
+.back a:hover { border-color: var(--muted); }
+
+/* Step illustrations, drawn in CSS */
+.ill { height: 210px; border-radius: 16px; border: 1px solid var(--border); background: linear-gradient(180deg, var(--card), var(--bg2)); box-shadow: var(--shadow); display: flex; align-items: center; justify-content: center; gap: 20px; overflow: hidden; padding: 0 14px; }
+.ill .item { display: flex; flex-direction: column; align-items: center; gap: 10px; font-size: 13px; font-weight: 500; text-align: center; }
+.ill .app { width: 72px; height: 72px; }
+.ill .arrow { color: var(--muted); font-size: 26px; letter-spacing: -2px; flex: none; }
+.zip { width: 64px; height: 80px; background: var(--card); border: 1px solid var(--border); border-radius: 6px; position: relative; box-shadow: 0 2px 6px rgba(0,0,0,.08); }
+.zip::before { content: ""; position: absolute; left: 50%; top: 6px; bottom: 26px; width: 6px; margin-left: -3px; background: repeating-linear-gradient(var(--muted) 0 3px, transparent 3px 6px); opacity: .6; }
+.zip::after { content: "ZIP"; position: absolute; bottom: 6px; left: 0; right: 0; text-align: center; font-size: 11px; font-weight: 700; color: var(--muted); }
+.folder { width: 84px; height: 66px; position: relative; }
+.folder::before { content: ""; position: absolute; left: 0; top: 0; width: 34px; height: 14px; background: #5ab0f5; border-radius: 6px 6px 0 0; }
+.folder::after { content: ""; position: absolute; left: 0; right: 0; top: 8px; bottom: 0; background: linear-gradient(180deg, #74c0fc, #4aa3ef); border-radius: 6px; }
+.folder.win::before { background: #e8b23a; border-radius: 3px 3px 0 0; }
+.folder.win::after { background: linear-gradient(180deg, #ffd666, #f5bf3c); border-radius: 3px; }
+.folder span { position: absolute; z-index: 1; inset: 8px 0 0; display: grid; place-items: center; color: #fff; font-size: 26px; font-weight: 700; }
+.mock { width: 92%; background: var(--card); border: 1px solid var(--border); border-radius: 10px; font-size: 12.5px; text-align: left; overflow: hidden; box-shadow: 0 4px 14px rgba(0,0,0,.08); }
+.mock.settings { height: 76%; display: grid; grid-template-columns: 44% 1fr; }
+.mock .side { background: var(--bg2); padding: 12px 10px; display: flex; flex-direction: column; gap: 6px; color: var(--muted); }
+.mock .side span { white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.mock .side .on { background: var(--blue); color: #fff; border-radius: 6px; padding: 3px 6px; margin: 0 -6px; }
+.mock .main { padding: 14px; display: flex; flex-direction: column; gap: 10px; }
+.mock p { margin: 0; line-height: 1.35; }
+.mock .btn { align-self: flex-start; font-weight: 600; border: 1px solid var(--border); background: var(--card); border-radius: 6px; padding: 4px 10px; box-shadow: 0 0 0 3px rgba(255,159,10,.5); }
+.mock.menu { width: auto; min-width: 150px; padding: 6px; }
+.mock.menu div { padding: 5px 10px; border-radius: 5px; color: var(--muted); }
+.mock.menu .on { background: var(--blue); color: #fff; }
+.mock.smartscreen { width: 92%; background: #0063b1; border: none; color: #fff; padding: 16px; display: flex; flex-direction: column; gap: 8px; }
+.mock.smartscreen b { font-size: 15px; font-weight: 600; }
+.mock.smartscreen u { opacity: .9; }
+.mock.smartscreen .btn { align-self: flex-end; background: #0063b1; color: #fff; border: 1px solid #fff; }
+
+@media (max-width: 860px) { .steps3 { grid-template-columns: 1fr; } }
