@@ -1,24 +1,60 @@
 <!doctype html>
-<html lang="en">
+<!-- Generated from _download.html by build_site.py -->
+<html lang="en" data-theme="light">
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
-<title>Downloading Count-In for macOS</title>
+<title>Download Count-In for macOS</title>
 <meta name="robots" content="noindex">
 <link rel="icon" href="/favicon.png" type="image/png">
-<link rel="stylesheet" href="/site.css">
-<!-- Visiting this page is the download click Web Analytics counts; it then hands over to GitHub -->
+<script>
+  // Language and theme as on the main pages; a visitor from /ru/ gets Russian
+  try {
+    const r = document.documentElement, lang = localStorage.getItem("lang");
+    r.lang = lang || (document.referrer.includes("/ru/") || navigator.language.slice(0, 2) === "ru" ? "ru" : "en");
+    r.dataset.theme = localStorage.getItem("theme") || "light";
+  } catch {}
+  // This page view is the download click Web Analytics counts; then the browser fetches the file and stays here
+  addEventListener("load", () => setTimeout(() => location.assign("https://github.com/shurshun/count-in/releases/latest/download/Count-In-macos-arm64.zip"), 300));
+</script>
 <meta http-equiv="refresh" content="3; url=https://github.com/shurshun/count-in/releases/latest/download/Count-In-macos-arm64.zip">
-<script>addEventListener("load", () => setTimeout(() => location.replace("https://github.com/shurshun/count-in/releases/latest/download/Count-In-macos-arm64.zip"), 300));</script>
-<style> main { text-align: center; padding: 18vh 0; } </style>
+<link rel="stylesheet" href="/site.css">
 </head>
 <body>
 <div class="wrap">
-<main>
-  <h1>Count-In for macOS</h1>
-  <p class="lead">The download starts in a moment.<br>Загрузка сейчас начнётся.</p>
-  <p class="note"><a href="https://github.com/shurshun/count-in/releases/latest/download/Count-In-macos-arm64.zip">Download / Скачать</a> · <a href="/">count-in.app</a></p>
-</main>
+
+<nav>
+  <a class="name" href="/"><img src="/favicon.png" alt="">Count-In</a>
+  <a class="link" href="/#demo"><span lang="en">Demo</span><span lang="ru">Демо</span></a>
+  <a class="link" href="https://github.com/shurshun/count-in">GitHub</a>
+</nav>
+
+<div class="started">
+  <img class="icon" src="/icon.png" alt="">
+  <h1><span lang="en">Your download has started</span><span lang="ru">Загрузка началась</span></h1>
+  <p class="lead">
+    <span lang="en">Count-In for macOS is on its way. While it downloads, here is how to install it.</span>
+    <span lang="ru">Count-In для macOS уже скачивается. А пока — как его установить.</span>
+  </p>
+  <div class="bar"></div>
+  <div class="file">
+    <svg viewBox="0 0 24 24"><path d="M6 2h8l6 6v14H6zM14 2v6h6"/></svg>
+    <span><b>Count-In-macos-arm64.zip</b><small><span lang="en">about 800 MB</span><span lang="ru">около 800 МБ</span> · macOS 12+ · Apple Silicon</small></span>
+    <span class="badge"><span lang="en">Download started</span><span lang="ru">Загрузка началась</span></span>
+  </div>
+</div>
+
+<div class="grid install">
+  <div class="card step"><div class="ico">1</div><h3><span lang="en">Open the zip</span><span lang="ru">Откройте архив</span></h3><p lang="en">Double-click <code>Count-In-macos-arm64.zip</code> in Downloads. Finder unpacks <code>Count-In.app</code> next to it.</p><p lang="ru">Дважды щёлкните <code>Count-In-macos-arm64.zip</code> в «Загрузках». Finder распакует рядом <code>Count-In.app</code>.</p></div>
+  <div class="card step"><div class="ico">2</div><h3><span lang="en">Move it to Applications</span><span lang="ru">Перенесите в «Программы»</span></h3><p lang="en">Drag <code>Count-In.app</code> into Applications. From Downloads it can't update itself.</p><p lang="ru">Перетащите <code>Count-In.app</code> в «Программы». Из «Загрузок» программа не сможет обновляться.</p></div>
+  <div class="card step"><div class="ico">3</div><h3><span lang="en">Allow the first launch</span><span lang="ru">Разрешите первый запуск</span></h3><p lang="en">macOS blocks unsigned apps once. Open System Settings → Privacy &amp; Security and click <b>Open Anyway</b>.</p><p lang="ru">macOS один раз блокирует неподписанные программы. Откройте Системные настройки → Конфиденциальность и безопасность и нажмите <b>Всё равно открыть</b>.</p></div>
+</div>
+
+<p class="after">
+  <span lang="en">Need Windows? <a href="/download/windows/">Download for Windows</a> · <a href="https://github.com/shurshun/count-in/releases/latest">Release notes</a></span>
+  <span lang="ru">Нужна версия для Windows? <a href="/download/windows/">Скачать для Windows</a> · <a href="https://github.com/shurshun/count-in/releases/latest">Что нового</a></span>
+</p>
+
 </div>
 <!-- Cloudflare Web Analytics --><script type='module' src='https://static.cloudflareinsights.com/beacon.min.js' data-cf-beacon='{"token": "233b03e9efac47f49997b5e79752c396"}'></script><!-- End Cloudflare Web Analytics -->
 </body>
