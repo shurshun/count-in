@@ -7,3 +7,4 @@ out/
 models/separator/
 build/
 bin/
+!docs/demo/*.mp3
