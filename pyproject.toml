@@ -6,6 +6,8 @@ authors = [
     { name = "Andrei Korviakov", email = "4lifenet@gmail.com" }
 ]
 requires-python = ">=3.12"
+license = "MIT"
+license-files = ["LICENSE"]
 dependencies = [
     "beartype>=0.23.1",
     "beat-this",
