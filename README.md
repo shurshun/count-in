@@ -117,6 +117,10 @@ uv run pyinstaller packaging/countin.spec --noconfirm --distpath build/dist --wo
 
 CI (`.github/workflows/build.yml`) builds Windows x64 and macOS arm64 for every pull request that touches code and runs the bundled CLI end to end; docs-only changes skip it. To release, bump `version` in `pyproject.toml` and tag `v<version>`. CI publishes both archives to Releases, and the in-app update check compares against that version.
 
+## License
+
+Count-In is released under the [MIT License](LICENSE). The bundled third-party components below keep their own licenses.
+
 ## Third-party components
 
 | Component | License |
@@ -243,6 +247,10 @@ uv run pyinstaller packaging/countin.spec --noconfirm --distpath build/dist --wo
 ```
 
 CI (`.github/workflows/build.yml`) собирает Windows x64 и macOS arm64 для каждого PR с изменениями кода и прогоняет CLI из бандла от начала до конца; PR только с документацией сборку не запускают. Чтобы выпустить релиз, поднимите `version` в `pyproject.toml` и поставьте тег `v<версия>`. CI опубликует оба архива в Releases, а проверка обновлений в приложении сравнивает именно эту версию.
+
+### Лицензия
+
+Count-In распространяется по [лицензии MIT](LICENSE). Сторонние компоненты из таблицы ниже сохраняют свои лицензии.
 
 ### Сторонние компоненты
 

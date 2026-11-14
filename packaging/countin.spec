@@ -19,6 +19,9 @@ for extra in ("samples", "bin"):
 icons = root / "assets" / "icons"
 datas += [(str(icons / v / "png"), f"assets/icons/{v}/png") for v in ("light", "dark")]
 
+# MIT requires the license text to travel with every copy.
+datas.append((str(root / "LICENSE"), "."))
+
 # Package metadata carries the version the update check compares against.
 datas += copy_metadata("countin")
 
