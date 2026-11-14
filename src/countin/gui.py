@@ -52,8 +52,8 @@ QPushButton[seg] { border: 1px solid rgba(127,127,127,0.35); background: rgba(12
                    padding: 3px 11px; min-height: 18px; border-radius: 0; }
 QPushButton[seg="first"] { border-top-left-radius: 6px; border-bottom-left-radius: 6px; }
 QPushButton[seg="last"] { border-top-right-radius: 6px; border-bottom-right-radius: 6px; }
-QPushButton[seg]:checked { background: palette(highlight); color: palette(highlighted-text); border-color: palette(highlight); }
-QPushButton#primary { background: @PRIMARY@; color: white; border: none;
+QPushButton[seg]:checked { background: @ACCENT@; color: @ACCENT_TEXT@; border-color: @ACCENT@; }
+QPushButton#primary { background: @ACCENT@; color: white; border: none;
                       border-radius: 9px; padding: 8px 26px; font-size: 15px; font-weight: 600; min-height: 22px; }
 QPushButton#primary:disabled { background: rgba(127,127,127,0.25); }
 QPushButton#tool { border: 1px solid @BORDER@; border-radius: 9px; padding: 8px 18px; font-size: 15px;
@@ -62,7 +62,7 @@ QPushButton#tool:disabled { color: gray; }
 QPushButton#small { border: 1px solid rgba(127,127,127,0.3); border-radius: 6px; padding: 2px 8px;
                     background: rgba(127,127,127,0.06); min-width: 26px; }
 QSlider::groove:horizontal { height: 4px; background: rgba(127,127,127,0.3); border-radius: 2px; }
-QSlider::sub-page:horizontal { background: palette(highlight); border-radius: 2px; }
+QSlider::sub-page:horizontal { background: @ACCENT@; border-radius: 2px; }
 QSlider::handle:horizontal { width: 16px; height: 16px; margin: -6px 0; border-radius: 8px;
                              background: white; border: 1px solid rgba(0,0,0,0.25); }
 QStatusBar, QStatusBar QLabel { color: @FIELD@; }
@@ -470,7 +470,7 @@ class Wave(QWidget):
         p.setClipPath(clip)
         p.fillRect(0, 0, w, h, QColor(127, 127, 127, 22))
 
-        accent = self.palette().highlight().color()
+        accent = accent_color(QApplication.instance())
         if self.clicks and self.t0 is not None:
             zone = QColor(accent)
             zone.setAlpha(28)
@@ -1434,18 +1434,29 @@ class App(QApplication):
         return super().event(e)
 
 
+def is_dark(app: QApplication) -> bool:
+    scheme = app.styleHints().colorScheme()
+    if scheme == Qt.ColorScheme.Unknown:
+        return app.palette().window().color().lightness() < 128
+    return scheme == Qt.ColorScheme.Dark
+
+
+def accent_color(app: QApplication) -> QColor:
+    """Selection blue in dark mode; in light mode that blue is too pale, so the system accent."""
+    pal = app.palette()
+    return pal.color(QPalette.Active, QPalette.Highlight) if is_dark(app) else pal.color(QPalette.Accent)
+
+
 def style_sheet(app: QApplication) -> str:
     """STYLE with colors for the system light or dark appearance."""
-    scheme = app.styleHints().colorScheme()
-    dark = (scheme == Qt.ColorScheme.Dark if scheme != Qt.ColorScheme.Unknown
-            else app.palette().window().color().lightness() < 128)
+    dark = is_dark(app)
     colors = ({"@WINDOW@": "#1e1e20", "@SIDEBAR@": "#262628", "@CARD@": "#2c2c2e", "@BORDER@": "#3a3a3c",
                "@FIELD@": "#a1a1a6"} if dark else
               {"@WINDOW@": "#f5f5f7", "@SIDEBAR@": "#ececee", "@CARD@": "#ffffff", "@BORDER@": "#d8d8dc",
                "@FIELD@": "#6e6e73"})
 
-    # Light highlight is a pale selection blue; white text needs the stronger accent
-    colors["@PRIMARY@"] = "palette(highlight)" if dark else app.palette().color(QPalette.Accent).name()
+    colors["@ACCENT@"] = accent_color(app).name()
+    colors["@ACCENT_TEXT@"] = "palette(highlighted-text)" if dark else "white"
     out = STYLE
     for k, v in colors.items():
         out = out.replace(k, v)
