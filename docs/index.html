@@ -91,6 +91,28 @@
     .dl { min-width: 0; width: 100%; }
     nav a.link { display: none; }
   }
+  .player { background: var(--card); border: 1px solid var(--border); border-radius: 14px; padding: 20px; }
+  .player .row { display: flex; align-items: center; gap: 14px; flex-wrap: wrap; }
+  .play {
+    width: 52px; height: 52px; border-radius: 50%; border: none; cursor: pointer; flex: none;
+    background: var(--accent); color: #fff; font-size: 20px; line-height: 52px; padding: 0;
+  }
+  .play:disabled { opacity: .5; cursor: default; }
+  .seg { display: flex; border: 1px solid var(--border); border-radius: 9px; overflow: hidden; flex-wrap: wrap; }
+  .seg button {
+    font: inherit; font-size: 15px; padding: 8px 14px; border: none; cursor: pointer;
+    background: none; color: var(--text); border-right: 1px solid var(--border);
+  }
+  .seg button:last-child { border-right: none; }
+  .seg button[aria-pressed=true] { background: var(--blue); color: #fff; }
+  .time { color: var(--muted); font-size: 14px; font-variant-numeric: tabular-nums; margin-left: auto; }
+  .bar { position: relative; height: 8px; background: var(--border); border-radius: 4px; margin: 18px 0 6px; cursor: pointer; }
+  .bar .fill { position: absolute; inset: 0 auto 0 0; width: 0; background: var(--blue); border-radius: 4px; }
+  .bar .one {
+    position: absolute; top: -7px; width: 22px; height: 22px; margin-left: -11px; border-radius: 50%;
+    background: var(--accent); color: #fff; font-size: 13px; font-weight: 700; text-align: center; line-height: 22px;
+  }
+  @media (max-width: 760px) { .seg { width: 100%; } .seg button { flex: 1 1 50%; } .time { margin-left: 0; } }
 </style>
 </head>
 <body>
@@ -136,6 +158,27 @@
     </picture>
   </div>
 </header>
+
+<section id="demo">
+  <h2><span lang="en">Hear it</span><span lang="ru">Послушайте</span></h2>
+  <div class="player">
+    <div class="row">
+      <button class="play" id="play" type="button" aria-label="Play">▶</button>
+      <div class="seg" id="variants">
+        <button type="button" data-v="original" aria-pressed="false"><span lang="en">Original</span><span lang="ru">Оригинал</span></button>
+        <button type="button" data-v="countin" aria-pressed="true"><span lang="en">Count-in</span><span lang="ru">С отсчётом</span></button>
+        <button type="button" data-v="noguitar" aria-pressed="false"><span lang="en">No guitar</span><span lang="ru">Без гитары</span></button>
+        <button type="button" data-v="novocals" aria-pressed="false"><span lang="en">No vocals</span><span lang="ru">Без вокала</span></button>
+      </div>
+      <span class="time" id="time">0:00 / 0:32</span>
+    </div>
+    <div class="bar" id="bar"><div class="fill" id="fill"></div><div class="one" id="one">1</div></div>
+  </div>
+  <p class="note">
+    <span lang="en">All four versions play in sync, so switch while it plays. A 2-bar build-up count-in, 121 BPM. Song: “The First Clear Mile”, made with Suno.</span>
+    <span lang="ru">Все четыре версии играют синхронно, переключайте прямо во время воспроизведения. Отсчёт в два такта с нарастанием, 121 BPM. Песня «The First Clear Mile» сделана в Suno.</span>
+  </p>
+</section>
 
 <section>
   <h2><span lang="en">What it does</span><span lang="ru">Что умеет</span></h2>
@@ -229,6 +272,69 @@
     root.lang = root.lang === "ru" ? "en" : "ru";
     try { localStorage.setItem("lang", root.lang); } catch {}
   };
+  // Demo: all variants run in sync through Web Audio; switching only moves the gain
+  const DOWNBEAT = 3.965;  // first downbeat in the clips, seconds
+  const names = ["original", "countin", "noguitar", "novocals"];
+  const $ = id => document.getElementById(id);
+  let ctx, buffers, gains, sources = [], current = "countin", offset = 0, startedAt = 0, playing = false;
+  const fmt = t => Math.floor(t / 60) + ":" + String(Math.floor(t % 60)).padStart(2, "0");
+  const duration = () => buffers ? buffers[0].duration : 32;
+  const position = () => playing ? Math.min(ctx.currentTime - startedAt, duration()) : offset;
+  $("one").style.left = (DOWNBEAT / 32 * 100) + "%";
+
+  async function load() {
+    ctx = new AudioContext();
+    buffers = await Promise.all(names.map(n =>
+      fetch("demo/" + n + ".mp3").then(r => r.arrayBuffer()).then(b => ctx.decodeAudioData(b))));
+    gains = names.map(n => {
+      const g = ctx.createGain();
+      g.gain.value = n === current ? 1 : 0;
+      g.connect(ctx.destination);
+      return g;
+    });
+  }
+
+  function start(at) {
+    sources = buffers.map((b, i) => {
+      const s = ctx.createBufferSource();
+      s.buffer = b; s.connect(gains[i]); s.start(0, at);
+      return s;
+    });
+    sources[0].onended = () => { if (playing && position() >= duration() - 0.05) stop(0); };
+    startedAt = ctx.currentTime - at; playing = true; $("play").textContent = "❚❚";
+  }
+
+  function stop(at) {
+    sources.forEach(s => { s.onended = null; s.stop(); });
+    sources = []; playing = false; offset = at; $("play").textContent = "▶";
+  }
+
+  $("play").onclick = async () => {
+    if (!ctx) { $("play").disabled = true; await load(); $("play").disabled = false; }
+    await ctx.resume();
+    playing ? stop(position()) : start(offset >= duration() ? 0 : offset);
+  };
+
+  $("variants").onclick = e => {
+    const b = e.target.closest("button");
+    if (!b) return;
+    current = b.dataset.v;
+    document.querySelectorAll("#variants button").forEach(x => x.setAttribute("aria-pressed", x === b));
+    if (gains) names.forEach((n, i) => gains[i].gain.setTargetAtTime(n === current ? 1 : 0, ctx.currentTime, 0.015));
+  };
+
+  $("bar").onclick = e => {
+    const r = $("bar").getBoundingClientRect();
+    const at = (e.clientX - r.left) / r.width * duration();
+    if (playing) { stop(at); start(at); } else offset = at;
+  };
+
+  (function tick() {
+    const t = position();
+    $("fill").style.width = (t / duration() * 100) + "%";
+    $("time").textContent = fmt(t) + " / " + fmt(duration());
+    requestAnimationFrame(tick);
+  })();
 </script>
 </body>
 </html>
