@@ -3,13 +3,40 @@
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
-<title>Count-In — drum count-in and backing tracks</title>
-<meta name="description" content="Count-In finds a song's tempo and first downbeat, adds a drum count-in in front of it and can turn guitar and vocals down for a backing track. Free for macOS and Windows.">
-<meta property="og:title" content="Count-In">
-<meta property="og:description" content="A drum count-in before the first downbeat, and backing tracks without guitar or vocals.">
-<meta property="og:image" content="screenshots/social-preview.png">
+<title>Count-In — drum count-in and backing tracks for any song</title>
+<meta name="description" content="Count-In finds a song's tempo and first downbeat, adds a drum count-in in front of it and can turn guitar and vocals down for a backing track. Free for macOS and Windows, works offline.">
+<link rel="canonical" href="https://count-in.app/">
+<meta name="theme-color" content="#fbfbfd">
+<meta property="og:type" content="website">
+<meta property="og:site_name" content="Count-In">
+<meta property="og:url" content="https://count-in.app/">
+<meta property="og:title" content="Count-In — a count-in for every song">
+<meta property="og:description" content="A drum count-in that lands exactly on the first downbeat, and backing tracks without guitar or vocals. Free for macOS and Windows.">
+<meta property="og:image" content="https://count-in.app/screenshots/social-preview.png">
+<meta property="og:image:width" content="1280">
+<meta property="og:image:height" content="640">
+<meta property="og:image:alt" content="Count-In app window with the waveform and the count-in clicks">
+<meta property="og:locale" content="en_US">
+<meta property="og:locale:alternate" content="ru_RU">
 <meta name="twitter:card" content="summary_large_image">
-<link rel="icon" href="favicon.png">
+<link rel="icon" href="favicon.png" type="image/png">
+<link rel="apple-touch-icon" href="apple-touch-icon.png">
+<script type="application/ld+json">
+{
+  "@context": "https://schema.org",
+  "@type": "SoftwareApplication",
+  "name": "Count-In",
+  "url": "https://count-in.app/",
+  "description": "Finds a song's tempo and first downbeat, adds a sample-accurate drum count-in and turns guitar and vocals down for backing tracks.",
+  "applicationCategory": "MultimediaApplication",
+  "operatingSystem": "macOS 12+ (Apple Silicon), Windows 10/11 (x64)",
+  "offers": { "@type": "Offer", "price": "0", "priceCurrency": "USD" },
+  "downloadUrl": "https://github.com/shurshun/count-in/releases/latest",
+  "screenshot": "https://count-in.app/screenshots/main-light-en.png",
+  "image": "https://count-in.app/icon.png",
+  "inLanguage": ["en", "ru"]
+}
+</script>
 <link rel="stylesheet" href="site.css">
 <script src="site.js" defer></script>
 </head>
@@ -21,7 +48,7 @@
   <a class="link" href="#demo"><span lang="en">Demo</span><span lang="ru">Демо</span></a>
   <a class="link" href="https://github.com/shurshun/count-in">GitHub</a>
   <button type="button" data-toggle="theme" aria-label="Theme"><span class="light-only">☾</span><span class="dark-only">☀</span></button>
-  <button type="button" data-toggle="lang"><span lang="en">RU</span><span lang="ru">EN</span></button>
+  <button type="button" data-toggle="lang" title="Language"><span lang="en">RU</span><span lang="ru">EN</span></button>
 </nav>
 
 <div class="hero">
@@ -50,10 +77,10 @@
 
 <div class="shot">
   <div class="window">
-    <img class="light-only" lang="en" src="screenshots/main-light-en.png" alt="Count-In window" width="2360" height="1600" loading="lazy">
-    <img class="dark-only" lang="en" src="screenshots/main-dark-en.png" alt="Count-In window" width="2360" height="1600" loading="lazy">
-    <img class="light-only" lang="ru" src="screenshots/main-light.png" alt="Окно Count-In" width="2360" height="1600" loading="lazy">
-    <img class="dark-only" lang="ru" src="screenshots/main-dark.png" alt="Окно Count-In" width="2360" height="1600" loading="lazy">
+    <img class="light-only" lang="en" src="screenshots/main-light-en-1600.webp" srcset="screenshots/main-light-en-800.webp 800w, screenshots/main-light-en-1600.webp 1600w" sizes="(max-width: 1048px) calc(100vw - 48px), 1000px" alt="Count-In window" width="1600" height="1085" loading="lazy">
+    <img class="dark-only" lang="en" src="screenshots/main-dark-en-1600.webp" srcset="screenshots/main-dark-en-800.webp 800w, screenshots/main-dark-en-1600.webp 1600w" sizes="(max-width: 1048px) calc(100vw - 48px), 1000px" alt="Count-In window" width="1600" height="1085" loading="lazy">
+    <img class="light-only" lang="ru" src="screenshots/main-light-1600.webp" srcset="screenshots/main-light-800.webp 800w, screenshots/main-light-1600.webp 1600w" sizes="(max-width: 1048px) calc(100vw - 48px), 1000px" alt="Окно Count-In" width="1600" height="1085" loading="lazy">
+    <img class="dark-only" lang="ru" src="screenshots/main-dark-1600.webp" srcset="screenshots/main-dark-800.webp 800w, screenshots/main-dark-1600.webp 1600w" sizes="(max-width: 1048px) calc(100vw - 48px), 1000px" alt="Окно Count-In" width="1600" height="1085" loading="lazy">
   </div>
 </div>
 

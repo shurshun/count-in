@@ -1,0 +1,16 @@
+# Count-In
+
+> Free desktop app for macOS (Apple Silicon) and Windows (x64). It finds a song's tempo and first downbeat, inserts a sample-accurate drum count-in before it and can turn guitar and vocals down to make a backing track. Everything runs offline.
+
+- Count-in: 1 or 2 bars in 4/4, 3/4 or 6/8; even, build-up or a custom MIDI pattern. The last click lands exactly one click before the downbeat.
+- Backing tracks: BS-RoFormer separates guitar and vocals in one pass; each has its own level, down to fully removed.
+- Formats: opens mp3, FLAC, ALAC, WAV; saves MP3 320 kbps, FLAC, ALAC or WAV with tags and cover art.
+- Interface in English and Russian. Updates itself from GitHub releases.
+- There is also a command-line tool, `countin`, in the same bundle.
+
+## Links
+
+- [Download for macOS](https://github.com/shurshun/count-in/releases/latest/download/Count-In-macos-arm64.zip)
+- [Download for Windows](https://github.com/shurshun/count-in/releases/latest/download/Count-In-windows-x64.zip)
+- [Source code and documentation](https://github.com/shurshun/count-in)
+- [Release notes](https://github.com/shurshun/count-in/releases)
