@@ -62,9 +62,11 @@ function player(el) {
   const position = () => playing ? Math.min(ctx.currentTime - startedAt, DEMO.duration) : offset;
 
   async function load() {
-    ctx = new AudioContext();
+    ctx = ctx || new AudioContext();
     buffers = await Promise.all(DEMO.variants.map(([v]) =>
-      fetch(el.dataset.src + v + ".mp3").then(r => r.arrayBuffer()).then(b => ctx.decodeAudioData(b))));
+      fetch(el.dataset.src + v + ".mp3")
+        .then(r => { if (!r.ok) throw new Error(r.status + " " + r.url); return r.arrayBuffer(); })
+        .then(b => ctx.decodeAudioData(b))));
     gains = DEMO.variants.map(([v]) => {
       const g = ctx.createGain();
       g.gain.value = v === current ? 1 : 0;
@@ -87,7 +89,10 @@ function player(el) {
   }
 
   playBtn.onclick = async () => {
-    if (!ctx) { playBtn.disabled = true; await load(); playBtn.disabled = false; }
+    if (!buffers) {
+      playBtn.disabled = true;
+      try { await load(); } catch (e) { buffers = null; console.error(e); return; } finally { playBtn.disabled = false; }
+    }
     await ctx.resume();
     playing ? stop(position()) : start(offset);
   };
