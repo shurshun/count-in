@@ -156,13 +156,13 @@ rm -rf "$stage" "$0"
 """
 
 WIN_SWAP = r"""@echo on
-rem `timeout` needs a console, which a detached helper lacks, so ping does the waiting.
+rem `timeout` needs a console, which a detached helper lacks, so ping does the pausing.
 rem Waits for the app to quit, swaps the folder, starts the new one. A failed move puts the old one back.
 set "pid=%~1" & set "root=%~2" & set "new=%~3" & set "stage=%~4" & set "relaunch=%~5"
-rem System tools by full path: Git for Windows puts its own find.exe ahead of them on PATH.
+rem System tools by full path, so nothing on PATH shadows them.
 set "sys=%SystemRoot%\System32"
-:wait
-"%sys%\tasklist.exe" /FI "PID eq %pid%" /NH 2>nul | "%sys%\find.exe" "%pid%" >nul && ("%sys%\PING.EXE" -n 2 127.0.0.1 >nul & goto wait)
+rem A tasklist | find pipe hangs in a detached cmd, so PowerShell waits for the app instead.
+"%sys%\WindowsPowerShell\v1.0\powershell.exe" -NoProfile -NonInteractive -Command "Wait-Process -Id %pid% -ErrorAction SilentlyContinue"
 if exist "%root%.old" rmdir /s /q "%root%.old"
 rem Antivirus or a running countin.exe can hold the folder for a moment.
 set tries=0
