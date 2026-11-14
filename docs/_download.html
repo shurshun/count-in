@@ -1,0 +1,58 @@
+<!doctype html>
+<html lang="en" data-theme="light">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Download Count-In for {{os}}</title>
+<meta name="robots" content="noindex">
+<link rel="icon" href="/favicon.png" type="image/png">
+<script>
+  // Language and theme as on the main pages; a visitor from /ru/ gets Russian
+  try {
+    const r = document.documentElement, lang = localStorage.getItem("lang");
+    r.lang = lang || (document.referrer.includes("/ru/") || navigator.language.slice(0, 2) === "ru" ? "ru" : "en");
+    r.dataset.theme = localStorage.getItem("theme") || "light";
+  } catch {}
+  // This page view is the download click Web Analytics counts; then the browser fetches the file and stays here
+  addEventListener("load", () => setTimeout(() => location.assign("{{url}}"), 300));
+</script>
+<meta http-equiv="refresh" content="3; url={{url}}">
+<link rel="stylesheet" href="/site.css">
+</head>
+<body>
+<div class="wrap">
+
+<nav>
+  <a class="name" href="/"><img src="/favicon.png" alt="">Count-In</a>
+  <a class="link" href="/#demo"><span lang="en">Demo</span><span lang="ru">Демо</span></a>
+  <a class="link" href="https://github.com/shurshun/count-in">GitHub</a>
+</nav>
+
+<div class="started">
+  <img class="icon" src="/icon.png" alt="">
+  <h1><span lang="en">Your download has started</span><span lang="ru">Загрузка началась</span></h1>
+  <p class="lead">
+    <span lang="en">Count-In for {{os}} is on its way. While it downloads, here is how to install it.</span>
+    <span lang="ru">Count-In для {{os}} уже скачивается. А пока — как его установить.</span>
+  </p>
+  <div class="bar"></div>
+  <div class="file">
+    <svg viewBox="0 0 24 24"><path d="M6 2h8l6 6v14H6zM14 2v6h6"/></svg>
+    <span><b>{{asset}}</b><small><span lang="en">about 800 MB</span><span lang="ru">около 800 МБ</span> · {{req}}</small></span>
+    <span class="badge"><span lang="en">Download started</span><span lang="ru">Загрузка началась</span></span>
+  </div>
+</div>
+
+<div class="grid install">
+{{steps}}
+</div>
+
+<p class="after">
+  <span lang="en">Need {{other_os}}? <a href="/download/{{other_slug}}/">Download for {{other_os}}</a> · <a href="https://github.com/shurshun/count-in/releases/latest">Release notes</a></span>
+  <span lang="ru">Нужна версия для {{other_os}}? <a href="/download/{{other_slug}}/">Скачать для {{other_os}}</a> · <a href="https://github.com/shurshun/count-in/releases/latest">Что нового</a></span>
+</p>
+
+</div>
+<!-- Cloudflare Web Analytics --><script type='module' src='https://static.cloudflareinsights.com/beacon.min.js' data-cf-beacon='{"token": "233b03e9efac47f49997b5e79752c396"}'></script><!-- End Cloudflare Web Analytics -->
+</body>
+</html>

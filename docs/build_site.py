@@ -1,4 +1,5 @@
-"""Builds index.html (English) and ru/index.html (Russian) from _page.html.
+"""Builds index.html (English) and ru/index.html (Russian) from _page.html,
+and download/{mac,windows}/index.html from _download.html.
 
     python3 docs/build_site.py
 
@@ -66,5 +67,60 @@ def build() -> None:
         print("wrote", out.relative_to(DOCS))
 
 
+DOWNLOADS = {
+    "mac": {
+        "os": "macOS", "asset": "Count-In-macos-arm64.zip", "req": "macOS 12+ · Apple Silicon",
+        "other_os": "Windows", "other_slug": "windows",
+        "steps": [
+            ("Open the zip", "Откройте архив",
+             "Double-click <code>Count-In-macos-arm64.zip</code> in Downloads. Finder unpacks <code>Count-In.app</code> next to it.",
+             "Дважды щёлкните <code>Count-In-macos-arm64.zip</code> в «Загрузках». Finder распакует рядом <code>Count-In.app</code>."),
+            ("Move it to Applications", "Перенесите в «Программы»",
+             "Drag <code>Count-In.app</code> into Applications. From Downloads it can't update itself.",
+             "Перетащите <code>Count-In.app</code> в «Программы». Из «Загрузок» программа не сможет обновляться."),
+            ("Allow the first launch", "Разрешите первый запуск",
+             "macOS blocks unsigned apps once. Open System Settings → Privacy &amp; Security and click <b>Open Anyway</b>.",
+             "macOS один раз блокирует неподписанные программы. Откройте Системные настройки → Конфиденциальность и безопасность и нажмите <b>Всё равно открыть</b>."),
+        ],
+    },
+    "windows": {
+        "os": "Windows", "asset": "Count-In-windows-x64.zip", "req": "Windows 10/11 · x64",
+        "other_os": "macOS", "other_slug": "mac",
+        "steps": [
+            ("Extract the zip", "Распакуйте архив",
+             "Right-click <code>Count-In-windows-x64.zip</code> in Downloads and choose <b>Extract All</b>.",
+             "Щёлкните правой кнопкой по <code>Count-In-windows-x64.zip</code> в «Загрузках» и выберите <b>Извлечь все</b>."),
+            ("Keep the folder", "Положите папку на место",
+             "Move the <code>Count-In</code> folder somewhere permanent, such as Documents, and run <code>Count-In.exe</code>. Updates need a folder you can write to.",
+             "Перенесите папку <code>Count-In</code> в постоянное место, например в «Документы», и запустите <code>Count-In.exe</code>. Для обновлений нужна папка с правом записи."),
+            ("Get past SmartScreen", "Пропустите SmartScreen",
+             "Windows warns about unsigned apps once. Click <b>More info</b> → <b>Run anyway</b>.",
+             "Windows один раз предупреждает о неподписанных программах. Нажмите <b>Подробнее</b> → <b>Выполнить в любом случае</b>."),
+        ],
+    },
+}
+
+
+def build_downloads() -> None:
+    tpl = (DOCS / "_download.html").read_text()
+    for slug, d in DOWNLOADS.items():
+        steps = "\n".join(
+            f'  <div class="card step"><div class="ico">{i}</div>'
+            f'<h3><span lang="en">{te}</span><span lang="ru">{tr}</span></h3>'
+            f'<p lang="en">{de}</p><p lang="ru">{dr}</p></div>'
+            for i, (te, tr, de, dr) in enumerate(d["steps"], 1))
+        fields = {**d, "steps": steps, "url": f"https://github.com/shurshun/count-in/releases/latest/download/{d['asset']}"}
+        html = tpl
+        for k, v in fields.items():
+            html = html.replace("{{" + k + "}}", v)
+        assert "{{" not in html, "unfilled placeholder"
+        html = html.replace("<!doctype html>\n", "<!doctype html>\n<!-- Generated from _download.html by build_site.py -->\n", 1)
+        out = DOCS / "download" / slug / "index.html"
+        out.parent.mkdir(parents=True, exist_ok=True)
+        out.write_text(html)
+        print("wrote", out.relative_to(DOCS))
+
+
 if __name__ == "__main__":
     build()
+    build_downloads()

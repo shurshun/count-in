@@ -1,24 +1,60 @@
 <!doctype html>
-<html lang="en">
+<!-- Generated from _download.html by build_site.py -->
+<html lang="en" data-theme="light">
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
-<title>Downloading Count-In for Windows</title>
+<title>Download Count-In for Windows</title>
 <meta name="robots" content="noindex">
 <link rel="icon" href="/favicon.png" type="image/png">
-<link rel="stylesheet" href="/site.css">
-<!-- Visiting this page is the download click Web Analytics counts; it then hands over to GitHub -->
+<script>
+  // Language and theme as on the main pages; a visitor from /ru/ gets Russian
+  try {
+    const r = document.documentElement, lang = localStorage.getItem("lang");
+    r.lang = lang || (document.referrer.includes("/ru/") || navigator.language.slice(0, 2) === "ru" ? "ru" : "en");
+    r.dataset.theme = localStorage.getItem("theme") || "light";
+  } catch {}
+  // This page view is the download click Web Analytics counts; then the browser fetches the file and stays here
+  addEventListener("load", () => setTimeout(() => location.assign("https://github.com/shurshun/count-in/releases/latest/download/Count-In-windows-x64.zip"), 300));
+</script>
 <meta http-equiv="refresh" content="3; url=https://github.com/shurshun/count-in/releases/latest/download/Count-In-windows-x64.zip">
-<script>addEventListener("load", () => setTimeout(() => location.replace("https://github.com/shurshun/count-in/releases/latest/download/Count-In-windows-x64.zip"), 300));</script>
-<style> main { text-align: center; padding: 18vh 0; } </style>
+<link rel="stylesheet" href="/site.css">
 </head>
 <body>
 <div class="wrap">
-<main>
-  <h1>Count-In for Windows</h1>
-  <p class="lead">The download starts in a moment.<br>Загрузка сейчас начнётся.</p>
-  <p class="note"><a href="https://github.com/shurshun/count-in/releases/latest/download/Count-In-windows-x64.zip">Download / Скачать</a> · <a href="/">count-in.app</a></p>
-</main>
+
+<nav>
+  <a class="name" href="/"><img src="/favicon.png" alt="">Count-In</a>
+  <a class="link" href="/#demo"><span lang="en">Demo</span><span lang="ru">Демо</span></a>
+  <a class="link" href="https://github.com/shurshun/count-in">GitHub</a>
+</nav>
+
+<div class="started">
+  <img class="icon" src="/icon.png" alt="">
+  <h1><span lang="en">Your download has started</span><span lang="ru">Загрузка началась</span></h1>
+  <p class="lead">
+    <span lang="en">Count-In for Windows is on its way. While it downloads, here is how to install it.</span>
+    <span lang="ru">Count-In для Windows уже скачивается. А пока — как его установить.</span>
+  </p>
+  <div class="bar"></div>
+  <div class="file">
+    <svg viewBox="0 0 24 24"><path d="M6 2h8l6 6v14H6zM14 2v6h6"/></svg>
+    <span><b>Count-In-windows-x64.zip</b><small><span lang="en">about 800 MB</span><span lang="ru">около 800 МБ</span> · Windows 10/11 · x64</small></span>
+    <span class="badge"><span lang="en">Download started</span><span lang="ru">Загрузка началась</span></span>
+  </div>
+</div>
+
+<div class="grid install">
+  <div class="card step"><div class="ico">1</div><h3><span lang="en">Extract the zip</span><span lang="ru">Распакуйте архив</span></h3><p lang="en">Right-click <code>Count-In-windows-x64.zip</code> in Downloads and choose <b>Extract All</b>.</p><p lang="ru">Щёлкните правой кнопкой по <code>Count-In-windows-x64.zip</code> в «Загрузках» и выберите <b>Извлечь все</b>.</p></div>
+  <div class="card step"><div class="ico">2</div><h3><span lang="en">Keep the folder</span><span lang="ru">Положите папку на место</span></h3><p lang="en">Move the <code>Count-In</code> folder somewhere permanent, such as Documents, and run <code>Count-In.exe</code>. Updates need a folder you can write to.</p><p lang="ru">Перенесите папку <code>Count-In</code> в постоянное место, например в «Документы», и запустите <code>Count-In.exe</code>. Для обновлений нужна папка с правом записи.</p></div>
+  <div class="card step"><div class="ico">3</div><h3><span lang="en">Get past SmartScreen</span><span lang="ru">Пропустите SmartScreen</span></h3><p lang="en">Windows warns about unsigned apps once. Click <b>More info</b> → <b>Run anyway</b>.</p><p lang="ru">Windows один раз предупреждает о неподписанных программах. Нажмите <b>Подробнее</b> → <b>Выполнить в любом случае</b>.</p></div>
+</div>
+
+<p class="after">
+  <span lang="en">Need macOS? <a href="/download/mac/">Download for macOS</a> · <a href="https://github.com/shurshun/count-in/releases/latest">Release notes</a></span>
+  <span lang="ru">Нужна версия для macOS? <a href="/download/mac/">Скачать для macOS</a> · <a href="https://github.com/shurshun/count-in/releases/latest">Что нового</a></span>
+</p>
+
 </div>
 <!-- Cloudflare Web Analytics --><script type='module' src='https://static.cloudflareinsights.com/beacon.min.js' data-cf-beacon='{"token": "233b03e9efac47f49997b5e79752c396"}'></script><!-- End Cloudflare Web Analytics -->
 </body>

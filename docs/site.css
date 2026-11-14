@@ -122,3 +122,28 @@ footer { padding: 88px 0 40px; color: var(--muted); font-size: 14px; text-align:
   .shot { margin-top: 40px; }
   section { padding-top: 64px; }
 }
+
+/* Download page */
+.file { display: flex; align-items: center; gap: 12px; background: var(--card); border: 1px solid var(--border); border-radius: 12px; padding: 12px 16px; text-align: left; }
+.file svg { width: 28px; height: 28px; fill: none; stroke: var(--muted); stroke-width: 1.5; flex: none; }
+.file b { display: block; font-size: 15px; word-break: break-all; }
+.file small { color: var(--muted); font-size: 13px; }
+.file .badge { margin-left: auto; }
+.badge { display: inline-flex; align-items: center; gap: 6px; background: rgba(48,209,88,.12); color: #1a7f32; font-weight: 600; font-size: 13.5px; padding: 5px 11px; border-radius: 999px; white-space: nowrap; }
+.badge::before { content: "✓"; }
+:root[data-theme=dark] .badge { color: #4cd964; }
+.started { text-align: center; padding: 40px 0 28px; max-width: 720px; margin: 0 auto; }
+.started .icon { width: 96px; height: 96px; }
+.started h1 { font-size: clamp(32px, 4.5vw, 46px); line-height: 1.1; letter-spacing: -0.02em; margin: 18px 0 10px; }
+.started .lead { margin-bottom: 24px; }
+.bar { height: 4px; border-radius: 2px; background: var(--bg2); overflow: hidden; margin: 0 auto 24px; max-width: 320px; }
+.bar::after { content: ""; display: block; height: 100%; width: 35%; background: var(--accent); border-radius: 2px; animation: slide 1.4s ease-in-out infinite; }
+@keyframes slide { from { transform: translateX(-100%); } to { transform: translateX(290%); } }
+@media (prefers-reduced-motion: reduce) { .bar::after { animation: none; width: 100%; } }
+.install { margin: 24px 0 32px; }
+.install .card h3 { margin-top: 2px; }
+.after { text-align: center; color: var(--muted); font-size: 14px; padding-bottom: 48px; }
+@media (max-width: 600px) {
+  .file { flex-wrap: wrap; }
+  .file .badge { margin-left: 40px; }
+}
