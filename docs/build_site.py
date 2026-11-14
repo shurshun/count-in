@@ -39,7 +39,7 @@ PAGES = {
 }
 
 # Relative asset paths that need ../ on the /ru/ page
-ASSET = re.compile(r'(?<=["\s,])(?=(?:screenshots/|demo/|site\.css|site\.js|favicon\.png|apple-touch-icon\.png|icon\.png))')
+ASSET = re.compile(r'(?<=["\s,])(?=(?:screenshots/|demo/|download/|site\.css|site\.js|favicon\.png|apple-touch-icon\.png|icon\.png))')
 
 
 def drop(html: str, lang: str) -> str:
