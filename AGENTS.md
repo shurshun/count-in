@@ -74,7 +74,7 @@ Count-In inserts a drum count-in before a song's first downbeat and can turn gui
 - `io.tool()` finds ffmpeg/ffprobe in `bin/` by full path; nothing relies on `PATH`.
 - `packaging/countin.spec` builds one bundle with two executables sharing its libraries: `Count-In` (app) and `countin` (CLI). It bundles `models/final0.ckpt`, `models/separator/`, `samples/`, `bin/`, the light and dark PNGs from `assets/icons/` and the `countin` package metadata (the update check reads the version from it).
 - `packaging/build_ffmpeg.sh` builds a static, audio-only LGPL ffmpeg on macOS. ffmpeg 7+ needs the `fd` protocol for `-` pipes. Windows CI downloads a BtbN LGPL build instead.
-- `packaging/fetch_models.sh` downloads the weights and checks their sha256; `build_ffmpeg.sh` checks the ffmpeg tarball. Windows CI pins a dated BtbN build by hash; BtbN prunes old autobuilds, so a 404 there means moving the URL and hash to a newer one. CI caches `models/` keyed by the fetch script.
+- `packaging/fetch_models.sh` downloads the weights and checks their sha256. When the JKU server fails, `final0.ckpt` comes out of the latest release zip through HTTP range requests (`packaging/fetch_from_release.py`); `build_ffmpeg.sh` checks the ffmpeg tarball. Windows CI pins a dated BtbN build by hash; BtbN prunes old autobuilds, so a 404 there means moving the URL and hash to a newer one. CI caches `models/` keyed by the fetch script.
 - The windowed Windows build has no stderr; `packaging/countin_app.py` points it at devnull before anything prints.
 
 ## CI and releases
