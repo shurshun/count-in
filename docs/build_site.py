@@ -23,7 +23,9 @@ PAGES = {
         "og_image_alt": "Count-In app window with the waveform and the count-in clicks",
         "ld_description": "Finds a song's tempo and first downbeat, adds a sample-accurate drum count-in and turns guitar and vocals down for backing tracks.",
         "locale": "en_US", "locale_alt": "ru_RU",
-        "other_lang": "ru", "other_url": "ru/", "other_label": "RU",
+        "other_lang": "ru", "other_url": "ru/", "other_label": "RU", "theme_label": "Switch theme",
+        "og_image": "https://count-in.app/screenshots/social-preview.png",
+        "ld_screenshot": "https://count-in.app/screenshots/main-light-en.png",
     },
     "ru": {
         "out": "ru/index.html",
@@ -35,7 +37,9 @@ PAGES = {
         "og_image_alt": "Окно Count-In с волной песни и щелчками отсчёта",
         "ld_description": "Находит темп и первую долю песни, добавляет отсчёт с точностью до сэмпла и убирает гитару и вокал для минусовки.",
         "locale": "ru_RU", "locale_alt": "en_US",
-        "other_lang": "en", "other_url": "../", "other_label": "EN",
+        "other_lang": "en", "other_url": "../", "other_label": "EN", "theme_label": "Сменить тему",
+        "og_image": "https://count-in.app/screenshots/social-preview-ru.png",
+        "ld_screenshot": "https://count-in.app/screenshots/main-light.png",
     },
 }
 

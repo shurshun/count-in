@@ -40,6 +40,7 @@ nav a.gh svg { width: 16px; height: 16px; fill: currentColor; }
   display: inline-flex; align-items: center; gap: 12px; padding: 11px 20px 11px 16px; border-radius: 12px;
   text-decoration: none; background: var(--btn); color: var(--btn-text); font-weight: 600; font-size: 16px; line-height: 1.2;
 }
+.dl > span { text-align: left; }
 .dl svg { width: 22px; height: 22px; flex: none; fill: currentColor; }
 h3.os { display: flex; align-items: center; gap: 10px; }
 h3.os svg { width: 20px; height: 20px; flex: none; fill: currentColor; }
@@ -57,13 +58,16 @@ h3.os svg { width: 20px; height: 20px; flex: none; fill: currentColor; }
 .player .top { display: flex; align-items: center; gap: 14px; }
 .player .title { font-weight: 600; font-size: 15px; line-height: 1.3; }
 .player .title small { display: block; color: var(--muted); font-weight: 400; font-size: 13px; }
-.player .time { margin-left: auto; color: var(--muted); font-size: 13px; font-variant-numeric: tabular-nums; }
+.player .time { margin-left: auto; white-space: nowrap; color: var(--muted); font-size: 13px; font-variant-numeric: tabular-nums; }
 .play {
   width: 44px; height: 44px; border-radius: 50%; border: none; cursor: pointer; flex: none; padding: 0;
-  background: var(--accent); color: #fff; display: grid; place-items: center;
+  background: var(--accent); color: #1d1d1f; display: grid; place-items: center;
 }
 .play svg { width: 18px; height: 18px; fill: currentColor; }
 .play:disabled { opacity: .5; cursor: progress; }
+.wave:focus-visible { outline: 2px solid var(--blue); outline-offset: 4px; border-radius: 4px; }
+.player .err { margin: 0 0 10px; color: #d70015; font-size: 14px; }
+:root[data-theme=dark] .player .err { color: #ff6961; }
 .wave { position: relative; overflow: hidden; height: 96px; margin: 14px 0 12px; cursor: pointer; user-select: none; }
 .wave svg { display: block; width: 100%; height: 100%; }
 .wave .bars path { fill: var(--wave); }
@@ -73,7 +77,7 @@ h3.os svg { width: 20px; height: 20px; flex: none; fill: currentColor; }
 .wave .head { position: absolute; top: 0; bottom: 0; width: 2px; margin-left: -1px; background: var(--text); opacity: .7; pointer-events: none; }
 .wave .one {
   position: absolute; top: 0; width: 20px; height: 20px; margin-left: -10px; border-radius: 50%; pointer-events: none;
-  background: var(--accent); color: #fff; font-size: 12px; font-weight: 700; text-align: center; line-height: 20px;
+  background: var(--accent); color: #1d1d1f; font-size: 12px; font-weight: 700; text-align: center; line-height: 20px;
 }
 .wave .one::after { content: ""; position: absolute; left: 9px; top: 20px; width: 2px; height: 400px; background: var(--accent); }
 .seg { display: grid; grid-template-columns: repeat(4, 1fr); gap: 4px; padding: 4px; background: var(--bg2); border-radius: 11px; }
@@ -89,7 +93,7 @@ h3.os svg { width: 20px; height: 20px; flex: none; fill: currentColor; }
   nav a.gh { display: inline-flex; }
   nav a.gh span { display: none; }
   .seg { grid-template-columns: repeat(2, 1fr); }
-  .dl { flex: 1 1 100%; }
+  .dl { flex: 1 1 100%; justify-content: center; }
 }
 
 /* Page */
@@ -112,8 +116,8 @@ h2 { font-size: clamp(28px, 3.6vw, 36px); letter-spacing: -0.015em; margin: 0 0 
 .card h3 { margin: 0 0 6px; font-size: 17px; }
 .card p { margin: 0; color: var(--muted); font-size: 15px; }
 .card .ico { width: 36px; height: 36px; border-radius: 10px; display: grid; place-items: center; margin-bottom: 14px; background: var(--bg2); color: var(--accent); font-weight: 700; }
-.card.step .ico { background: var(--accent); color: #fff; border-radius: 50%; }
-code { font: 13.5px ui-monospace, SFMono-Regular, Menlo, monospace; background: var(--bg2); padding: 1px 5px; border-radius: 5px; }
+.card.step .ico { background: var(--accent); color: #1d1d1f; border-radius: 50%; }
+code { white-space: nowrap; font: 13.5px ui-monospace, SFMono-Regular, Menlo, monospace; background: var(--bg2); padding: 1px 5px; border-radius: 5px; }
 
 footer { padding: 88px 0 40px; color: var(--muted); font-size: 14px; text-align: center; }
 
@@ -146,7 +150,7 @@ footer { padding: 88px 0 40px; color: var(--muted); font-size: 14px; text-align:
 
 /* Step illustrations, drawn in CSS */
 .ill { height: 210px; border-radius: 16px; border: 1px solid var(--border); background: linear-gradient(180deg, var(--card), var(--bg2)); box-shadow: var(--shadow); display: flex; align-items: center; justify-content: center; gap: 20px; overflow: hidden; padding: 0 14px; }
-.ill .item { display: flex; flex-direction: column; align-items: center; gap: 10px; font-size: 13px; font-weight: 500; text-align: center; }
+.ill .item { white-space: nowrap; display: flex; flex-direction: column; align-items: center; gap: 10px; font-size: 13px; font-weight: 500; text-align: center; }
 .ill .app { width: 72px; height: 72px; }
 .ill .arrow { color: var(--muted); font-size: 26px; letter-spacing: -2px; flex: none; }
 .zip { width: 64px; height: 80px; background: var(--card); border: 1px solid var(--border); border-radius: 6px; position: relative; box-shadow: 0 2px 6px rgba(0,0,0,.08); }
@@ -159,13 +163,13 @@ footer { padding: 88px 0 40px; color: var(--muted); font-size: 14px; text-align:
 .folder.win::after { background: linear-gradient(180deg, #ffd666, #f5bf3c); border-radius: 3px; }
 .folder span { position: absolute; z-index: 1; inset: 8px 0 0; display: grid; place-items: center; color: #fff; font-size: 26px; font-weight: 700; }
 .mock { width: 92%; background: var(--card); border: 1px solid var(--border); border-radius: 10px; font-size: 12.5px; text-align: left; overflow: hidden; box-shadow: 0 4px 14px rgba(0,0,0,.08); }
-.mock.settings { height: 76%; display: grid; grid-template-columns: 44% 1fr; }
+.mock.settings { height: 76%; display: grid; grid-template-columns: auto 1fr; }
 .mock .side { background: var(--bg2); padding: 12px 10px; display: flex; flex-direction: column; gap: 6px; color: var(--muted); }
 .mock .side span { white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
 .mock .side .on { background: #0062cc; color: #fff; border-radius: 6px; padding: 3px 6px; margin: 0 -6px; }
 .mock .main { padding: 14px; display: flex; flex-direction: column; gap: 10px; }
 .mock p { margin: 0; line-height: 1.35; }
-.mock .btn { align-self: flex-start; font-weight: 600; border: 1px solid var(--border); background: var(--card); border-radius: 6px; padding: 4px 10px; box-shadow: 0 0 0 3px rgba(255,159,10,.5); }
+.mock .btn { white-space: nowrap; align-self: flex-start; font-weight: 600; border: 1px solid var(--border); background: var(--card); border-radius: 6px; padding: 4px 10px; box-shadow: 0 0 0 3px rgba(255,159,10,.5); }
 .mock.menu { width: auto; min-width: 150px; padding: 6px; }
 .mock.menu div { padding: 5px 10px; border-radius: 5px; color: var(--muted); }
 .mock.menu .on { background: #0062cc; color: #fff; }
@@ -175,6 +179,17 @@ footer { padding: 88px 0 40px; color: var(--muted); font-size: 14px; text-align:
 .mock.smartscreen .btn { align-self: flex-end; background: #0063b1; color: #fff; border: 1px solid #fff; }
 
 @media (max-width: 860px) { .steps3 { grid-template-columns: 1fr; } }
+@media (max-width: 400px) {
+  .ill { gap: 10px; padding: 0 8px; }
+  .ill .item { font-size: 12px; }
+  .ill .arrow { font-size: 20px; }
+  .mock { font-size: 11.5px; }
+}
+
+/* Phones can't run the app: a note and a way to send the link to a computer */
+.phone-note { display: none; margin: 0 auto 14px; max-width: 520px; color: var(--muted); font-size: 15px; }
+.phone-note button { font: inherit; font-weight: 600; color: var(--link); background: none; border: none; padding: 0; cursor: pointer; text-decoration: underline; }
+@media (hover: none) and (pointer: coarse) { .phone-note { display: block; } }
 
 /* Coffee tip: a quiet, optional thank-you to the author */
 .coffee { display: flex; align-items: center; gap: 22px; background: linear-gradient(100deg, rgba(255,159,10,.10), rgba(255,159,10,.03)); border: 1px solid rgba(255,159,10,.30); border-radius: 20px; padding: 24px 28px; text-align: left; }

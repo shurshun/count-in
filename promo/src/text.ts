@@ -1,4 +1,4 @@
-import { C } from "./shared";
+import { createContext, useContext } from "react";
 
 export type Lang = "en" | "ru";
 
@@ -7,12 +7,15 @@ export type Line = { bars?: number; at?: "guitar" | "vocals"; text: string; acce
 
 export const COPY: Record<Lang, {
   shot: string; size: [number, number]; syllables: string[]; lines: Line[]; tagline: string;
+  first: Line; available: string; free: string;
 }> = {
   en: {
     shot: "screenshots/main-light-en.png",
     size: [2360, 1600],
     syllables: ["Ev", "ery ", "song ", "de", "serves ", "a ", "Count-", "In"],
     tagline: "Free for macOS and Windows · works offline",
+    first: { text: "A count-in for every song", accent: "every song" },
+    available: "Available for macOS and Windows", free: "For free",
     lines: [
       { bars: 0, text: "Count-In" },
       { bars: 1, text: "Finds the tempo", accent: "tempo" },
@@ -31,6 +34,8 @@ export const COPY: Record<Lang, {
     size: [2402, 1600],
     syllables: ["У ", "каж", "дой ", "пес", "ни ", "свой ", "от", "счёт"],
     tagline: "Бесплатно для macOS и Windows · работает без интернета",
+    first: { text: "Отсчёт перед любой песней", accent: "любой песней" },
+    available: "Доступно для macOS и Windows", free: "Бесплатно",
     lines: [
       { bars: 0, text: "Count-In" },
       { bars: 1, text: "Находит темп", accent: "темп" },
@@ -38,13 +43,14 @@ export const COPY: Record<Lang, {
       { bars: 3, text: "Клики точно в сэмпл", accent: "точно" },
       { bars: 4, text: "4/4, 3/4, 6/8 или свой MIDI", accent: "MIDI" },
       { bars: 5, text: "Пробел — прослушать", accent: "Пробел" },
-      { at: "guitar", text: "Без гитары", accent: "Без" },
+      { at: "guitar", text: "Без гитары", accent: "гитары" },
       { at: "guitar", bars: 1, text: "Теперь играешь ты", accent: "ты" },
-      { at: "vocals", text: "Без вокала", accent: "Без" },
+      { at: "vocals", text: "Без вокала", accent: "вокала" },
       { at: "vocals", bars: 0.9, text: "Офлайн и бесплатно", accent: "бесплатно" },
     ],
   },
 };
 
-export const ACCENT_ON_ORANGE = "#fff";
-export const PANEL = { bg: C.accent, fg: "#1d1d1f" };
+// Language of the composition being rendered; English unless a provider says otherwise
+export const LangContext = createContext<Lang>("en");
+export const useCopy = () => COPY[useContext(LangContext)];

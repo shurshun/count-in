@@ -29,7 +29,7 @@ def neutral_copy(src: Path, dst: Path) -> Path:
     return dst
 
 
-def social(shot: QImage, font: QFont) -> None:
+def social(shot: QImage, font: QFont, lang: str) -> None:
     """1280x640 repository preview: name, tagline, a large crop of the window."""
     img = QImage(1280, 640, QImage.Format_ARGB32)
     p = QPainter(img)
@@ -49,12 +49,13 @@ def social(shot: QImage, font: QFont) -> None:
     p.setFont(f)
     p.setPen(QColor(110, 110, 115))
     p.drawText(QRectF(66, 130, 1150, 40), Qt.AlignLeft,
-               "Drum count-in before the first downbeat · backing tracks without guitar or vocals")
+               "Drum count-in before the first downbeat · backing tracks without guitar or vocals" if lang == "en" else
+               "Отсчёт перед первой долей · минусовки без гитары и вокала")
     sc = shot.scaledToWidth(1060, Qt.SmoothTransformation)
     sc.setDevicePixelRatio(1.0)
     p.drawImage(160, 200, sc)
     p.end()
-    img.save(str(OUT / "social-preview.png"))
+    img.save(str(OUT / ("social-preview.png" if lang == "en" else "social-preview-ru.png")))
 
 
 def run(song: Path, scheme: str, lang: str, tmp: Path) -> None:
@@ -91,8 +92,7 @@ def run(song: Path, scheme: str, lang: str, tmp: Path) -> None:
             shot = w.grab().toImage()
             shot.save(str(OUT / f"main-{scheme}{sfx}.png"))
             if scheme == "light":
-                if lang == "en":
-                    social(shot, app.font())
+                social(shot, app.font(), lang)
                 d = gui.PrefsDialog(w)
                 d.show()
                 app.processEvents()

@@ -42,10 +42,16 @@
 }
 </script>
 <script>
-  // First visit to the English page follows the system language; a saved choice wins
+  // First visit to the English page follows the system language; a saved choice wins.
+  // The saved theme applies before the first paint.
   try {
-    if (document.documentElement.lang === "en" &&
-        (localStorage.getItem("lang") || navigator.language.slice(0, 2)) === "ru") location.replace("ru/" + location.hash);
+    const r = document.documentElement;
+    if (r.lang === "en" && (localStorage.getItem("lang") || navigator.language.slice(0, 2)) === "ru")
+      location.replace("ru/" + location.search + location.hash);
+    if (localStorage.getItem("theme") === "dark") {
+      r.dataset.theme = "dark";
+      document.querySelector("meta[name=theme-color]").content = "#161618";
+    }
   } catch {}
 </script>
 <link rel="stylesheet" href="site.css">
@@ -54,26 +60,32 @@
 <body>
 <div class="wrap">
 
+<header>
 <nav>
   <a class="name" href="#"><img src="favicon.png" alt="">Count-In</a>
   <a class="link gh" href="https://github.com/shurshun/count-in" aria-label="GitHub"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M12 .297c-6.63 0-12 5.373-12 12 0 5.303 3.438 9.8 8.205 11.385.6.113.82-.258.82-.577 0-.285-.01-1.04-.015-2.04-3.338.724-4.042-1.61-4.042-1.61C4.422 18.07 3.633 17.7 3.633 17.7c-1.087-.744.084-.729.084-.729 1.205.084 1.838 1.236 1.838 1.236 1.07 1.835 2.809 1.305 3.495.998.108-.776.417-1.305.76-1.605-2.665-.3-5.466-1.332-5.466-5.93 0-1.31.465-2.38 1.235-3.22-.135-.303-.54-1.523.105-3.176 0 0 1.005-.322 3.3 1.23.96-.267 1.98-.399 3-.405 1.02.006 2.04.138 3 .405 2.28-1.552 3.285-1.23 3.285-1.23.645 1.653.24 2.873.12 3.176.765.84 1.23 1.91 1.23 3.22 0 4.61-2.805 5.625-5.475 5.92.42.36.81 1.096.81 2.22 0 1.606-.015 2.896-.015 3.286 0 .315.21.69.825.57C20.565 22.092 24 17.592 24 12.297c0-6.627-5.373-12-12-12"/></svg><span>GitHub</span></a>
-  <button type="button" data-toggle="theme" aria-label="Theme"><span class="light-only">☾</span><span class="dark-only">☀</span></button>
+  <button type="button" data-toggle="theme" aria-label="Switch theme"><span class="light-only">☾</span><span class="dark-only">☀</span></button>
   <a class="lang" href="ru/" hreflang="ru" data-lang="ru">RU</a>
 </nav>
+</header>
 
+<main>
 <div class="hero">
   <h1><span lang="en">A count-in for every song</span></h1>
   <p class="lead">
     <span lang="en">Count-In finds the tempo and the first downbeat and adds a drum count-in that lands exactly on the “one”. It can also turn guitar and vocals down for a backing track.</span>
     </p>
+  <p class="phone-note">
+    <span lang="en">Count-In is a desktop app for macOS and Windows. <button type="button" data-share>Send the link to your computer</button></span>
+    </p>
   <div class="downloads">
     <a class="dl" href="download/mac/">
       <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M12.152 6.896c-.948 0-2.415-1.078-3.96-1.04-2.04.027-3.91 1.183-4.961 3.014-2.117 3.675-.546 9.103 1.519 12.09 1.013 1.454 2.208 3.09 3.792 3.039 1.52-.065 2.09-.987 3.935-.987 1.831 0 2.35.987 3.96.948 1.637-.026 2.676-1.48 3.676-2.948 1.156-1.688 1.636-3.325 1.662-3.415-.039-.013-3.182-1.221-3.22-4.857-.026-3.04 2.48-4.494 2.597-4.559-1.429-2.09-3.623-2.324-4.39-2.376-2-.156-3.675 1.09-4.61 1.09zM15.53 3.83c.843-1.012 1.4-2.427 1.245-3.83-1.207.052-2.662.805-3.532 1.818-.78.896-1.454 2.338-1.273 3.714 1.338.104 2.715-.688 3.559-1.701"/></svg>
-      <span><span lang="en">Download for Mac</span><small>macOS 12+ · Apple Silicon</small></span>
+      <span><span lang="en">Download for Mac</span><small>macOS 12+ · Apple Silicon<span data-size="Count-In-macos-arm64.zip"></span></small></span>
     </a>
     <a class="dl alt" href="download/windows/">
       <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M2 2h9.5v9.5H2zM12.5 2H22v9.5h-9.5zM2 12.5h9.5V22H2zM12.5 12.5H22V22h-9.5z"/></svg>
-      <span><span lang="en">Download for Windows</span><small>Windows 10/11 · x64</small></span>
+      <span><span lang="en">Download for Windows</span><small>Windows 10/11 · x64<span data-size="Count-In-windows-x64.zip"></span></small></span>
     </a>
   </div>
   <p class="note">
@@ -94,32 +106,32 @@
   <p class="sub"><span lang="en">Everything runs on your computer, from beat detection to separation.</span></p>
   <div class="grid">
     <div class="card">
-      <div class="ico">♩</div>
+      <div class="ico" aria-hidden="true">♩</div>
       <h3><span lang="en">Sample-accurate count-in</span></h3>
       <p lang="en">A neural beat tracker finds the tempo and the first downbeat. Each click is placed on its own sample, so the timing never drifts.</p>
       </div>
     <div class="card">
-      <div class="ico">♬</div>
+      <div class="ico" aria-hidden="true">♬</div>
       <h3><span lang="en">Your pattern</span></h3>
       <p lang="en">One or two bars in 4/4, 3/4 or 6/8. Even, build-up with the last hits louder, or your own pattern from a MIDI file.</p>
       </div>
     <div class="card">
-      <div class="ico">≋</div>
+      <div class="ico" aria-hidden="true">≋</div>
       <h3><span lang="en">Backing tracks</span></h3>
       <p lang="en">BS-RoFormer separates guitar and vocals in one pass. Each gets its own slider, from a few dB down to fully removed.</p>
       </div>
     <div class="card">
-      <div class="ico">▶</div>
+      <div class="ico" aria-hidden="true">▶</div>
       <h3><span lang="en">Listen before saving</span></h3>
       <p lang="en">Space plays the count-in and the first seconds of the song. The sliders change the mix while it plays.</p>
       </div>
     <div class="card">
-      <div class="ico">♫</div>
+      <div class="ico" aria-hidden="true">♫</div>
       <h3><span lang="en">Formats and tags</span></h3>
       <p lang="en">Opens mp3, FLAC, ALAC and WAV. Saves MP3 320 kbps, FLAC, ALAC or WAV with tags and cover art, sorted into Artist / Album folders if you like.</p>
       </div>
     <div class="card">
-      <div class="ico">↻</div>
+      <div class="ico" aria-hidden="true">↻</div>
       <h3><span lang="en">Works offline</span></h3>
       <p lang="en">Your music never leaves the computer. The network is used only to fetch new versions, which install on restart.</p>
       </div>
@@ -174,6 +186,7 @@
   <a class="tip" href="https://boosty.to/shurshun/donate" target="_blank" rel="noopener noreferrer"><span lang="en">Fuel me with coffee ☕</span><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M14 4h6v6M20 4l-9 9M18 14v6H4V6h6"/></svg></a>
 </div>
 </section>
+</main>
 
 <footer>
   <span lang="en">Source code, issues and release notes are on <a href="https://github.com/shurshun/count-in">GitHub</a>. Demo song made with Suno.</span>
