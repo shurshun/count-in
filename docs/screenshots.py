@@ -35,19 +35,19 @@ def social(shot: QImage, font: QFont) -> None:
     p = QPainter(img)
     p.setRenderHint(QPainter.Antialiasing)
     g = QLinearGradient(0, 0, 1280, 640)
-    g.setColorAt(0, QColor(28, 28, 32))
-    g.setColorAt(1, QColor(18, 30, 52))
+    g.setColorAt(0, QColor(251, 251, 253))
+    g.setColorAt(1, QColor(232, 236, 244))
     p.fillRect(img.rect(), g)
     f = QFont(font)
     f.setPixelSize(64)
     f.setWeight(QFont.Bold)
     p.setFont(f)
-    p.setPen(QColor(255, 255, 255))
+    p.setPen(QColor(29, 29, 31))
     p.drawText(QRectF(64, 48, 1100, 80), Qt.AlignLeft, "Count-In")
     f.setPixelSize(28)
     f.setWeight(QFont.Normal)
     p.setFont(f)
-    p.setPen(QColor(200, 205, 215))
+    p.setPen(QColor(110, 110, 115))
     p.drawText(QRectF(66, 130, 1150, 40), Qt.AlignLeft,
                "Drum count-in before the first downbeat · backing tracks without guitar or vocals")
     sc = shot.scaledToWidth(1060, Qt.SmoothTransformation)
@@ -93,13 +93,13 @@ def run(song: Path, scheme: str, lang: str, tmp: Path) -> None:
         elif step["n"] == 1:
             shot = w.grab().toImage()
             shot.save(str(OUT / f"main-{scheme}{sfx}.png"))
-            if scheme == "dark":
+            if scheme == "light":
                 if lang == "en":
                     social(shot, app.font())
                 d = gui.PrefsDialog(w)
                 d.show()
                 app.processEvents()
-                d.grab().save(str(OUT / f"prefs-dark{sfx}.png"))
+                d.grab().save(str(OUT / f"prefs-light{sfx}.png"))
                 d.close()
                 w.reveal_b.hide()
                 w.status.setText("")
@@ -109,7 +109,7 @@ def run(song: Path, scheme: str, lang: str, tmp: Path) -> None:
                 w.progress.setValue(440)
                 w.prog_eta.setText("44% · " + _("осталось ~{m}:{s:02d}", m=1, s=24))
                 app.processEvents()
-                w.grab().save(str(OUT / f"progress-dark{sfx}.png"))
+                w.grab().save(str(OUT / f"progress-light{sfx}.png"))
             w.close()
             app.quit()
 

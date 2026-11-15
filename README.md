@@ -30,7 +30,9 @@ The builds are unsigned, so the system warns on first launch.
 
 ## How to use
 
-![Main window](docs/screenshots/main-dark-en.png)
+![Main window](docs/screenshots/main-light-en.png)
+
+The app follows the system appearance and has a [dark theme](docs/screenshots/main-dark-en.png) too.
 
 1. Drop a track onto the window or open it with ⌘O. The app works on one track at a time and analyzes it in the background.
 2. Check the orange "1" marker on the waveform. If the detector got it wrong, drag the marker to the right beat. It snaps to detected beats; hold ⌥/Alt to place it freely. The mouse wheel zooms, dragging the waveform pans.
@@ -41,7 +43,7 @@ The builds are unsigned, so the system warns on first launch.
 
 In Settings (⌘,) you can pick one output folder and have files sorted into Artist / Year - Album subfolders from the source tags; each level is a checkbox.
 
-![Settings](docs/screenshots/prefs-dark-en.png)
+![Settings](docs/screenshots/prefs-light-en.png)
 
 The bottom bar shows the file format, bitrate or bit depth, sample rate and length, plus the app version.
 
@@ -58,7 +60,7 @@ When the detector is unsure, an orange hint appears above the waveform. ×2 and 
 
 The count-in and analysis take seconds. Separating guitar and vocals takes longer: about 2.5 minutes for a 4-minute song on an Apple Silicon Mac, and noticeably longer on Windows, where only the CPU does the work. The bottom of the window shows the stage, percent and time left, and the job can be cancelled.
 
-![Progress](docs/screenshots/progress-dark-en.png)
+![Progress](docs/screenshots/progress-light-en.png)
 
 ### Updates
 
@@ -161,7 +163,9 @@ Count-In находит темп и первую сильную долю пес�
 
 ### Как пользоваться
 
-![Главное окно](docs/screenshots/main-dark.png)
+![Главное окно](docs/screenshots/main-light.png)
+
+Приложение следует оформлению системы, есть и [тёмная тема](docs/screenshots/main-dark.png).
 
 1. Перетащите трек в окно или откройте его через ⌘O. Приложение работает с одним треком и анализирует его в фоне.
 2. Проверьте оранжевый маркер «1» на волне. Если детектор ошибся, перетащите маркер на нужную долю: он прилипает к найденным долям, с ⌥/Alt ставится свободно. Колесо мыши меняет масштаб, перетаскивание волны сдвигает её.
@@ -172,7 +176,7 @@ Count-In находит темп и первую сильную долю пес�
 
 В настройках (⌘,) можно один раз выбрать папку для всех файлов и раскладывать их по подпапкам «Исполнитель / Год - Альбом» по тегам исходника, каждый уровень включается галочкой.
 
-![Настройки](docs/screenshots/prefs-dark.png)
+![Настройки](docs/screenshots/prefs-light.png)
 
 В нижней панели видны формат файла, битрейт или разрядность, частота дискретизации, длительность и версия приложения.
 
@@ -189,7 +193,7 @@ Count-In находит темп и первую сильную долю пес�
 
 Отсчёт и анализ занимают секунды. Разделение на гитару и вокал работает дольше: около 2.5 минут на 4-минутную песню на Mac с Apple Silicon и заметно дольше на Windows, где считает только процессор. Внизу окна видны этап, проценты и оставшееся время, работу можно отменить.
 
-![Прогресс](docs/screenshots/progress-dark.png)
+![Прогресс](docs/screenshots/progress-light.png)
 
 #### Обновления
 
