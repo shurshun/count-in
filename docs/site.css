@@ -46,7 +46,7 @@ nav a.link:hover, nav a.lang:hover, nav button:hover { color: var(--text); borde
 
 /* App screenshot in a window frame */
 .window { border-radius: 12px; overflow: hidden; border: 1px solid var(--border); box-shadow: var(--shadow); background: var(--card); }
-.window img { display: block; width: 100%; height: auto; }
+.window img, .window video { display: block; width: 100%; height: auto; }
 
 /* Player */
 .player { background: var(--card); border: 1px solid var(--border); border-radius: 16px; padding: 18px 20px 16px; box-shadow: var(--shadow); }
