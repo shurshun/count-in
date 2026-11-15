@@ -1,0 +1,77 @@
+name: cache
+
+# Fills the build caches on main. PRs and tags restore caches saved on main but never each other's, and main
+# itself builds nothing, so without this every PR fetched the models and built ffmpeg again.
+# Paths and keys must match the cache steps in build.yml.
+on:
+  push:
+    branches: [main]
+    paths:
+      - packaging/build_ffmpeg.sh
+      - packaging/fetch_models.sh
+      - packaging/countin.spec
+      - uv.lock
+      - src/countin/core/accel.py
+      - src/countin/core/stems.py
+      - src/countin/core/roformer/**
+      - .github/workflows/cache.yml
+  # Caches unused for a week get evicted.
+  schedule:
+    - cron: "17 4 * * 1"
+  workflow_dispatch:
+
+jobs:
+  warm:
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [windows-latest, macos-latest]
+    runs-on: ${{ matrix.os }}
+    permissions:
+      contents: read
+    defaults:
+      run:
+        shell: bash
+    steps:
+      - uses: actions/checkout@v7
+
+      - name: ffmpeg cache (macOS)
+        if: runner.os == 'macOS'
+        id: ffmpeg-cache
+        uses: actions/cache@v6
+        with:
+          path: bin
+          key: ffmpeg-macos-${{ hashFiles('packaging/build_ffmpeg.sh') }}
+      - name: ffmpeg (macOS)
+        if: runner.os == 'macOS' && steps.ffmpeg-cache.outputs.cache-hit != 'true'
+        run: brew install lame mpg123 && packaging/build_ffmpeg.sh
+
+      - uses: actions/cache@v6
+        with:
+          path: models
+          key: models-${{ hashFiles('packaging/fetch_models.sh') }}
+      - run: packaging/fetch_models.sh
+
+      # A model compiled on another runner image may not load there.
+      - name: runner image (macOS)
+        if: runner.os == 'macOS'
+        id: image
+        run: echo "image=$ImageOS-$ImageVersion" >> "$GITHUB_OUTPUT"
+      - name: Core ML cache (macOS)
+        if: runner.os == 'macOS'
+        id: coreml-cache
+        uses: actions/cache@v6
+        with:
+          path: ~/Library/Application Support/Count-In/assets/separator/BS-Roformer-SW-core.mlmodelc
+          key: coreml-${{ steps.image.outputs.image }}-${{ hashFiles('uv.lock', 'packaging/countin.spec', 'src/countin/core/accel.py', 'src/countin/core/stems.py', 'src/countin/core/roformer/**') }}
+      - uses: astral-sh/setup-uv@v10.3.3
+        if: runner.os == 'macOS' && steps.coreml-cache.outputs.cache-hit != 'true'
+        with:
+          enable-cache: true
+      - name: Core ML export (macOS)
+        if: runner.os == 'macOS' && steps.coreml-cache.outputs.cache-hit != 'true'
+        env:
+          COUNTIN_ASSETS: ${{ github.workspace }}/models
+        run: |
+          uv sync --locked
+          uv run python -c "from countin.core import accel, assets; accel.export_coreml(assets.data_dir() / accel.COREML)"
