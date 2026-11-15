@@ -326,7 +326,10 @@ class Job(QRunnable):
                 pass
         except Exception as e:  # shown to the user, the app keeps running
             log.exception("job %s failed", getattr(self.fn, "__name__", self.fn))
-            self.signals.failed.emit(f"{type(e).__name__}: {e}")
+            try:
+                self.signals.failed.emit(f"{type(e).__name__}: {e}")
+            except RuntimeError:  # the window is gone, nobody listens
+                pass
 
 
 def analyze_job(job: Job, track: Track):
@@ -2318,6 +2321,16 @@ class Window(QMainWindow):
             # A frameless field with its font set in code: a style sheet border on a spin box without buttons
             # leaves its text field a few pixels wide.
             spin.setFrame(False)
+
+            # The native macOS field still draws its own box and focus ring around the text; a transparent inner
+            # field drops both, and a soft fill shows where the typing goes.
+            spin.setAttribute(Qt.WA_MacShowFocusRect, False)
+            spin.lineEdit().setAttribute(Qt.WA_MacShowFocusRect, False)
+            spin.setStyleSheet("QDoubleSpinBox { background: transparent; border: none; padding: 0; margin: 0; }"
+                               "QDoubleSpinBox QLineEdit { background: transparent; border: none; border-radius: 8px; }"
+                               "QDoubleSpinBox QLineEdit:hover, QDoubleSpinBox QLineEdit:focus "
+                               "{ background: rgba(127,127,127,0.13); }")
+            spin.lineEdit().setMinimumWidth(width - 4)  # a styled spin box would squeeze its text field
             font = QFont(self.font())
             font.setPixelSize(size)
             font.setWeight(QFont.Bold if size == 40 else QFont.DemiBold)

@@ -1,5 +1,6 @@
 """Builds index.html (English) and ru/index.html (Russian) from _page.html,
-and download/{mac,windows}/index.html from _download.html.
+download/{mac,windows}/index.html from _download.html, and the user guide guide/index.html and
+ru/guide/index.html from _guide.html with the app's own help text (src/countin/help.py).
 
     python3 docs/build_site.py
 
@@ -7,6 +8,8 @@ The template marks text with lang="en" / lang="ru"; each page keeps only its own
 so search engines index two clean pages linked by hreflang.
 """
 
+import html as htmllib
+import importlib.util
 import re
 from pathlib import Path
 
@@ -138,6 +141,69 @@ def build_downloads() -> None:
         print("wrote", out.relative_to(DOCS))
 
 
+def _module(name: str):
+    """A module of the app loaded by path: help.py and i18n.py need nothing outside the standard library."""
+    spec = importlib.util.spec_from_file_location(name, DOCS.parent / "src" / "countin" / f"{name}.py")
+    mod = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(mod)
+    return mod
+
+
+# Screenshots shown under a help section, by its Russian title: (file, small)
+GUIDE_IMAGES = {
+    "Первая доля и темп": [("tempo", True)],
+    "Отсчёт": [("count", True)],
+    "Прослушивание и навигация": [("wave", False)],
+    "Бэктрек": [("backing", False), ("busy", False)],
+}
+
+GUIDE = {
+    "en": {"out": "guide/index.html", "url": "https://count-in.app/guide/", "home": "/", "sfx": "-en",
+           "title": "Count-In guide — count-in, pauses and backing tracks",
+           "description": "How to use Count-In: set the first downbeat and tempo, choose a count-in, navigate the song, fill pauses with a hi-hat and turn parts down for a backing track.",
+           "heading": "How to use Count-In", "lead": "Open a song, check the orange “1”, pick a count-in and save. Everything else is optional; this page walks through it.",
+           "window_alt": "Count-In window with a selected pause", "help_title": "Help inside the app",
+           "help_text": "The same text lives in the app: the “?” button in the transport bar, the Help menu, F1 or ⌘?.",
+           "other_lang": "ru", "other_url": "/ru/guide/", "other_label": "RU", "theme_label": "Switch theme"},
+    "ru": {"out": "ru/guide/index.html", "url": "https://count-in.app/ru/guide/", "home": "/ru/", "sfx": "",
+           "title": "Справка Count-In — отсчёт, паузы и минусовки",
+           "description": "Как работать с Count-In: первая доля и темп, отсчёт, навигация по песне, хай-хэт в паузах и минусовки без гитары и вокала.",
+           "heading": "Как работать с Count-In", "lead": "Откройте песню, проверьте оранжевую «1», выберите отсчёт и сохраните. Остальное по желанию, и всё это описано ниже.",
+           "window_alt": "Окно Count-In с выбранной паузой", "help_title": "Справка в программе",
+           "help_text": "Этот же текст есть в самой программе: кнопка «?» в панели транспорта, меню «Справка», F1 или ⌘?.",
+           "other_lang": "en", "other_url": "/guide/", "other_label": "EN", "theme_label": "Сменить тему"},
+}
+
+
+def build_guide() -> None:
+    sections, en = _module("help").HELP, _module("i18n").EN
+    tpl = (DOCS / "_guide.html").read_text()
+    tpl = tpl.split("\n", 2)[0] + "\n" + tpl.split("\n", 2)[2]  # drop the template note
+    for lang, g in GUIDE.items():
+        tr = (lambda x: en.get(x, x)) if lang == "en" else (lambda x: x)
+        esc = lambda x: htmllib.escape(tr(x), quote=False)
+        toc, body = [], []
+        for i, (title, lines) in enumerate(sections, 1):
+            toc.append(f'    <li><a href="#s{i}">{esc(title)}</a></li>')
+            items = "\n".join(f"      <li>{esc(line)}</li>" for line in lines)
+            fig = "".join(
+                f'\n    <figure{" class=\"small\"" if small else ""}><img src="/guide/img/{name}{g["sfx"]}.png" '
+                f'alt="{esc(title)}" loading="lazy"></figure>' for name, small in GUIDE_IMAGES.get(title, []))
+            body.append(f'  <section id="s{i}">\n    <h2>{esc(title)}</h2>\n    <ul>\n{items}\n    </ul>{fig}\n  </section>')
+        body.append(f'  <section id="help">\n    <h2>{g["help_title"]}</h2>\n    <ul>\n      <li>{g["help_text"]}</li>\n    </ul>'
+                    f'\n    <figure class="small"><img src="/guide/img/help{g["sfx"]}.png" alt="{g["help_title"]}" loading="lazy"></figure>\n  </section>')
+        html = tpl
+        for k, v in {**g, "lang": lang, "toc": "\n".join(toc), "sections": "\n".join(body)}.items():
+            html = html.replace("{{" + k + "}}", v)
+        assert "{{" not in html, "unfilled placeholder"
+        html = html.replace("<!doctype html>\n", "<!doctype html>\n<!-- Generated from _guide.html by build_site.py -->\n", 1)
+        out = DOCS / g["out"]
+        out.parent.mkdir(parents=True, exist_ok=True)
+        out.write_text(html)
+        print("wrote", out.relative_to(DOCS))
+
+
 if __name__ == "__main__":
     build()
     build_downloads()
+    build_guide()

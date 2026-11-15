@@ -1,0 +1,57 @@
+<!doctype html>
+<!-- Template: build_site.py turns it into guide/index.html and ru/guide/index.html. Edit this file, not those. -->
+<html lang="{{lang}}" data-theme="light">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>{{title}}</title>
+<meta name="description" content="{{description}}">
+<link rel="canonical" href="{{url}}">
+<link rel="alternate" hreflang="en" href="https://count-in.app/guide/">
+<link rel="alternate" hreflang="ru" href="https://count-in.app/ru/guide/">
+<link rel="icon" href="/favicon.png" type="image/png">
+<script>try { document.documentElement.dataset.theme = localStorage.getItem("theme") || "light"; } catch {}</script>
+<meta name="theme-color" content="#fbfbfd">
+<link rel="stylesheet" href="/site.css">
+<script src="/site.js" defer></script>
+<style>
+  .guide { max-width: 860px; margin: 0 auto; padding: 24px 0 40px; }
+  .guide h1 { font-size: 40px; letter-spacing: -0.02em; margin: 24px 0 8px; }
+  .guide .lead { margin: 0 0 28px; text-align: left; }
+  .guide .toc { display: flex; flex-wrap: wrap; gap: 8px; margin: 0 0 36px; padding: 0; list-style: none; }
+  .guide .toc a { display: inline-block; padding: 6px 12px; border-radius: 999px; border: 1px solid var(--border);
+                  background: var(--card); color: var(--text); text-decoration: none; font-size: 14px; }
+  .guide section { margin: 0 0 44px; scroll-margin-top: 24px; }
+  .guide h2 { font-size: 26px; letter-spacing: -0.01em; margin: 0 0 14px; text-align: left; }
+  .guide ul { margin: 0 0 18px; padding-left: 20px; }
+  .guide li { margin: 0 0 8px; line-height: 1.55; }
+  .guide figure { margin: 18px 0 0; }
+  .guide figure img { display: block; max-width: 100%; height: auto; border-radius: 12px; border: 1px solid var(--border);
+                      box-shadow: var(--shadow); background: var(--card); }
+  .guide figure.small img { max-width: 360px; }
+  .guide figcaption { color: var(--muted); font-size: 14px; margin-top: 8px; }
+</style>
+</head>
+<body>
+<div class="wrap">
+
+<nav>
+  <a class="name" href="{{home}}"><img src="/favicon.png" alt="">Count-In</a>
+  <a class="link gh" href="https://github.com/shurshun/count-in" aria-label="GitHub"><span>GitHub</span></a>
+  <button type="button" data-toggle="theme" aria-label="{{theme_label}}"><span class="light-only">☾</span><span class="dark-only">☀</span></button>
+  <a class="lang" href="{{other_url}}" hreflang="{{other_lang}}" data-lang="{{other_lang}}">{{other_label}}</a>
+</nav>
+
+<main class="guide">
+  <h1>{{heading}}</h1>
+  <p class="lead">{{lead}}</p>
+  <figure><img src="/guide/img/window{{sfx}}.png" alt="{{window_alt}}" width="1180" height="901"></figure>
+  <ul class="toc">
+{{toc}}
+  </ul>
+{{sections}}
+</main>
+
+</div>
+</body>
+</html>

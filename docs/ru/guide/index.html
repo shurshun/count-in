@@ -1,0 +1,140 @@
+<!doctype html>
+<!-- Generated from _guide.html by build_site.py -->
+<html lang="ru" data-theme="light">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Справка Count-In — отсчёт, паузы и минусовки</title>
+<meta name="description" content="Как работать с Count-In: первая доля и темп, отсчёт, навигация по песне, хай-хэт в паузах и минусовки без гитары и вокала.">
+<link rel="canonical" href="https://count-in.app/ru/guide/">
+<link rel="alternate" hreflang="en" href="https://count-in.app/guide/">
+<link rel="alternate" hreflang="ru" href="https://count-in.app/ru/guide/">
+<link rel="icon" href="/favicon.png" type="image/png">
+<script>try { document.documentElement.dataset.theme = localStorage.getItem("theme") || "light"; } catch {}</script>
+<meta name="theme-color" content="#fbfbfd">
+<link rel="stylesheet" href="/site.css">
+<script src="/site.js" defer></script>
+<style>
+  .guide { max-width: 860px; margin: 0 auto; padding: 24px 0 40px; }
+  .guide h1 { font-size: 40px; letter-spacing: -0.02em; margin: 24px 0 8px; }
+  .guide .lead { margin: 0 0 28px; text-align: left; }
+  .guide .toc { display: flex; flex-wrap: wrap; gap: 8px; margin: 0 0 36px; padding: 0; list-style: none; }
+  .guide .toc a { display: inline-block; padding: 6px 12px; border-radius: 999px; border: 1px solid var(--border);
+                  background: var(--card); color: var(--text); text-decoration: none; font-size: 14px; }
+  .guide section { margin: 0 0 44px; scroll-margin-top: 24px; }
+  .guide h2 { font-size: 26px; letter-spacing: -0.01em; margin: 0 0 14px; text-align: left; }
+  .guide ul { margin: 0 0 18px; padding-left: 20px; }
+  .guide li { margin: 0 0 8px; line-height: 1.55; }
+  .guide figure { margin: 18px 0 0; }
+  .guide figure img { display: block; max-width: 100%; height: auto; border-radius: 12px; border: 1px solid var(--border);
+                      box-shadow: var(--shadow); background: var(--card); }
+  .guide figure.small img { max-width: 360px; }
+  .guide figcaption { color: var(--muted); font-size: 14px; margin-top: 8px; }
+</style>
+</head>
+<body>
+<div class="wrap">
+
+<nav>
+  <a class="name" href="/ru/"><img src="/favicon.png" alt="">Count-In</a>
+  <a class="link gh" href="https://github.com/shurshun/count-in" aria-label="GitHub"><span>GitHub</span></a>
+  <button type="button" data-toggle="theme" aria-label="Сменить тему"><span class="light-only">☾</span><span class="dark-only">☀</span></button>
+  <a class="lang" href="/guide/" hreflang="en" data-lang="en">EN</a>
+</nav>
+
+<main class="guide">
+  <h1>Как работать с Count-In</h1>
+  <p class="lead">Откройте песню, проверьте оранжевую «1», выберите отсчёт и сохраните. Остальное по желанию, и всё это описано ниже.</p>
+  <figure><img src="/guide/img/window.png" alt="Окно Count-In с выбранной паузой" width="1180" height="901"></figure>
+  <ul class="toc">
+    <li><a href="#s1">Первая доля и темп</a></li>
+    <li><a href="#s2">Отсчёт</a></li>
+    <li><a href="#s3">Прослушивание и навигация</a></li>
+    <li><a href="#s4">Паузы</a></li>
+    <li><a href="#s5">Бэктрек</a></li>
+    <li><a href="#s6">Сохранение</a></li>
+    <li><a href="#s7">Модели</a></li>
+  </ul>
+  <section id="s1">
+    <h2>Первая доля и темп</h2>
+    <ul>
+      <li>Оранжевый маркер «1» стоит на первой сильной доле. Отсчёт заканчивается ровно перед ней.</li>
+      <li>Если детектор ошибся, перетащите маркер. Он прилипает к найденным долям, ⌥ отключает прилипание.</li>
+      <li>Стрелки рядом со временем сдвигают «1» на одну долю раньше или позже.</li>
+      <li>Темп правится кнопками − и +, вводом числа или кнопкой Tap: песня играет, вы стучите пробелом.</li>
+      <li>×2 и ÷2 помогают, когда детектор посчитал вдвое быстрее или медленнее.</li>
+      <li>Оранжевая плашка «Детектор нашёл другую «1»» появляется, когда он сомневается. Нажмите её, чтобы взять второй вариант.</li>
+    </ul>
+    <figure class="small"><img src="/guide/img/tempo.png" alt="Первая доля и темп" loading="lazy"></figure>
+  </section>
+  <section id="s2">
+    <h2>Отсчёт</h2>
+    <ul>
+      <li>«Ровный» даёт щелчок на каждую долю, «Нарастание» начинает редко и учащается, MIDI берёт рисунок из вашего файла.</li>
+      <li>Длина отсчёта составляет один или два такта, размер выбирается из 4/4, 3/4 и 6/8.</li>
+      <li>Громкость отсчёта не зависит от громкости песни.</li>
+    </ul>
+    <figure class="small"><img src="/guide/img/count.png" alt="Отсчёт" loading="lazy"></figure>
+  </section>
+  <section id="s3">
+    <h2>Прослушивание и навигация</h2>
+    <ul>
+      <li>Пробел запускает и останавливает прослушивание. Без указателя оно идёт с отсчёта.</li>
+      <li>Щелчок по волне ставит указатель, и прослушивание начинается с него. Двойной щелчок сразу играет с такта перед этим местом.</li>
+      <li>Кнопки ◀◀ и ▶▶ и клавиши ← и → переходят к предыдущей и следующей паузе и играют с такта перед ней. Home возвращает к отсчёту.</li>
+      <li>Мини-карта под волной показывает всю песню, паузы и видимый участок. Рамку можно тянуть, щелчок вне рамки переносит вид туда.</li>
+      <li>Колесо мыши меняет масштаб, перетаскивание и горизонтальная прокрутка трекпада сдвигают волну.</li>
+      <li>Громкость прослушивания в заголовке окна не попадает в сохранённый файл.</li>
+    </ul>
+    <figure><img src="/guide/img/wave.png" alt="Прослушивание и навигация" loading="lazy"></figure>
+  </section>
+  <section id="s4">
+    <h2>Паузы</h2>
+    <ul>
+      <li>Пауза — это такты, где без убранных инструментов тихо. В ней играет хай-хэт на каждую долю, а за такт до неё звучит отсчёт палочками.</li>
+      <li>С галочкой «Заполнять паузы хай-хэтом» программа ищет паузы сама. «Порог тишины» задаёт, насколько тише среднего должен быть такт.</li>
+      <li>Края паузы тянутся мышью по тактам. Текущая пауза подсвечена ярче.</li>
+      <li>Новая пауза получается кнопкой «＋ Пауза» на такте под указателем, выделением тактов с ⇧ или протяжкой по шкале времени.</li>
+      <li>Паузу убирает крестик в её заголовке, кнопка «Убрать» или правый щелчок.</li>
+      <li>Щелчок по заголовку паузы открывает её собственные темп и размер.</li>
+    </ul>
+  </section>
+  <section id="s5">
+    <h2>Бэктрек</h2>
+    <ul>
+      <li>Ползунки гитары, вокала, баса, барабанов и пианино убавляют дорожку или убирают её совсем. Кнопка с динамиком выключает дорожку одним нажатием.</li>
+      <li>Разделение на дорожки идёт в фоне после открытия трека. Всё, чему нужны дорожки, начнётся само, когда они будут готовы.</li>
+      <li>Уровни можно менять прямо во время прослушивания.</li>
+      <li>Дискета в заголовке карточки сохраняет текущие настройки как настройки по умолчанию, стрелка рядом возвращает их.</li>
+    </ul>
+    <figure><img src="/guide/img/backing.png" alt="Бэктрек" loading="lazy"></figure>
+    <figure><img src="/guide/img/busy.png" alt="Бэктрек" loading="lazy"></figure>
+  </section>
+  <section id="s6">
+    <h2>Сохранение</h2>
+    <ul>
+      <li>«Сохранить» пишет трек с отсчётом, хай-хэтом в паузах и выбранными уровнями дорожек.</li>
+      <li>Формат по умолчанию совпадает с исходником. Доступны MP3 320 kbps, FLAC, ALAC и WAV, теги и обложка переносятся.</li>
+      <li>«Обрезать тишину в начале» убирает пустое место перед отсчётом.</li>
+      <li>Папка для файлов и раскладка по исполнителю, году и альбому задаются в настройках.</li>
+    </ul>
+  </section>
+  <section id="s7">
+    <h2>Модели</h2>
+    <ul>
+      <li>Для анализа и разделения нужны модели, около 780 МБ. Программа скачивает их один раз при первом запуске.</li>
+      <li>Папка assets рядом с программой тоже подходит, так модели можно носить на флешке вместе с ней.</li>
+    </ul>
+  </section>
+  <section id="help">
+    <h2>Справка в программе</h2>
+    <ul>
+      <li>Этот же текст есть в самой программе: кнопка «?» в панели транспорта, меню «Справка», F1 или ⌘?.</li>
+    </ul>
+    <figure class="small"><img src="/guide/img/help.png" alt="Справка в программе" loading="lazy"></figure>
+  </section>
+</main>
+
+</div>
+</body>
+</html>
