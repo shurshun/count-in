@@ -2253,21 +2253,20 @@ class Window(QMainWindow):
         h.addWidget(vsep())
         h.addSpacing(10)
         h.addWidget(QLabel(_("Заполнение пауз"), objectName="groupTitle"))
+        h.addSpacing(4)
+
+        # − count + as in the tempo card: minus removes the current pause, plus makes one at the play position
+        h.addWidget(glyph_button("minus", _("Убрать текущую паузу"), self._remove_pause, "round"))
         chip = QFrame(objectName="lcd")
         ch = QHBoxLayout(chip)
         ch.setContentsMargins(10, 3, 10, 3)
         self.pause_l = QLabel(objectName="chipText", alignment=Qt.AlignCenter, minimumWidth=56)
         ch.addWidget(self.pause_l)
         h.addWidget(chip)
-        add_b = QPushButton(_("＋ Добавить"), objectName="tapPad", clicked=self._add_pause,
-                            toolTip=_("Сделать паузой такт под указателем. Несколько тактов: тяните с ⇧ или по шкале времени."))
-        del_b = QPushButton(_("Убрать"), objectName="tapPad", clicked=self._remove_pause, toolTip=_("Убрать текущую паузу"))
+        h.addWidget(glyph_button("plus", _("Сделать паузой такт под указателем. Несколько тактов: тяните с ⇧ или по шкале времени."),
+                                 self._add_pause, "round"))
         help_b = QPushButton("?", objectName="tbtn", clicked=self._help, toolTip=_("Справка Count-In"))
-        for b in (add_b, del_b, help_b):
-            b.setFocusPolicy(Qt.NoFocus)
-        h.addSpacing(4)
-        h.addWidget(add_b)
-        h.addWidget(del_b)
+        help_b.setFocusPolicy(Qt.NoFocus)
         h.addStretch()
         h.addWidget(vsep())
         h.addSpacing(6)

@@ -529,3 +529,26 @@ def test_waveform_peaks_stay_on_time_at_44_1_khz():
     pcm = np.zeros((sr * 170, 2), np.float32)
     pcm[int(169.0 * sr)] = 1.0
     assert int(np.argmax(peaks_per_ms(pcm, sr))) == 169000
+
+
+def test_pause_starts_right_after_the_last_hit_in_the_band_tempo():
+    from countin.core import zones as zn
+
+    # Four steady 4/4 bars of 2 s, the band's last hit on the "1" of bar 4, silence where the detector loses the
+    # beat (bars of 5 and 6 beats), then the band again.
+    sr = 1000
+    x = np.full((24000, 2), 0.3, np.float32)
+    x[8300:16000] = 0.001
+    starts = [0, 2, 4, 6, 8, 10, 12.2, 14, 16, 18, 20, 22]
+    bars = []
+    for i, a in enumerate(starts):
+        b = starts[i + 1] if i + 1 < len(starts) else 24.0
+        n = {6: 5, 7: 6}.get(i, 4)
+        bars.append(zn.Bar(a, b, list(a + (b - a) / n * np.arange(n))))
+    quiet = zn.quiet_bars(x, sr, bars, zn.level_db(x[:8000]))
+    assert min(quiet) == 4  # the bar with the last hit joins the pause
+
+    (z,) = zn.zones_from(quiet)
+    zb = zn.zone_bars(bars, z)
+    assert [len(b.beats) for b in zb] == [4] * len(zb)  # the meter of the bars before the pause
+    assert abs((zb[0].end - zb[0].start) - 2.0) < 0.1

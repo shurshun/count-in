@@ -58,15 +58,20 @@ def quiet_bars(pcm: np.ndarray, sr: int, bars: list[Bar], reference_db: float, t
     """Indices of bars whose level sits threshold_db or more below reference_db (dBFS of the full mix).
 
     The level runs up to the bar's last beat: a band that comes back with a pickup on that beat still leaves
-    the bar quiet, so the hi-hat plays up to the entry instead of stopping a bar early.
+    the bar quiet, so the hi-hat plays up to the entry instead of stopping a bar early. Likewise a bar that
+    only holds the band's last hit on its first beat joins the pause after it, so the hi-hat starts right after
+    the hit and the time never drops.
     A quiet run that reaches the last bar is the song's ending, not a pause, so it is left out.
     """
-    out = set()
-    for i, bar in enumerate(bars):
-        end = bar.beats[-1] if len(bar.beats) > 1 else bar.end
-        x = pcm[int(bar.start * sr) : int(end * sr)]
-        if len(x) and level_db(x) - reference_db < threshold_db:
-            out.add(i)
+    def quiet(a: float, b: float) -> bool:
+        x = pcm[int(a * sr) : int(b * sr)]
+        return bool(len(x)) and level_db(x) - reference_db < threshold_db
+
+    out = {i for i, bar in enumerate(bars) if quiet(bar.start, bar.beats[-1] if len(bar.beats) > 1 else bar.end)}
+    for a, _b in ranges(out):
+        lead = bars[a - 1] if a > 0 else None
+        if lead is not None and len(lead.beats) > 1 and quiet(lead.beats[1], lead.end):
+            out.add(a - 1)
     for a, b in ranges(out):
         if b == len(bars) - 1:
             out -= set(range(a, b + 1))
@@ -116,6 +121,15 @@ def _irregular(bars: list[Bar]) -> bool:
     return len({len(b.beats) for b in bars}) > 1 or any(abs(x - med) > 0.08 * med for x in lengths)
 
 
+def _meter_around(bars: list[Bar], z: Zone) -> tuple[int, float]:
+    """(beats per bar, bar length) the band played in just before the pause: the most common beat count of up
+    to four bars before it and their median length. A pause at the song start looks at the bars after it."""
+    near = bars[max(0, z.first - 4) : z.first] or bars[z.last + 1 : z.last + 5] or bars[z.first : z.last + 1]
+    counts = [len(b.beats) for b in near]
+    n = max(set(counts), key=lambda c: (counts.count(c), -counts[::-1].index(c)))  # ties go to the nearest bar
+    return n, float(np.median([b.end - b.start for b in near if len(b.beats) == n]))
+
+
 def _even(start: float, end: float, bar_len: float, n: int) -> list[Bar]:
     """Whole bars of n even beats from start to end, as close to bar_len as the span allows."""
     k = max(1, round((end - start) / bar_len))
@@ -126,14 +140,14 @@ def _even(start: float, end: float, bar_len: float, n: int) -> list[Bar]:
 
 def zone_bars(bars: list[Bar], z: Zone) -> list[Bar]:
     """The bars a zone plays: the detected ones; an even grid between the zone edges when the detected ones are
-    irregular, in the meter and tempo of the bar the band comes back in; or a steady grid from the zone start
-    when the zone has an override."""
+    irregular, in the meter and tempo the band stopped in; or a steady grid from the zone start when the zone
+    has an override."""
     if z.bpm is None and z.beats is None:
         own = bars[z.first : z.last + 1]
         if not _irregular(own):
             return own
-        ref = bars[z.last + 1] if z.last + 1 < len(bars) else own[-1]
-        return _even(own[0].start, own[-1].end, ref.end - ref.start, len(ref.beats))
+        n, bar_len = _meter_around(bars, z)
+        return _even(own[0].start, own[-1].end, bar_len, n)
     start, end = bars[z.first].start, bars[z.last].end
     own = bars[z.first]
     p = 60.0 / z.bpm if z.bpm else own.period
