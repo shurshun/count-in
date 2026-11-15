@@ -1241,6 +1241,8 @@ class Wave(QWidget):
         self._set_zones(self.zones + [zn.Zone(bar, last, manual=True)])
 
     def mousePressEvent(self, e):
+        if isinstance(QApplication.focusWidget(), QAbstractSpinBox):
+            QApplication.focusWidget().clearFocus()  # a click on the waveform ends typing in a number field
         x, pos = e.position().x(), e.position()
         if e.button() == Qt.RightButton:
             i = self._bar_at(self.t_of(x))
@@ -2374,6 +2376,11 @@ class Window(QMainWindow):
             spin.setButtonSymbols(QAbstractSpinBox.NoButtons)
             spin.setAlignment(Qt.AlignCenter)
 
+            # Plain numbers until clicked: no focus by tab or on start, so no blinking cursor while working
+            # elsewhere; Enter or a click elsewhere drops the focus again.
+            spin.setFocusPolicy(Qt.ClickFocus)
+            spin.editingFinished.connect(spin.clearFocus)
+
             # A frameless field with its font set in code: a style sheet border on a spin box without buttons
             # leaves its text field a few pixels wide.
             spin.setFrame(False)
@@ -2780,6 +2787,8 @@ class Window(QMainWindow):
         bar = 60.0 / t.bpm * rd.METERS[self.meter_seg.value()][0]
         self.wave.show_range(t.t0 - bar * self.bars_seg.value() - 1.0, t.t0 + 6.0)
         self._enable()
+        if isinstance(QApplication.focusWidget(), QAbstractSpinBox):
+            QApplication.focusWidget().clearFocus()  # a new track starts with plain numbers, no blinking cursor
         self._start_separation()
         self._auto_zones()
 
