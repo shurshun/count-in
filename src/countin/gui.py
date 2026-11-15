@@ -443,15 +443,23 @@ def preview_job(job: Job, track: Track, s: Settings, pcm: np.ndarray, sr: int, c
 
     job.report(_("Сборка отрывка"))
     lo_t = i0 / sr
-    win = [rd.Click(c.time - lo_t, c.accent, c.gain, c.voice) for c in clicks if first - 0.35 <= c.time < end]
-    r = rd.render(pcm[i0:i1], sr, win, 0.0, "keep", s.volume_db, rd.load_samples(sr), s.speed)
+    win = [rd.Click((c.time - lo_t) / s.speed, c.accent, c.gain, c.voice)
+           for c in clicks if first - 0.35 <= c.time < end]
+    song, part = pcm[i0:i1], dict(part or {})
+    if s.speed != 1.0:
+        # Stretching shifts phases, so a stretched song minus a stretched stem no longer cancels. The slowed
+        # song gets rebuilt from its slowed pieces, every stem and the rest, so the player's live subtraction
+        # stays exact.
+        rest = song - sum(part.values()) if part else song
+        part = {k: rd.stretch(v, sr, s.speed) for k, v in part.items()}
+        song = rd.stretch(rest, sr, s.speed) + sum(part.values()) if part else rd.stretch(song, sr, s.speed)
+    r = rd.render(song, sr, win, 0.0, "keep", s.volume_db, rd.load_samples(sr))
     base = r.pcm
 
-    # Stems go to the same output positions as the song samples they came from, slowed the same way.
+    # Stems go to the same output positions as the song samples they came from.
     aligned = {}
     a = int(round(r.offset * sr))
-    for k, v in (part or {}).items():
-        v = rd.stretch(v, sr, s.speed)
+    for k, v in part.items():
         z = np.zeros_like(base)
         lo, hi = max(a, 0), min(a + len(v), len(base))
         z[lo:hi] = v[lo - a : hi - a]
