@@ -222,6 +222,7 @@ class Settings:
     out_root: Path | None = None  # None: next to the source
     group: tuple[bool, bool, bool] | None = None  # (artist, year, album) folders under out_root
     fill: bool = True  # hi-hat in the pauses, found automatically
+    fill_build: bool = False  # the last bar of each pause runs into the entry in eighths
     threshold: float = zn.QUIET_DB  # dB below the song average that counts as a pause
 
 
@@ -233,7 +234,7 @@ def clicks_for(t: Track, s: Settings) -> list[rd.Click]:
         grid = rd.buildup_grid if s.style == "buildup" else rd.click_grid
         clicks = grid(t.t0, period, s.bars, s.meter)
     if s.fill and t.zones:
-        clicks += zn.zone_clicks(t.bars, t.zones, t.t0, t.bar_db)
+        clicks += zn.zone_clicks(t.bars, t.zones, t.t0, t.bar_db, s.fill_build)
     return clicks
 
 
@@ -1666,6 +1667,7 @@ def stack(grid: QGridLayout, label: str, *widgets) -> None:
 OUT_DIR, OUT_GROUP = "output/dir", "output/group"
 OUT_REVEAL = "output/reveal"
 FILL_KEY = "fill/enabled"
+FILL_BUILD_KEY = "fill/buildup"
 OUTPUT_VOLUME_KEY = "playback/volume"
 DEFAULTS = "defaults/"  # prefix for the settings saved with "Save as default"
 THRESHOLD_KEY = "fill/threshold"
@@ -2634,6 +2636,13 @@ class Window(QMainWindow):
             h.addWidget(w)
         h.addStretch()
         g.addLayout(h, g.rowCount(), 0, 1, 2)
+        self.fill_build = QCheckBox(_("Нарастание к концу паузы"), checked=pref_bool(FILL_BUILD_KEY, False))
+        self.fill_build.setToolTip(_("Последний такт паузы ведёт к вступлению: вторая половина такта звучит восьмыми, "
+                                     "последние три удара громче, как в отсчёте «Нарастание»."))
+        self.fill_build.toggled.connect(lambda on: QSettings().setValue(FILL_BUILD_KEY, on))
+        self.fill_build.toggled.connect(self._refresh)
+        self.fill_build.toggled.connect(lambda _on: self._restart_preview())
+        g.addWidget(self.fill_build, g.rowCount(), 0, 1, 2, Qt.AlignLeft | Qt.AlignVCenter)
 
         # How quiet a bar must be to count as a pause; the waveform shows the level as a dashed line
         self.threshold = QSlider(Qt.Horizontal, minimum=-36, maximum=-6, minimumWidth=110)
@@ -3060,7 +3069,8 @@ class Window(QMainWindow):
             style=self.style_seg.value(), bars=self.bars_seg.value(), meter=self.meter_seg.value(),
             pattern=self.pattern, volume_db=float(self.volume.value()),
             levels=levels, pre_roll="trim" if self.trim.isChecked() else "keep", fmt=self.fmt.currentData(),
-            out_root=out_root, group=group, fill=self.fill.isChecked(), threshold=float(self.threshold.value()),
+            out_root=out_root, group=group, fill=self.fill.isChecked(), fill_build=self.fill_build.isChecked(),
+            threshold=float(self.threshold.value()),
         )
 
     def _refresh(self, *_args):
@@ -3102,6 +3112,7 @@ class Window(QMainWindow):
         self.play_a.setEnabled(self.play_b.isEnabled())
         self.save_b.setEnabled(ready and not busy)
         self.threshold.setEnabled(self.fill.isChecked())
+        self.fill_build.setEnabled(self.fill.isChecked())
         self.save_a.setEnabled(ready and not busy)
         self.open_b.setEnabled(not busy)
         self.close_b.setEnabled(self.current is not None)

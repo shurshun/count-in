@@ -87,7 +87,7 @@ def _head_end(bar: Bar) -> float:
 def auto_threshold(pcm: np.ndarray, sr: int, bars: list[Bar], reference_db: float) -> float | None:
     """A silence threshold that fits this backing. Bars below -40 dB are silent under any threshold and stay
     out; the rest fall into bars with only bleed or tails left and bars with music, and Otsu's split of the two
-    in dB puts the threshold in the gap, within -40..-12 dB (above -12 a bass-and-drums section would turn into
+    in dB puts the threshold in the gap, within -36..-12 dB (above -12 a bass-and-drums section would turn into
     a pause). None when there is no clear quiet group, so the slider keeps its value."""
     lv = np.array([level_db(pcm[int(b.start * sr) : int(_head_end(b) * sr)]) - reference_db
                    for b in bars if b.end > b.start])
@@ -101,7 +101,7 @@ def auto_threshold(pcm: np.ndarray, sr: int, bars: list[Bar], reference_db: floa
     k = int(np.argmax(i / n * (1 - i / n) * (m1 - m0) ** 2)) + 1
     if m1[k - 1] - m0[k - 1] < 10.0:
         return None
-    return float(np.clip((lv[k - 1] + lv[k]) / 2, -40.0, -12.0))
+    return float(np.clip((lv[k - 1] + lv[k]) / 2, -36.0, -12.0))  # the slider's range
 
 
 def level_db(x: np.ndarray) -> float:
@@ -215,9 +215,24 @@ def describe(bars: list[Bar], z: Zone) -> tuple[float, float, float, int]:
     return bars[z.first].start, bars[z.last].end, 60.0 / float(np.median(periods)), max(set(counts), key=counts.count)
 
 
-def zone_clicks(bars: list[Bar], zones: list[Zone], downbeat: float, bar_db: list[float] | None = None) -> list[Click]:
+def _build_up(bar: Bar, gain: float) -> list[Click]:
+    """The last bar of a pause as a build-up into the band's entry, like the count-in's: quarters over the
+    first half, eighths over the second, the last three louder."""
+    from .render import BUILDUP_GAIN
+
+    n = len(bar.beats)
+    times = list(bar.beats[: n // 2])
+    for k in range(n // 2, n):
+        nxt = bar.beats[k + 1] if k + 1 < n else bar.end
+        times += [bar.beats[k], (bar.beats[k] + nxt) / 2]
+    return [Click(t, k == 0, gain * (BUILDUP_GAIN if k >= len(times) - 3 else 1.0), voice="hihat")
+            for k, t in enumerate(times)]
+
+
+def zone_clicks(bars: list[Bar], zones: list[Zone], downbeat: float, bar_db: list[float] | None = None,
+                build_up: bool = False) -> list[Click]:
     """A hi-hat on every beat of the zone bars, as loud as the music around the pause when bar_db (bar_levels)
-    is given. Inside the song nothing else plays: the stick count-in belongs to the song's start only. The
+    is given; with build_up the last bar runs into the band's entry in eighths. Inside the song nothing else plays: the stick count-in belongs to the song's start only. The
     downbeat is the snapped "1", a few ms off the detected bar start, so beats compare with half a beat of
     slack."""
     clicks = []
@@ -225,7 +240,10 @@ def zone_clicks(bars: list[Bar], zones: list[Zone], downbeat: float, bar_db: lis
         zb = zone_bars(bars, z)
         slack = zb[0].period / 2
         gain = zone_gain(bar_db, z) if bar_db else 1.0
-        for b in zb:
+        for i, b in enumerate(zb):
+            if build_up and i == len(zb) - 1 and len(b.beats) > 1:
+                clicks += [c for c in _build_up(b, gain) if c.time >= downbeat - slack]
+                continue
             clicks += [Click(t, k == 0, gain, voice="hihat") for k, t in enumerate(b.beats) if t >= downbeat - slack]
     return clicks
 

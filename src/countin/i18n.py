@@ -307,6 +307,8 @@ EN = {
     "пусто": "empty",
     "очищаю…": "clearing…",
     "Порог тишины подобран по разделённому треку: {v:+d} дБ": "Silence threshold fitted to the separated track: {v:+d} dB",
+    "Нарастание к концу паузы": "Build-up at the end of a pause",
+    "Последний такт паузы ведёт к вступлению: вторая половина такта звучит восьмыми, последние три удара громче, как в отсчёте «Нарастание».": "The last bar of a pause leads into the entry: its second half in eighths, the last three hits louder, like the build-up count-in.",
 }
 
 

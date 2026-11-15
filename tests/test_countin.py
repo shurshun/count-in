@@ -612,3 +612,16 @@ def test_auto_threshold_counts_bleed_as_quiet():
 
     flat = np.ones((10 * sr, 1), np.float32) * 0.3
     assert zn.auto_threshold(flat, sr, bars[:10], zn.level_db(flat)) is None
+
+
+def test_pause_build_up_runs_into_the_entry_in_eighths():
+    from countin.core import zones as zn
+
+    beats = np.arange(0, 16, 0.5)
+    bars = zn.bars_from(beats, beats[::4], 16.0)  # 4/4 bars of 2 s
+    plain = zn.zone_clicks(bars, [zn.Zone(2, 3)], 0.0)
+    built = zn.zone_clicks(bars, [zn.Zone(2, 3)], 0.0, build_up=True)
+    assert [c.time for c in plain] == [4, 4.5, 5, 5.5, 6, 6.5, 7, 7.5]
+    # the last bar: quarters on 1 and 2, eighths over 3 and 4, the last three louder
+    assert [c.time for c in built][4:] == [6, 6.5, 7, 7.25, 7.5, 7.75]
+    assert [c.gain > 1 for c in built][-4:] == [False, True, True, True]
