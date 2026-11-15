@@ -16,7 +16,7 @@ from PySide6.QtGui import QAction, QDesktopServices, QFont, QIcon, QImage, QKeyS
 from PySide6.QtWidgets import (
     QAbstractSpinBox, QApplication, QButtonGroup, QCheckBox, QComboBox, QDialog, QDoubleSpinBox, QFileDialog, QFrame,
     QGridLayout, QHBoxLayout, QLabel, QLineEdit, QMainWindow, QMessageBox, QProgressBar, QPushButton, QRadioButton,
-    QSlider, QSpinBox, QStackedWidget, QStatusBar, QVBoxLayout, QWidget,
+    QGraphicsDropShadowEffect, QSlider, QSpinBox, QStackedWidget, QStatusBar, QVBoxLayout, QWidget,
 )
 
 from . import i18n, update
@@ -67,6 +67,20 @@ PHRASES = (
 FORMAT_NAMES = {None: "Как у исходника", "mp3": "MP3 320 kbps", "flac": "FLAC", "alac": "ALAC (.m4a)", "wav": "WAV"}
 ORANGE = QColor(255, 159, 10)
 GREEN = QColor(48, 209, 88)
+RED = QColor(255, 69, 58)
+
+# What the centred progress card says under its title
+BUSY_WHY = {
+    "analysis": "Ищу темп, доли и первую сильную долю. Обычно это несколько секунд.",
+    "separation": "Раскладываю песню на гитару, вокал, бас, барабаны и пианино. Трек уже можно слушать и править.",
+}
+
+
+def variant(area: str) -> str:
+    """Design variant (A, B, C) of an editor area picked by COUNTIN_PROGRESS, COUNTIN_NAV or COUNTIN_TEMPO.
+    Empty keeps the current look."""
+    return os.environ.get("COUNTIN_" + area, "").upper()
+
 
 STYLE = """
 QMainWindow, QStackedWidget > QWidget, #header { background: @WINDOW@; }
@@ -112,6 +126,39 @@ QSlider::sub-page:horizontal { background: @ACCENT@; border-radius: 2px; }
 QSlider::handle:horizontal { width: 16px; height: 16px; margin: -6px 0; border-radius: 8px;
                              background: white; border: 1px solid rgba(0,0,0,0.25); }
 QStatusBar, QStatusBar QLabel { color: @FIELD@; }
+QFrame#busyCard { background: @SEP_CARD@; border: 1px solid @BORDER@; border-radius: 20px; }
+QFrame#busyPlain { background: @VEIL@; border: none; border-radius: 20px; }
+#busyTitle { font-size: 24px; font-weight: 700; }
+#busyWhy { font-size: 14px; color: @FIELD@; }
+#busyEta { font-size: 14px; font-weight: 600; }
+QFrame#busyPill, QFrame#floatBar { background: @SEP_CARD@; border: 1px solid @BORDER@; border-radius: 19px; }
+#pillText { font-size: 14px; font-weight: 600; }
+QFrame#transport { background: @CARD@; border: 1px solid @BORDER@; border-radius: 12px; }
+QPushButton#tbtn { border: none; border-radius: 8px; background: transparent; min-width: 34px; min-height: 30px; padding: 0 6px; }
+QPushButton#tbtn:hover { background: rgba(127,127,127,0.18); }
+QPushButton#tplay { border: none; border-radius: 17px; background: @ACCENT@; padding: 0;
+                    min-width: 34px; max-width: 34px; min-height: 34px; max-height: 34px; }
+QFrame#lcd { background: rgba(127,127,127,0.11); border-radius: 9px; }
+#lcdTime { font-size: 19px; font-weight: 600; }
+#lcdSub { font-size: 12px; color: @FIELD@; }
+QFrame#vline { background: @BORDER@; max-width: 1px; min-width: 1px; }
+QFrame#hline { background: @BORDER@; max-height: 1px; min-height: 1px; }
+QPushButton#chip { border: 1px solid @BORDER@; border-radius: 12px; padding: 3px 12px; background: @CARD@; }
+QPushButton#chip:checked { background: #248a3d; color: white; border-color: #248a3d; }
+QPushButton#round { border: 1px solid @BORDER@; border-radius: 16px; background: rgba(127,127,127,0.10); padding: 0;
+                    min-width: 32px; max-width: 32px; min-height: 32px; max-height: 32px; }
+QPushButton#round:hover, QPushButton#tapPad:hover { background: rgba(127,127,127,0.22); }
+QPushButton#tapPad { border: 1px solid @BORDER@; border-radius: 9px; background: rgba(127,127,127,0.10);
+                     font-size: 15px; font-weight: 600; min-height: 30px; padding: 0 14px; }
+QPushButton#candidate { border: none; border-radius: 8px; background: rgba(255,159,10,0.16); color: @WARN@;
+                        padding: 7px 10px; text-align: left; font-weight: 600; }
+QPushButton#link { border: none; background: transparent; color: @ACCENT@; padding: 2px 0; text-align: left; }
+QFrame#capsule { border: 1px solid rgba(127,127,127,0.35); border-radius: 8px; background: rgba(127,127,127,0.06); }
+QPushButton#capBtn { border: none; background: transparent; min-width: 30px; min-height: 30px; padding: 0; }
+QPushButton#capBtn:hover { background: rgba(127,127,127,0.18); }
+#unit { font-size: 13px; font-weight: 600; color: @FIELD@; }
+#badge { background: #ff9f0a; color: white; border-radius: 10px; font-weight: 700; min-width: 20px; max-width: 20px;
+         min-height: 20px; max-height: 20px; }
 """
 
 
@@ -503,6 +550,280 @@ class Segmented(QWidget):
         self.group.button(self.values.index(v)).setChecked(True)
 
 
+def glyph(kind: str, color: QColor, size: int = 18) -> QIcon:
+    """Transport glyph on an 18-unit grid: start, prev, next, play, stop, left, right, plus, minus, close, fit."""
+    dpr = 2
+    pix = QPixmap(size * dpr, size * dpr)
+    pix.setDevicePixelRatio(dpr)
+    pix.fill(Qt.transparent)
+    p = QPainter(pix)
+    p.setRenderHint(QPainter.Antialiasing)
+    p.scale(size / 18, size / 18)
+    p.setPen(Qt.NoPen)
+    p.setBrush(color)
+
+    def tri(tip: float, base: float):
+        p.drawPolygon(QPolygonF([QPointF(tip, 9), QPointF(base, 3.5), QPointF(base, 14.5)]))
+
+    def lines(*pts):
+        p.setPen(QPen(color, 1.8, Qt.SolidLine, Qt.RoundCap, Qt.RoundJoin))
+        for a, b, c, d in pts:
+            p.drawLine(QPointF(a, b), QPointF(c, d))
+
+    if kind == "start":
+        p.drawRoundedRect(QRectF(3, 3.5, 2.4, 11), 1, 1)
+        tri(6.5, 15)
+    elif kind == "prev":
+        tri(1.5, 9)
+        tri(9, 16.5)
+    elif kind == "next":
+        tri(16.5, 9)
+        tri(9, 1.5)
+    elif kind == "play":
+        tri(15.5, 5)
+    elif kind == "left":
+        tri(4.5, 13)
+    elif kind == "right":
+        tri(13.5, 5)
+    elif kind == "stop":
+        p.drawRoundedRect(QRectF(4.5, 4.5, 9, 9), 1.5, 1.5)
+    elif kind == "plus":
+        lines((9, 4, 9, 14), (4, 9, 14, 9))
+    elif kind == "minus":
+        lines((4, 9, 14, 9))
+    elif kind == "close":
+        lines((5, 5, 13, 13), (13, 5, 5, 13))
+    elif kind == "fit":
+        lines((2.5, 9, 15.5, 9), (2.5, 9, 5.5, 6), (2.5, 9, 5.5, 12), (15.5, 9, 12.5, 6), (15.5, 9, 12.5, 12))
+    p.end()
+    return QIcon(pix)
+
+
+def glyph_button(kind: str, tip: str, slot, name: str = "tbtn", color: QColor | None = None, size: int = 18) -> QPushButton:
+    b = QPushButton(objectName=name, clicked=slot, toolTip=tip)
+    b.setIcon(glyph(kind, color or QApplication.palette().text().color(), size))
+    b.setIconSize(QSize(size, size))
+    b.setFocusPolicy(Qt.NoFocus)
+    b.setCursor(Qt.PointingHandCursor)
+    return b
+
+
+class Ring(QWidget):
+    """Progress ring with the percent inside; without a value an arc turns to show the app is working."""
+
+    def __init__(self, size: int):
+        super().__init__()
+        self.setFixedSize(size, size)
+        self.frac: float | None = None
+        self.angle = 0
+        self.timer = QTimer(self, interval=40, timeout=self._turn)
+
+    def set(self, frac: float | None):
+        self.frac = frac
+        self.timer.start() if frac is None else self.timer.stop()
+        self.update()
+
+    def _turn(self):
+        self.angle = (self.angle - 12) % 360
+        self.update()
+
+    def hideEvent(self, e):
+        self.timer.stop()
+
+    def paintEvent(self, _e):
+        p = QPainter(self)
+        p.setRenderHint(QPainter.Antialiasing)
+        s = self.width()
+        pen = max(s / 9, 2.5)
+        box = QRectF(pen / 2, pen / 2, s - pen, s - pen)
+        p.setPen(QPen(QColor(127, 127, 127, 60), pen))
+        p.drawEllipse(box)
+        p.setPen(QPen(accent_color(QApplication.instance()), pen, Qt.SolidLine, Qt.RoundCap))
+        if self.frac is None:
+            p.drawArc(box, (90 + self.angle) * 16, -90 * 16)
+            return
+        p.drawArc(box, 90 * 16, -int(self.frac * 360 * 16))
+        if s >= 48:
+            f = QFont(self.font())
+            f.setBold(True)
+            f.setPixelSize(int(s * 0.27))
+            p.setFont(f)
+            p.setPen(self.palette().text().color())
+            p.drawText(self.rect(), Qt.AlignCenter, f"{self.frac:.0%}")
+
+
+class BusyCard(QFrame):
+    """Large progress card in the centre of the waveform: what runs, why, how long, a music line. Clicks pass
+    through it, so the waveform underneath stays editable."""
+
+    def __init__(self, plain: bool = False):
+        super().__init__(objectName="busyPlain" if plain else "busyCard")
+        self.plain = plain
+        self.setAttribute(Qt.WA_TransparentForMouseEvents)
+        self.setFixedWidth(600)
+        h = QHBoxLayout(self)
+        h.setContentsMargins(26, 20, 26, 20)
+        h.setSpacing(22)
+        self.ring = Ring(76)
+        self.ring.setVisible(not plain)
+        h.addWidget(self.ring, 0, Qt.AlignVCenter)
+        v = QVBoxLayout()
+        v.setSpacing(5)
+        align = Qt.AlignHCenter if plain else Qt.AlignLeft
+        self.title = QLabel(objectName="busyTitle", alignment=align)
+        self.why = QLabel(objectName="busyWhy", alignment=align, wordWrap=True)
+        self.eta = QLabel(objectName="busyEta", alignment=align)
+        self.phrase = QLabel(objectName="progPhrase", alignment=align, wordWrap=True)
+        self.wait = QLabel(objectName="sepWait", alignment=align, wordWrap=True)
+        self.wait.hide()
+        for w in (self.title, self.why, self.eta, self.wait, self.phrase):
+            v.addWidget(w)
+        h.addLayout(v, 1)
+        if not plain:
+            shadow = QGraphicsDropShadowEffect(self, blurRadius=48, color=QColor(0, 0, 0, 70))
+            shadow.setOffset(0, 12)
+            self.setGraphicsEffect(shadow)
+        self.hide()
+
+    def set(self, title: str, why: str, frac: float | None, eta: str):
+        self.title.setText(title)
+        self.why.setText(why)
+        self.ring.set(frac)
+        self.eta.setText(f"{frac:.0%} · {eta}" if self.plain and frac is not None else eta)
+        self.eta.setVisible(bool(self.eta.text()))
+
+
+class BusyPill(QFrame):
+    """The progress card folded into a capsule at the bottom of the waveform; a click unfolds it."""
+
+    clicked = Signal()
+
+    def __init__(self):
+        super().__init__(objectName="busyPill")
+        self.setCursor(Qt.PointingHandCursor)
+        self.setFixedHeight(38)
+        h = QHBoxLayout(self)
+        h.setContentsMargins(10, 0, 16, 0)
+        h.setSpacing(9)
+        self.ring = Ring(22)
+        self.text = QLabel(objectName="pillText")
+        h.addWidget(self.ring)
+        h.addWidget(self.text)
+        shadow = QGraphicsDropShadowEffect(self, blurRadius=24, color=QColor(0, 0, 0, 60))
+        shadow.setOffset(0, 5)
+        self.setGraphicsEffect(shadow)
+        self.hide()
+
+    def mousePressEvent(self, _e):
+        self.clicked.emit()
+
+
+class Overview(QWidget):
+    """The whole song under the waveform: pauses, the «1», the play position and the visible window. Dragging
+    the window scrolls the waveform; a click elsewhere centres the view there."""
+
+    def __init__(self, wave: "Wave", height: int):
+        super().__init__()
+        self.wave = wave
+        wave.overview = self
+        self.setFixedHeight(height)
+        self.setCursor(Qt.PointingHandCursor)
+        self.grab_dt = None
+        self._cache = (None, None)
+
+    def _span(self) -> tuple[float, float]:
+        w = self.wave
+        lo = min([c.time for c in w.clicks] + [0.0])
+        return lo, max(w.duration, lo + 1.0)
+
+    def x_of(self, t: float) -> float:
+        lo, hi = self._span()
+        return (t - lo) / (hi - lo) * self.width()
+
+    def t_of(self, x):
+        lo, hi = self._span()
+        return lo + x / max(self.width(), 1) * (hi - lo)
+
+    def _pixmap(self) -> QPixmap:
+        w, h, env = self.width(), self.height(), self.wave.env
+        color = QColor(self.palette().text().color())
+        key = (w, h, id(env), self._span(), color.rgb())
+        if self._cache[0] == key:
+            return self._cache[1]
+        dpr = self.devicePixelRatioF()
+        pix = QPixmap(int(w * dpr), int(h * dpr))
+        pix.setDevicePixelRatio(dpr)
+        pix.fill(Qt.transparent)
+        if env is not None and w > 1:
+            p = QPainter(pix)
+            color.setAlpha(120)
+            p.setPen(QPen(color, 1))
+            ts = self.t_of(np.arange(w + 1))
+            idx = np.maximum.accumulate(np.clip((ts * 1000).astype(int), 0, len(env)))
+            peaks = np.maximum.reduceat(np.r_[env, 0.0], idx)[:-1]
+            peaks[ts[:-1] < 0] = 0
+            mid = h / 2
+            for x, v in enumerate(peaks):
+                half = max(v * (mid - 3), 0.5)
+                p.drawLine(QPointF(x + 0.5, mid - half), QPointF(x + 0.5, mid + half))
+            p.end()
+        self._cache = (key, pix)
+        return pix
+
+    def paintEvent(self, _e):
+        wv = self.wave
+        p = QPainter(self)
+        p.setRenderHint(QPainter.Antialiasing)
+        w, h = self.width(), self.height()
+        clip = QPainterPath()
+        clip.addRoundedRect(QRectF(0, 0, w, h), min(8, h / 2), min(8, h / 2))
+        p.setClipPath(clip)
+        p.fillRect(0, 0, w, h, QColor(127, 127, 127, 22))
+        for i, z in enumerate(wv.zones):
+            xa, xb = self.x_of(wv.bars[z.first].start), self.x_of(wv.bars[z.last].end)
+            c = QColor(GREEN)
+            c.setAlpha(230 if i == wv.current_zone else 130)
+            p.fillRect(QRectF(xa, 0, max(xb - xa, 2), h), c)
+        p.drawPixmap(0, 0, self._pixmap())
+        if wv.t0 is not None:
+            p.fillRect(QRectF(self.x_of(wv.t0) - 1, 0, 2, h), ORANGE)
+        t = wv.cursor_t if wv.cursor_t is not None else wv.play_t
+        if t is not None:
+            p.fillRect(QRectF(self.x_of(t) - 0.75, 0, 1.5, h), wv.playhead_color())
+        xa, xb = max(self.x_of(wv.v0), 0), min(self.x_of(wv.v1), w)
+        veil = QColor(self.palette().window().color())
+        veil.setAlpha(150)
+        p.fillRect(QRectF(0, 0, xa, h), veil)
+        p.fillRect(QRectF(xb, 0, w - xb, h), veil)
+        p.setClipping(False)
+        accent = accent_color(QApplication.instance())
+        p.setPen(QPen(accent, 2))
+        p.setBrush(Qt.NoBrush)
+        box = QRectF(xa + 1, 1, max(xb - xa - 2, 6), h - 2)
+        p.drawRoundedRect(box, min(6, h / 2), min(6, h / 2))
+        if h >= 24:  # grips on the window edges
+            p.setPen(Qt.NoPen)
+            p.setBrush(accent)
+            for x in (box.left(), box.right()):
+                p.drawRoundedRect(QRectF(x - 2.5, h / 2 - 8, 5, 16), 2.5, 2.5)
+
+    def mousePressEvent(self, e):
+        t, wv = self.t_of(e.position().x()), self.wave
+        if not wv.v0 <= t <= wv.v1:
+            half = (wv.v1 - wv.v0) / 2
+            wv.show_range(t - half, t + half)
+        self.grab_dt = t - wv.v0
+
+    def mouseMoveEvent(self, e):
+        if self.grab_dt is not None:
+            wv = self.wave
+            a = self.t_of(e.position().x()) - self.grab_dt
+            wv.show_range(a, a + wv.v1 - wv.v0)
+
+    def mouseReleaseEvent(self, _e):
+        self.grab_dt = None
+
+
 class Wave(QWidget):
     """Waveform with beat lines, count-in clicks, pauses, a time ruler and a draggable first-downbeat marker.
 
@@ -515,6 +836,7 @@ class Wave(QWidget):
     zoneClicked = Signal(int)
     spanSelected = Signal(int, int)  # first and last bar of a span dragged with Shift or along the ruler
     playFrom = Signal(float)  # double-click: play from here
+    navChanged = Signal()  # the play position or the current pause changed
     RULER = 20
 
     def __init__(self):
@@ -536,6 +858,24 @@ class Wave(QWidget):
         self.cursor_t = None
         self.drag = None
         self._cache = (None, None)
+
+        # Design variants: navigation (play position, current pause, edge handles) and progress.
+        self.nav = variant("NAV")
+        self.overview: QWidget | None = None
+        self.busy: QWidget | None = None  # centred progress card
+        self.pill: QWidget | None = None  # the same progress folded at the bottom
+        self.floatbar: QWidget | None = None  # transport floating over the waveform
+        self.sep_frac: float | None = None  # separated share of the song, shown on the waveform itself
+        self.skeleton = False  # placeholder bars while the track is analysed
+        self.play_t: float | None = None  # where playback starts; None means from the count-in
+        self.current_zone: int | None = None
+        self.hover_edge = None  # (pause index, side) under the pointer
+        self.closes: list[tuple[QRectF, int]] = []
+        self.press_x = 0.0
+
+    def playhead_color(self) -> QColor:
+        return {"A": self.palette().text().color(), "B": RED,
+                "C": accent_color(QApplication.instance())}.get(self.nav, GREEN)
 
     def set_audio(self, pcm: np.ndarray, sr: int):
         m = np.abs(pcm).max(axis=1)
@@ -560,9 +900,19 @@ class Wave(QWidget):
             self.card.move(self.width() - self.card.width() - 28, 14)  # clear of the threshold strip
             self.card.raise_()
             roomy = self.height() >= 340
-            for name in ("progWhy", "progPhrase"):
+            for name in ("progWhy",) if self.busy is not None else ("progWhy", "progPhrase"):
                 for label in self.overlay.findChildren(QLabel, name):
                     label.setVisible(roomy)
+        wh = self.height() - self.RULER
+        if self.busy is not None:
+            self.busy.adjustSize()
+            self.busy.move((self.width() - self.busy.width()) // 2, max((wh - self.busy.height()) // 2, 4))
+            self.busy.raise_()
+        for bar, lift in ((self.pill, 10), (self.floatbar, 10)):
+            if bar is not None:
+                bar.adjustSize()
+                bar.move((self.width() - bar.width()) // 2, wh - bar.height() - lift)
+                bar.raise_()
 
     def resizeEvent(self, e):
         self._place_overlay()
@@ -635,10 +985,12 @@ class Wave(QWidget):
         fill.setAlpha(46 if self.fill else 18)
         edge = QColor(GREEN)
         edge.setAlpha(200 if self.fill else 80)
-        for z in self.zones:
+        for i, z in enumerate(self.zones):
             xa, xb = self.x_of(self.bars[z.first].start), self.x_of(self.bars[z.last].end)
+            if self.nav:
+                fill.setAlpha((78 if i == self.current_zone else 34) if self.fill else 18)
             p.fillRect(QRectF(xa, 0, xb - xa, wh), fill)
-            p.setPen(QPen(edge, 2))
+            p.setPen(QPen(edge, 3 if self.nav and i == self.current_zone else 2))
             p.drawLine(QPointF(xa, 0), QPointF(xa, wh))
             p.drawLine(QPointF(xb, 0), QPointF(xb, wh))
 
@@ -665,7 +1017,7 @@ class Wave(QWidget):
             last_x = x
             p.setBrush(GREEN if c.voice == "hihat" else accent)
             hgt = wh * (0.42 if c.accent else 0.28) * min(c.gain, 1.6)
-            p.drawRoundedRect(QRectF(self.x_of(c.time) - 2, 6, 4, hgt), 2, 2)
+            p.drawRoundedRect(QRectF(self.x_of(c.time) - 2, 28 if self.nav in ("A", "B") else 6, 4, hgt), 2, 2)
 
         if self.t0 is not None:
             x = self.x_of(self.t0)
@@ -708,7 +1060,7 @@ class Wave(QWidget):
         f.setPointSizeF(f.pointSizeF() * 0.85)
         p.setFont(f)
         right_of_last = -1.0
-        for i, z in enumerate(self.zones):
+        for i, z in enumerate(() if self.nav in ("A", "B") else self.zones):
             a, b, bpm, n = zn.describe(self.bars, z)
             text = f"{fmt_short(a)}–{fmt_short(b)} · {n}/4 · {bpm:.0f} BPM" + (" ✎" if z.bpm or z.beats else "")
             xa, xb = self.x_of(a), self.x_of(b)
@@ -726,11 +1078,26 @@ class Wave(QWidget):
             p.setPen(QColor(255, 255, 255))
             p.drawText(box, Qt.AlignCenter, text)
             self.labels.append((box, i))
+        if self.nav:
+            self._paint_pauses(p, w, wh)
+        if self.skeleton:
+            p.setPen(Qt.NoPen)
+            p.setBrush(QColor(127, 127, 127, 46))
+            for x in range(10, int(w) - 6, 7):
+                half = wh * (0.05 + 0.3 * abs(np.sin(x * 0.045) * np.sin(x * 0.0113 + 1.0)))
+                p.drawRoundedRect(QRectF(x, wh / 2 - half, 3.5, 2 * half), 1.75, 1.75)
+        if self.sep_frac is not None and self.env is not None:
+            # The separated part of the song stays clear, the rest waits under a veil.
+            x = max(self.x_of(self.sep_frac * self.duration), 0.0)
+            veil = QColor(self.palette().window().color())
+            veil.setAlpha(185)
+            p.fillRect(QRectF(x, 0, w - x, wh), veil)
+            p.fillRect(QRectF(x - 1, 0, 2, wh), accent)
         if self.overlay is not None and self.overlay.isVisible():
             veil = QColor(self.palette().window().color())
             veil.setAlpha(225)
             p.fillRect(QRectF(0, 0, w, h), veil)
-        if self.cursor_t is not None:
+        if self.cursor_t is not None and not self.nav:
             p.setPen(QPen(GREEN, 2))
             p.drawLine(QPointF(self.x_of(self.cursor_t), 0), QPointF(self.x_of(self.cursor_t), wh))
 
@@ -750,6 +1117,99 @@ class Wave(QWidget):
             p.drawText(QRectF(x + 3, wh + 2, 80, self.RULER - 2), Qt.AlignLeft | Qt.AlignVCenter,
                        f"{t:.2f}".rstrip("0").rstrip(".") + _(" с"))
             t += step
+        if self.nav:
+            self._paint_playhead(p, wh)
+        if self.overview is not None:
+            self.overview.update()
+
+    def _paint_playhead(self, p: QPainter, wh: float):
+        """A line at the play position (or where playback will start) with a head on the time ruler."""
+        t = self.cursor_t if self.cursor_t is not None else self.play_t
+        if t is None:
+            return
+        x, c = self.x_of(t), self.playhead_color()
+        p.setPen(QPen(c, 1.8))
+        p.drawLine(QPointF(x, 0), QPointF(x, wh))
+        p.setPen(Qt.NoPen)
+        p.setBrush(c)
+        if self.nav == "A":
+            p.drawPolygon(QPolygonF([QPointF(x, wh - 1), QPointF(x + 7, wh + 6), QPointF(x + 7, wh + 17),
+                                     QPointF(x - 7, wh + 17), QPointF(x - 7, wh + 6)]))
+        elif self.nav == "B":
+            box = QRectF(x - 30, wh + 2, 60, 17)
+            p.drawRoundedRect(box, 5, 5)
+            p.setPen(QColor(255, 255, 255))
+            p.drawText(box, Qt.AlignCenter, fmt_time(t)[:-1])
+        else:
+            p.drawEllipse(QPointF(x, wh), 4.5, 4.5)
+
+    def _paint_pauses(self, p: QPainter, w: float, wh: float):
+        """Pause headers (variants A and B) and the handles on pause edges."""
+        if self.nav in ("A", "B"):
+            self.labels = []
+        self.closes = []
+        f = QFont(self.font())
+        f.setBold(True)
+        f.setPointSizeF(f.pointSizeF() * 0.85)
+        p.setFont(f)
+        white = QColor(255, 255, 255)
+        for i, z in enumerate(self.zones):
+            a, b, bpm, n = zn.describe(self.bars, z)
+            xa, xb = self.x_of(a), self.x_of(b)
+            if xb < 0 or xa > w:
+                continue
+            cur = i == self.current_zone
+            if self.nav in ("A", "B"):
+                head = QRectF(xa, 0, xb - xa, 22)
+                p.setPen(Qt.NoPen)
+                p.setBrush(QColor(36, 138, 61, 245 if cur else 150))
+                p.drawRect(head)
+                text = (_("Пауза {n}", n=i + 1) + f" · {n}/4 · {bpm:.0f} BPM"
+                        + (" ✎" if z.bpm or z.beats else ""))
+                room = QRectF(max(xa, 0) + 9, 0, xb - max(xa, 0) - (34 if cur else 14), 22)
+                p.setPen(white)
+                p.drawText(room, Qt.AlignVCenter | Qt.AlignLeft,
+                           p.fontMetrics().elidedText(text, Qt.ElideRight, int(max(room.width(), 0))))
+                self.labels.append((head.adjusted(0, 0, -26 if cur else 0, 0), i))
+                if cur and xb - xa > 70:  # remove button at the right end of the header
+                    box = QRectF(xb - 23, 3, 16, 16)
+                    p.setPen(Qt.NoPen)
+                    p.setBrush(QColor(255, 255, 255, 70))
+                    p.drawEllipse(box)
+                    p.setPen(QPen(white, 1.6, Qt.SolidLine, Qt.RoundCap))
+                    p.drawLine(box.center() + QPointF(-3, -3), box.center() + QPointF(3, 3))
+                    p.drawLine(box.center() + QPointF(3, -3), box.center() + QPointF(-3, 3))
+                    self.closes.append((box, i))
+            for side, x in (("start", xa), ("end", xb)):
+                hot = self.hover_edge == (i, side)
+                if self.nav != "C" or hot or cur:
+                    self._paint_handle(p, x, wh, side, hot)
+
+    def _paint_handle(self, p: QPainter, x: float, wh: float, side: str, hot: bool):
+        """Grip on a pause edge; under the pointer it grows and says what dragging does."""
+        dark, white = QColor(36, 138, 61), QColor(255, 255, 255)
+        p.setPen(QPen(white, 1.5))
+        p.setBrush(GREEN if hot else dark)
+        if self.nav == "B":  # brace at the top, pointing into the pause
+            d = (16 if hot else 12) * (1 if side == "start" else -1)
+            p.drawPolygon(QPolygonF([QPointF(x, 22), QPointF(x + d, 22), QPointF(x, 22 + abs(d) * 1.2)]))
+        else:  # capsule in the middle of the edge
+            hw, hh = (7, 27) if hot else (5, 18)
+            box = QRectF(x - hw, wh / 2 - hh, 2 * hw, 2 * hh)
+            p.drawRoundedRect(box, hw, hw)
+            p.setPen(QPen(white, 1.2, Qt.SolidLine, Qt.RoundCap))
+            for dx in (-1.6, 1.6):
+                p.drawLine(QPointF(x + dx, wh / 2 - hh * 0.4), QPointF(x + dx, wh / 2 + hh * 0.4))
+        if hot:
+            text = "⇤ ⇥  " + _("тяните по тактам")
+            tw = p.fontMetrics().horizontalAdvance(text) + 16
+            y = 44 if self.nav == "B" else wh / 2 - 11
+            box = QRectF(x + 14 if side == "start" else x - 14 - tw, y, tw, 22)
+            p.setPen(Qt.NoPen)
+            p.setBrush(QColor(30, 30, 32, 225))
+            p.drawRoundedRect(box, 6, 6)
+            p.setPen(white)
+            p.drawText(box, Qt.AlignCenter, text)
 
     def _near_marker(self, x: float) -> bool:
         return self.t0 is not None and abs(x - self.x_of(self.t0)) < 10
@@ -760,9 +1220,9 @@ class Wave(QWidget):
     def _near_edge(self, x: float):
         """(pause index, side) of a pause edge within 6 px, or None."""
         for i, z in enumerate(self.zones):
-            if abs(x - self.x_of(self.bars[z.first].start)) < 6:
+            if abs(x - self.x_of(self.bars[z.first].start)) < (9 if self.nav else 6):
                 return i, "start"
-            if abs(x - self.x_of(self.bars[z.last].end)) < 6:
+            if abs(x - self.x_of(self.bars[z.last].end)) < (9 if self.nav else 6):
                 return i, "end"
         return None
 
@@ -800,10 +1260,18 @@ class Wave(QWidget):
                 else:
                     self._set_zones(self.zones[:z] + self.zones[z + 1 :])
             return
+        close = next((i for box, i in self.closes if box.contains(pos)), None)
+        if close is not None:
+            self.current_zone = None
+            self._set_zones(self.zones[:close] + self.zones[close + 1:])
+            self.navChanged.emit()
+            return
         label = next((i for box, i in self.labels if box.contains(pos)), None)
         if label is not None:
+            self.current_zone = label
             self.zoneClicked.emit(label)
             return
+        self.press_x = x
         if self.bars and (e.modifiers() & Qt.ShiftModifier or pos.y() > self.height() - self.RULER):
             i = self._bar_at(self.t_of(x))
             if i is not None:
@@ -861,6 +1329,9 @@ class Wave(QWidget):
             self.show_range(a - dt, b - dt)
         else:
             edge = self.bars and self._near_edge(x)
+            if self.nav and (edge or None) != self.hover_edge:
+                self.hover_edge = edge or None
+                self.update()
             on_label = any(box.contains(e.position()) for box, _i in self.labels)
             self.setCursor(Qt.PointingHandCursor if on_label else
                            Qt.SizeHorCursor if self._near_marker(x) or edge else Qt.OpenHandCursor)
@@ -879,7 +1350,22 @@ class Wave(QWidget):
                 self.spanSelected.emit(a, b)
         elif self.drag and self.drag[0] == "edge":
             self.zonesEdited.emit(self.zones)
+        elif self.nav and self.drag and self.drag[0] == "pan" and abs(e.position().x() - self.press_x) < 4:
+            self.set_playhead(self.t_of(e.position().x()), snap=not e.modifiers() & Qt.AltModifier)
         self.drag = None
+
+    def set_playhead(self, t: float, snap: bool = True):
+        """Puts the play position at t, on the nearest beat within 8 px unless snap is off, and makes the
+        pause under it the current one."""
+        if snap and self.beats:
+            b = min(self.beats, key=lambda b: abs(b - t))
+            if abs(self.x_of(b) - self.x_of(t)) < 8:
+                t = b
+        self.play_t = float(np.clip(t, min(self.v0, 0.0), max(self.duration, 0.0)))
+        bar = self._bar_at(self.play_t)
+        self.current_zone = self._zone_at(bar) if bar is not None else None
+        self.navChanged.emit()
+        self.update()
 
     def wheelEvent(self, e):
         """Zoom in proportion to the scroll, so a trackpad zooms smoothly and a wheel notch by about 20%;
@@ -1519,6 +2005,12 @@ class Window(QMainWindow):
             if not isinstance(obj, (QLineEdit, QAbstractSpinBox)):
                 self._play()
                 return True
+        if (e.type() == QEvent.KeyPress and self.wave.nav and e.key() in (Qt.Key_Left, Qt.Key_Right, Qt.Key_Home)
+                and not e.modifiers() and QApplication.activeModalWidget() is None
+                and not isinstance(obj, (QLineEdit, QAbstractSpinBox, QSlider, QComboBox))):
+            # Arrows walk the pauses, Home goes back to the count-in.
+            self._to_start() if e.key() == Qt.Key_Home else self._jump_pause(-1 if e.key() == Qt.Key_Left else 1)
+            return True
         return super().eventFilter(obj, e)
 
     # --- layout ---
@@ -1576,9 +2068,15 @@ class Window(QMainWindow):
         self.play_b = QPushButton(_("▶  Прослушать"), objectName="primary", clicked=self._play, toolTip=_("Пробел"))
         self.save_b = QPushButton(_("Сохранить"), objectName="tool", clicked=self._save, toolTip="⌘S")
         self.close_b = QPushButton(_("Закрыть"), objectName="tool", clicked=self._close_track, toolTip="⌘W")
-        for b in (self.open_b, self.close_b, self.play_b, self.save_b):
+        buttons = [self.open_b, self.close_b, self.play_b, self.save_b]
+        if variant("NAV") == "C":
+            buttons[2:3] = [glyph_button("prev", _("Предыдущая пауза (←)"), lambda: self._jump_pause(-1), "tool"),
+                            self.play_b,
+                            glyph_button("next", _("Следующая пауза (→)"), lambda: self._jump_pause(1), "tool")]
+        for b in buttons:
             b.setFocusPolicy(Qt.NoFocus)
             h.addWidget(b)
+        self.play_b.setVisible(variant("NAV") not in ("A", "B"))  # there the transport bar has its own play button
         return head
 
     def _build_body(self):
@@ -1603,26 +2101,37 @@ class Window(QMainWindow):
         """Progress over the whole waveform on a translucent backdrop: what runs, why, how long, and a music
         line now and then. Nothing in the window moves during a job."""
         panel = QWidget(objectName="progOverlay")
-        v = QVBoxLayout(panel)
+        carded = bool(variant("PROGRESS"))
+        box = panel
+        if carded:  # the same card as the centred progress, with a Cancel button
+            box = QFrame(objectName="busyCard", fixedWidth=600)
+            outer = QVBoxLayout(panel)
+            outer.setAlignment(Qt.AlignCenter)
+            outer.addWidget(box)
+            shadow = QGraphicsDropShadowEffect(box, blurRadius=48, color=QColor(0, 0, 0, 70))
+            shadow.setOffset(0, 12)
+            box.setGraphicsEffect(shadow)
+        v = QVBoxLayout(box)
         v.setAlignment(Qt.AlignCenter)
-        v.setSpacing(10)
+        v.setSpacing(4 if carded else 10)
         self.prog_label = QLabel(objectName="progTitle", alignment=Qt.AlignCenter)
         self.prog_why = QLabel(objectName="progWhy", alignment=Qt.AlignCenter, wordWrap=True)
-        self.prog_why.setFixedWidth(720)  # a fixed width lets the wrapped text get its full height
-        self.progress = QProgressBar(textVisible=False, fixedHeight=8, fixedWidth=520)
+        self.prog_why.setFixedWidth(540 if carded else 720)  # a fixed width lets the wrapped text get its full height
+        self.progress = QProgressBar(textVisible=False, fixedHeight=8, fixedWidth=440 if carded else 520)
         self.prog_pct = QLabel(objectName="progPct", alignment=Qt.AlignCenter)
         self.prog_eta = QLabel(objectName="progEta", alignment=Qt.AlignCenter)
         self.prog_phrase = QLabel(objectName="progPhrase", alignment=Qt.AlignCenter, wordWrap=True)
-        self.prog_phrase.setFixedWidth(720)
+        self.prog_phrase.setFixedWidth(540 if carded else 720)
         self.cancel_b = QPushButton(_("Отмена"), objectName="tool", clicked=self._cancel)
         self.cancel_b.setFocusPolicy(Qt.NoFocus)
         for w in (self.prog_label, self.prog_why):
             v.addWidget(w, 0, Qt.AlignHCenter)
-        v.addSpacing(10)
+        v.addSpacing(4 if carded else 10)
         v.addWidget(self.progress, 0, Qt.AlignHCenter)
         v.addWidget(self.prog_pct, 0, Qt.AlignHCenter)
+        self.prog_pct.setVisible(not carded)  # the card is lower, so the percent joins the time left
         v.addWidget(self.prog_eta, 0, Qt.AlignHCenter)
-        v.addSpacing(10)
+        v.addSpacing(2 if carded else 10)
         v.addWidget(self.prog_phrase, 0, Qt.AlignHCenter)
         v.addSpacing(6)
         v.addWidget(self.cancel_b, 0, Qt.AlignHCenter)
@@ -1651,6 +2160,365 @@ class Window(QMainWindow):
 
     def _next_phrase(self):
         self.prog_phrase.setText("♪  " + _(random.choice(PHRASES)))
+        if self.wave.busy is not None:
+            self.wave.busy.phrase.setText(self.prog_phrase.text())
+
+    # --- centred progress (design variants) ---
+
+    def show_busy(self, title: str, why: str, frac: float | None, eta: str, docked: bool = False):
+        """Analysis or background separation in the large card at the centre of the waveform. Variant B folds
+        it into a capsule at the bottom (docked); variant C shows the progress on the waveform itself."""
+        kind, w = variant("PROGRESS"), self.wave
+        if not kind:
+            return
+        if not self.phrase_timer.isActive():
+            self._next_phrase()
+            self.phrase_timer.start()
+        w.busy.set(title, why, frac, eta)
+        w.pill.ring.set(frac)
+        w.pill.text.setText(title + (f"  ·  {frac:.0%}  ·  {eta}" if frac is not None else ""))
+        docked = docked and kind == "B"
+        w.busy.setVisible(not docked)
+        w.pill.setVisible(docked)
+        if kind == "C":
+            w.skeleton, w.sep_frac = w.env is None, frac
+        w._place_overlay()
+        w.update()
+
+    def hide_busy(self):
+        w = self.wave
+        if w.busy is None:
+            return
+        self.dock_timer.stop()
+        self.busy_docked = False
+        w.busy.hide()
+        w.busy.wait.hide()
+        w.pill.hide()
+        w.skeleton, w.sep_frac = False, None
+        if not self.job:
+            self.phrase_timer.stop()
+        w.update()
+
+    def _dock_busy(self):
+        self.busy_docked = True
+        if self.sep_job:
+            self.wave.busy.hide()
+            self.wave.pill.setVisible(variant("PROGRESS") == "B")
+            self.wave._place_overlay()
+
+    def _undock_busy(self):
+        """The capsule opens back into the card for a few seconds."""
+        self.busy_docked = False
+        self.wave.pill.hide()
+        self.wave.busy.show()
+        self.wave._place_overlay()
+        self.dock_timer.start()
+
+    # --- navigation (design variants) ---
+
+    def _transport(self) -> QWidget:
+        """Transport bar under the waveform (variant A): start, previous pause, play, next pause, the position,
+        pause tools and zoom."""
+        bar = QFrame(objectName="transport")
+        h = QHBoxLayout(bar)
+        h.setContentsMargins(10, 6, 10, 6)
+        h.setSpacing(4)
+        for b in self._transport_buttons():
+            h.addWidget(b)
+        h.addSpacing(8)
+        h.addWidget(self._lcd())
+        if self.tempo_strip is not None:
+            h.addSpacing(6)
+            h.addWidget(self.tempo_strip)
+        h.addSpacing(10)
+        self.pause_l = QLabel(objectName="field")
+        h.addWidget(self.pause_l)
+        add_b = QPushButton(_("＋ Пауза"), objectName="tbtn", clicked=self._add_pause,
+                            toolTip=_("Сделать паузой такт под указателем. Несколько тактов: тяните с ⇧ или по шкале времени."))
+        del_b = QPushButton(_("Убрать"), objectName="tbtn", clicked=self._remove_pause, toolTip=_("Убрать текущую паузу"))
+        for b in (add_b, del_b):
+            b.setFocusPolicy(Qt.NoFocus)
+            h.addWidget(b)
+        h.addStretch()
+        tools = [glyph_button("minus", _("Отдалить"), lambda: self._zoom(2.0)),
+                 glyph_button("plus", _("Приблизить"), lambda: self._zoom(0.5)),
+                 glyph_button("fit", _("Весь трек"), self._zoom_fit)]
+        for b in tools[: 3 if self.tempo_strip is None else 0]:
+            h.addWidget(b)
+        help_b = QPushButton("?", objectName="tbtn", toolTip=self.hint.text())
+        help_b.setFocusPolicy(Qt.NoFocus)
+        h.addWidget(help_b)
+        return bar
+
+    def _transport_buttons(self) -> list[QPushButton]:
+        self.tplay = glyph_button("play", _("Пробел"), self._play, "tplay", QColor(255, 255, 255))
+        return [glyph_button("start", _("К отсчёту (Home)"), self._to_start),
+                glyph_button("prev", _("Предыдущая пауза (←)"), lambda: self._jump_pause(-1)),
+                self.tplay,
+                glyph_button("next", _("Следующая пауза (→)"), lambda: self._jump_pause(1))]
+
+    def _lcd(self) -> QWidget:
+        lcd = QFrame(objectName="lcd")
+        h = QHBoxLayout(lcd)
+        h.setContentsMargins(12, 3, 12, 3)
+        h.setSpacing(8)
+        self.lcd_time = QLabel(objectName="lcdTime", minimumWidth=74)
+        self.lcd_bar = QLabel(objectName="lcdSub", minimumWidth=52)
+        h.addWidget(self.lcd_time)
+        h.addWidget(self.lcd_bar)
+        return lcd
+
+    def _float_transport(self) -> QWidget:
+        """Transport capsule floating at the bottom of the waveform (variant B)."""
+        bar = QFrame(objectName="floatBar")
+        h = QHBoxLayout(bar)
+        h.setContentsMargins(8, 2, 14, 2)
+        h.setSpacing(2)
+        for b in self._transport_buttons():
+            h.addWidget(b)
+        h.addSpacing(8)
+        self.lcd_time = QLabel(objectName="lcdTime", minimumWidth=74)
+        self.lcd_bar = QLabel(objectName="lcdSub")
+        h.addWidget(self.lcd_time)
+        h.addWidget(self.lcd_bar)
+        shadow = QGraphicsDropShadowEffect(bar, blurRadius=24, color=QColor(0, 0, 0, 60))
+        shadow.setOffset(0, 5)
+        bar.setGraphicsEffect(shadow)
+        return bar
+
+    def _nav_changed(self):
+        """Shows the play position, the current pause and the pause list of the navigation variants."""
+        w = self.wave
+        if not w.nav:
+            return
+        t = w.cursor_t if w.cursor_t is not None else w.play_t
+        if t is None:
+            t = min((c.time for c in w.clicks), default=0.0)
+        bar = w._bar_at(t)
+        if self.lcd_time is not None:
+            self.lcd_time.setText(fmt_time(t)[:-1])
+            self.lcd_bar.setText(_("такт {n}", n=bar + 1) if bar is not None else _("отсчёт"))
+            self.tplay.setIcon(glyph("stop" if self.play_start is not None else "play", QColor(255, 255, 255)))
+        if self.pause_l is not None:
+            self.pause_l.setText(_("Пауза {i} из {n}", i=w.current_zone + 1, n=len(w.zones)) if w.current_zone is not None
+                                 else _("пауз: {n}", n=len(w.zones)))
+        if self.chips is not None:
+            while self.chips.count():
+                item = self.chips.takeAt(0)
+                if item.widget():
+                    item.widget().deleteLater()
+            self.chips.addWidget(QLabel(_("Паузы"), objectName="field"))
+            for i, z in enumerate(w.zones):
+                a, b, _bpm, _n = zn.describe(w.bars, z)
+                chip = QPushButton(f"{i + 1} · {fmt_short(a)}–{fmt_short(b)}", objectName="chip", checkable=True,
+                                   checked=i == w.current_zone, clicked=lambda _c=False, i=i: self._go_pause(i))
+                chip.setFocusPolicy(Qt.NoFocus)
+                self.chips.addWidget(chip)
+            add = QPushButton(_("＋ Пауза"), objectName="chip", clicked=self._add_pause)
+            add.setFocusPolicy(Qt.NoFocus)
+            self.chips.addWidget(add)
+            self.chips.addStretch()
+            help_b = QPushButton("?", objectName="chip", toolTip=self.hint.text())
+            self.chips.addWidget(help_b)
+        if w.overview is not None:
+            w.overview.update()
+
+    def _jump_pause(self, d: int):
+        """Previous (-1) or next (+1) pause from the current one, or from the play position."""
+        w = self.wave
+        if not w.zones:
+            return
+        if w.current_zone is not None:
+            i = w.current_zone + d
+        else:
+            t = w.cursor_t if w.cursor_t is not None else w.play_t if w.play_t is not None else 0.0
+            starts = [w.bars[z.first].start for z in w.zones]
+            i = sum(a <= t for a in starts) - (1 if d < 0 else 0)
+        self._go_pause(int(np.clip(i, 0, len(w.zones) - 1)))
+
+    def _go_pause(self, i: int):
+        """Makes pause i the current one, brings it into view and plays from the bar before it."""
+        w = self.wave
+        z = w.zones[i]
+        a, b = w.bars[z.first].start, w.bars[z.last].end
+        w.current_zone, w.play_t = i, w.bars[max(z.first - 1, 0)].start
+        span = max(w.v1 - w.v0, (b - a) * 1.6)
+        w.show_range((a + b - span) / 2, (a + b + span) / 2)
+        self._nav_changed()
+        self._play_at(w.play_t)
+
+    def _to_start(self):
+        """Back to the count-in: Play starts from it again."""
+        w, t = self.wave, self.current
+        self._stop()
+        w.play_t, w.current_zone = None, None
+        if t and t.analysis:
+            lead = min((c.time for c in w.clicks), default=t.t0)
+            w.show_range(lead - 1.0, lead - 1.0 + (w.v1 - w.v0))
+        self._nav_changed()
+
+    def _add_pause(self):
+        w = self.wave
+        bar = w._bar_at(w.play_t if w.play_t is not None else (w.v0 + w.v1) / 2)
+        if bar is not None:
+            w.add_zone(bar)
+            w.current_zone = w._zone_at(bar)
+            self._nav_changed()
+
+    def _remove_pause(self):
+        w = self.wave
+        if w.current_zone is not None:
+            i, w.current_zone = w.current_zone, None
+            w._set_zones(w.zones[:i] + w.zones[i + 1:])
+            self._nav_changed()
+
+    def _zoom(self, k: float):
+        w = self.wave
+        mid, half = (w.v0 + w.v1) / 2, float(np.clip((w.v1 - w.v0) * k, 0.3, max(w.duration + 10, 10))) / 2
+        w.show_range(mid - half, mid + half)
+
+    def _zoom_fit(self):
+        self.wave.show_range(min((c.time for c in self.wave.clicks), default=0.0) - 1.0, self.wave.duration + 1.0)
+
+    # --- tempo card (design variants) ---
+
+    def _tempo_card(self) -> QWidget | None:
+        """Tempo and first-downbeat controls in the design picked by COUNTIN_TEMPO. Variant C builds them as a
+        strip for the transport bar (self.tempo_strip) and returns no card."""
+        kind = variant("TEMPO")
+        self.bpm_spin = QDoubleSpinBox(decimals=2, minimum=30, maximum=320, singleStep=0.1, suffix=" BPM",
+                                       objectName="" if kind else "big")
+        self.bpm_spin.valueChanged.connect(self._bpm_edited)
+        self.t0_spin = QDoubleSpinBox(decimals=3, maximum=36000, singleStep=0.001, suffix=_(" с"),
+                                      objectName="" if kind else "big")
+        self.t0_spin.valueChanged.connect(self._t0_edited)
+        self.alt_b = QPushButton(_("Взять кандидата детектора"), objectName="small", clicked=self._use_alt)
+        sp = self.alt_b.sizePolicy()
+        sp.setRetainSizeWhenHidden(True)  # the card keeps its height when the button comes and goes
+        self.alt_b.setSizePolicy(sp)
+        self.alt_b.setFocusPolicy(Qt.NoFocus)
+        tap_tip = _("Настучать темп пробелом под играющую песню")
+        if not kind:
+            tempo, g = card(_("Темп и первая доля"))
+            x2 = QPushButton("×2", objectName="small", clicked=lambda: self._scale_bpm(2.0))
+            half = QPushButton("÷2", objectName="small", clicked=lambda: self._scale_bpm(0.5))
+            tap = QPushButton(_("Tap…"), objectName="small", clicked=self._tap, toolTip=tap_tip)
+            stack(g, _("Темп"), self.bpm_spin, x2, half, tap)
+            prev_b = QPushButton("◀", objectName="small", clicked=lambda: self._shift_beat(-1))
+            next_b = QPushButton("▶", objectName="small", clicked=lambda: self._shift_beat(1))
+            stack(g, _("Доля «1»"), self.t0_spin, prev_b, next_b)
+            g.addWidget(self.alt_b, g.rowCount(), 0, Qt.AlignLeft)
+            for b in (x2, half, tap, prev_b, next_b):
+                b.setFocusPolicy(Qt.NoFocus)
+            return tempo
+
+        for spin in (self.bpm_spin, self.t0_spin):
+            spin.setButtonSymbols(QAbstractSpinBox.NoButtons)
+            spin.setAlignment(Qt.AlignCenter)
+
+            # A frameless field with its font set in code: a style sheet border on a spin box without buttons
+            # leaves its text field a few pixels wide.
+            spin.setFrame(False)
+            size = {"A": 40 if spin is self.bpm_spin else 24}.get(kind, 16)
+            font = QFont(self.font())
+            font.setPixelSize(size)
+            font.setWeight(QFont.Bold if size == 40 else QFont.DemiBold)
+            spin.setFont(font)
+            spin.setFixedHeight(int(size * 1.35))
+            spin.lineEdit().setStyleSheet("background: transparent;")
+
+        def text_button(text: str, slot, name: str, tip: str = "", seg: str = "") -> QPushButton:
+            b = QPushButton(text, objectName=name, clicked=slot, toolTip=tip)
+            b.setFocusPolicy(Qt.NoFocus)
+            if seg:
+                b.setProperty("seg", seg)
+            return b
+
+        def line(*widgets, spacing: int = 8) -> QHBoxLayout:
+            h = QHBoxLayout()
+            h.setSpacing(spacing)
+            for w in widgets:
+                h.addStretch() if w is None else h.addWidget(w, 0, Qt.AlignVCenter)
+            return h
+
+        def capsule(left: QPushButton, spin: QDoubleSpinBox, right: QPushButton) -> QFrame:
+            box = QFrame(objectName="capsule")
+            h = QHBoxLayout(box)
+            h.setContentsMargins(0, 0, 0, 0)
+            h.setSpacing(0)
+            for w in (left, spin, right):
+                h.addWidget(w)
+            return box
+
+        slower = lambda: self.bpm_spin.stepBy(-1)  # noqa: E731
+        faster = lambda: self.bpm_spin.stepBy(1)  # noqa: E731
+        beat_back, beat_on = (lambda: self._shift_beat(-1)), (lambda: self._shift_beat(1))
+        tip_back, tip_on = _("«1» на долю раньше"), _("«1» на долю позже")
+        badge = QLabel("1", objectName="badge", alignment=Qt.AlignCenter)
+
+        if kind == "A":  # large readout, steppers on both sides, a tap pad
+            self.bpm_spin.setSuffix("")
+            self.bpm_spin.setFixedWidth(170)
+            self.t0_spin.setFixedWidth(150)
+            tempo, g = card(_("Темп"))
+            tempo.setMinimumWidth(310)
+            read = QVBoxLayout()
+            read.setSpacing(0)
+            read.addWidget(self.bpm_spin, 0, Qt.AlignHCenter)
+            read.addWidget(QLabel("BPM", objectName="unit", alignment=Qt.AlignCenter))
+            top = line(glyph_button("minus", "−0,1 BPM", slower, "round"), None)
+            top.addLayout(read)
+            top.addStretch()
+            top.addWidget(glyph_button("plus", "+0,1 BPM", faster, "round"), 0, Qt.AlignVCenter)
+            g.addLayout(top, 0, 0, 1, 2)
+            tap = text_button(_("Tap  ·  настучать"), self._tap, "tapPad", tap_tip)
+            pads = line(text_button("÷2", lambda: self._scale_bpm(0.5), "tapPad"),
+                        text_button("×2", lambda: self._scale_bpm(2.0), "tapPad"))
+            pads.addWidget(tap, 1)
+            g.addLayout(pads, 1, 0, 1, 2)
+            g.addWidget(QFrame(objectName="hline"), 2, 0, 1, 2)
+            g.addLayout(line(badge, QLabel(_("Первая доля"), objectName="cardTitle"), None), 3, 0, 1, 2)
+            g.addLayout(line(glyph_button("left", tip_back, beat_back, "round"), None, self.t0_spin, None,
+                             glyph_button("right", tip_on, beat_on, "round")), 4, 0, 1, 2)
+            self.alt_b.setObjectName("candidate")
+            self.alt_b.setText(_("Детектор нашёл другую «1»  ·  взять"))
+            g.addWidget(self.alt_b, 5, 0, 1, 2)
+            return tempo
+
+        self.bpm_spin.setFixedWidth(116)
+        self.t0_spin.setFixedWidth(88)
+        halve = text_button("÷2", lambda: self._scale_bpm(0.5), "", seg="first")
+        double = text_button("×2", lambda: self._scale_bpm(2.0), "", seg="mid")
+        tap = text_button("Tap", self._tap, "", tap_tip, seg="last")
+        self.alt_b.setObjectName("link")
+        if kind == "B":  # two compact rows of joined controls
+            tempo, g = card(_("Темп и первая доля"))
+            row(g, _("Темп"), capsule(glyph_button("minus", "−0,1 BPM", slower, "capBtn", size=14), self.bpm_spin,
+                                      glyph_button("plus", "+0,1 BPM", faster, "capBtn", size=14)))
+            scale = QWidget()
+            scale.setLayout(line(halve, double, tap, spacing=0))
+            scale.layout().setContentsMargins(0, 0, 0, 0)
+            row(g, "", scale)
+            row(g, _("Доля «1»"), capsule(glyph_button("left", tip_back, beat_back, "capBtn", size=14), self.t0_spin,
+                                           glyph_button("right", tip_on, beat_on, "capBtn", size=14)))
+            row(g, "", self.alt_b)
+            return tempo
+
+        # C: a strip inside the transport bar, next to the position
+        self.alt_b.setText(_("другая «1»?"))
+        self.tempo_strip = QFrame(objectName="lcd")
+        h = line(self.bpm_spin, halve, double, tap, spacing=0)
+        h.setContentsMargins(4, 3, 8, 3)
+        h.addSpacing(10)
+        h.addWidget(QFrame(objectName="vline", fixedHeight=22))
+        h.addSpacing(10)
+        h.addWidget(badge)
+        h.addWidget(self.t0_spin)
+        h.addWidget(glyph_button("left", tip_back, beat_back, size=14))
+        h.addWidget(glyph_button("right", tip_on, beat_on, size=14))
+        h.addWidget(self.alt_b)
+        self.tempo_strip.setLayout(h)
+        return None
 
     def _editor(self) -> QWidget:
         self.detector = QLabel(objectName="subtitle")
@@ -1664,32 +2532,23 @@ class Window(QMainWindow):
         self.wave.card = self._sep_card()
         self.wave.card.setParent(self.wave)
         self.wave.overlay.hide()
+        self.busy_docked = False
+        self.dock_timer = QTimer(self, singleShot=True, interval=4000, timeout=self._dock_busy)
+        if variant("PROGRESS"):
+            self.wave.busy = BusyCard(plain=variant("PROGRESS") == "C")
+            self.wave.busy.setParent(self.wave)
+            self.wave.pill = BusyPill()
+            self.wave.pill.setParent(self.wave)
+            self.wave.pill.clicked.connect(self._undock_busy)
+        self.lcd_time = self.lcd_bar = self.pause_l = self.chips = self.tempo_strip = None
+        self.wave.navChanged.connect(self._nav_changed)
 
-        hint = QLabel(_("Тяните оранжевый маркер «1» на первую сильную долю. Колесо — масштаб, перетаскивание — сдвиг, "
+        self.hint = hint = QLabel(_("Тяните оранжевый маркер «1» на первую сильную долю. Колесо — масштаб, перетаскивание — сдвиг, "
                         "⌥ — без прилипания к долям. Двойной щелчок — играть отсюда. Пауза: выделите такты с ⇧ или по шкале времени, "
                         "правый щелчок по паузе убирает её."),
                       objectName="subtitle", wordWrap=True)
 
-        tempo, g = card(_("Темп и первая доля"))
-        self.bpm_spin = QDoubleSpinBox(decimals=2, minimum=30, maximum=320, singleStep=0.1, suffix=" BPM", objectName="big")
-        self.bpm_spin.valueChanged.connect(self._bpm_edited)
-        x2 = QPushButton("×2", objectName="small", clicked=lambda: self._scale_bpm(2.0))
-        half = QPushButton("÷2", objectName="small", clicked=lambda: self._scale_bpm(0.5))
-        tap = QPushButton(_("Tap…"), objectName="small", clicked=self._tap)
-        tap.setToolTip(_("Настучать темп пробелом под играющую песню"))
-        stack(g, _("Темп"), self.bpm_spin, x2, half, tap)
-        self.t0_spin = QDoubleSpinBox(decimals=3, maximum=36000, singleStep=0.001, suffix=_(" с"), objectName="big")
-        self.t0_spin.valueChanged.connect(self._t0_edited)
-        prev_b = QPushButton("◀", objectName="small", clicked=lambda: self._shift_beat(-1))
-        next_b = QPushButton("▶", objectName="small", clicked=lambda: self._shift_beat(1))
-        stack(g, _("Доля «1»"), self.t0_spin, prev_b, next_b)
-        self.alt_b = QPushButton(_("Взять кандидата детектора"), objectName="small", clicked=self._use_alt)
-        g.addWidget(self.alt_b, g.rowCount(), 0, Qt.AlignLeft)
-        sp = self.alt_b.sizePolicy()
-        sp.setRetainSizeWhenHidden(True)  # the card keeps its height when the button comes and goes
-        self.alt_b.setSizePolicy(sp)
-        for b in (x2, half, tap, prev_b, next_b, self.alt_b):
-            b.setFocusPolicy(Qt.NoFocus)
+        tempo = self._tempo_card()
 
         count, g = card(_("Отсчёт"))
         self.style_seg = Segmented([(_("Ровный"), "even"), (_("Нарастание"), "buildup"), ("MIDI…", "midi")], "buildup")
@@ -1766,7 +2625,8 @@ class Window(QMainWindow):
 
         cards = QHBoxLayout()
         cards.setSpacing(12)
-        cards.addWidget(tempo, 0)
+        if tempo is not None:
+            cards.addWidget(tempo, 0)
         cards.addWidget(count, 0)
         cards.addWidget(mix, 1)  # the backing card takes the room the other two leave
 
@@ -1776,8 +2636,23 @@ class Window(QMainWindow):
         v.setSpacing(8)
         v.addWidget(self.detector)
         v.addWidget(self.warning)
+        nav = self.wave.nav
+        if nav == "B":  # overview above the waveform, transport floating over it, pauses as a row of chips
+            v.addWidget(Overview(self.wave, 30))
+            self.wave.floatbar = self._float_transport()
+            self.wave.floatbar.setParent(self.wave)
         v.addWidget(self.wave, 1)
+        if nav == "A":
+            v.addWidget(Overview(self.wave, 46))
+            v.addWidget(self._transport())
+        elif nav == "B":
+            self.chips = QHBoxLayout()
+            self.chips.setSpacing(6)
+            v.addLayout(self.chips)
+        elif nav == "C":
+            v.addWidget(Overview(self.wave, 16))
         v.addWidget(hint)
+        hint.setVisible(nav not in ("A", "B"))  # there it moves into the "?" tooltip
         v.addSpacing(6)
         v.addLayout(cards)
         return page
@@ -1965,6 +2840,7 @@ class Window(QMainWindow):
         self.title.setText(path.stem)
         self.subtitle.setText("")
         self.detector.setText(_("Анализ…"))
+        self.show_busy(_("Анализирую трек"), _(BUSY_WHY["analysis"]), None, _("Пожалуйста, подождите…"))
         try:
             self.info = io.probe(path)
             self._show_file()
@@ -1987,6 +2863,7 @@ class Window(QMainWindow):
         t, pcm, sr = result
         if t is not self.current:
             return
+        self.hide_busy()
         if t.error:
             self.detector.setText("")
             self.warning.setText(t.error)
@@ -2134,6 +3011,9 @@ class Window(QMainWindow):
         if self.wave.ref_db is None and self.pcm is not None:
             self.wave.ref_db = zn.level_db(self.pcm)
         self.zone_l.setText("" if t.zones is None or not self.fill.isChecked() else _("пауз: {n}", n=len(t.zones)))
+        if self.wave.current_zone is not None and self.wave.current_zone >= len(self.wave.zones):
+            self.wave.current_zone = None
+        self._nav_changed()
         self.wave.update()
 
     def _threshold_moved(self, _v):
@@ -2162,6 +3042,7 @@ class Window(QMainWindow):
         self.open_a.setEnabled(not busy)
         self.reveal_a.setEnabled(self.last_saved is not None)
         self.prog_panel.setVisible(busy)
+        self._nav_changed()
         self.wave._place_overlay()
         self.wave.update()
 
@@ -2204,7 +3085,7 @@ class Window(QMainWindow):
         rest = (_("осталось ~{m}:{s:02d}", m=int(left // 60), s=int(left % 60)) if left is not None
                 else _("считаю время…"))
         self.prog_pct.setText(f"{frac:.0%}")
-        self.prog_eta.setText(rest)
+        self.prog_eta.setText(f"{frac:.0%} · {rest}" if self.prog_pct.isHidden() else rest)
 
     def _finish(self):
         self.job = None
@@ -2229,6 +3110,7 @@ class Window(QMainWindow):
         """Forgets the current track: its audio, stems, waveform and pauses."""
         self.current, self.pcm, self.info, self.stem_cache, self.last_saved = None, None, None, None, None
         self.resume_at, self.zones_pending = None, False
+        self.wave.play_t, self.wave.current_zone, self.wave.hover_edge = None, None, None
         self._cancel_separation()
         self.backing_key, self.backing, self.wave_source = None, None, None
         self.wave.env, self.wave.t0, self.wave.beats, self.wave.downs, self.wave.clicks = None, None, [], [], []
@@ -2271,6 +3153,8 @@ class Window(QMainWindow):
             return
         if self.job or not (self.current and self.current.analysis and self.pcm is not None):
             return
+        if self.wave.nav and self.wave.play_t is not None:
+            return self._play_at(self.wave.play_t)
         s = self.settings()
         if self._wait_for_stems(self._play, bool(s.levels)):
             return
@@ -2303,6 +3187,7 @@ class Window(QMainWindow):
             self._stop()
             return
         self.wave.cursor_t = self.play_start + self.player.position()
+        self._nav_changed()
         self.wave.update()
 
     def _stop(self):
@@ -2448,7 +3333,9 @@ class Window(QMainWindow):
         self.sep_l.setText(_("Готовлю модель…"))
         self.sep_wait.hide()
         self.sep_started = None
-        self.wave.card.show()
+        self.wave.card.setVisible(not variant("PROGRESS"))
+        self.show_busy(_("Разделяю на дорожки"), _(BUSY_WHY["separation"]), None, _("Готовлю модель…"))
+        self.dock_timer.start()
         self.wave._place_overlay()
         self.sep_pool.start(self.sep_job)
 
@@ -2462,6 +3349,7 @@ class Window(QMainWindow):
                 except (RuntimeError, TypeError):
                     pass
         self.wave.card.hide()
+        self.hide_busy()
 
     def _sep_progress(self, _text: str, done: int, total: int):
         if not total:
@@ -2473,13 +3361,16 @@ class Window(QMainWindow):
         left = (total - done) * (time.monotonic() - t0) / (done - d0) if done > d0 else None
         self.sep_bar.setRange(0, 1000)
         self.sep_bar.setValue(int(done / total * 1000))
-        self.sep_l.setText(f"{done / total:.0%} · " + (_("осталось ~{m}:{s:02d}", m=int(left // 60), s=int(left % 60))
-                                                       if left is not None else _("считаю время…")))
+        rest = (_("осталось ~{m}:{s:02d}", m=int(left // 60), s=int(left % 60)) if left is not None
+                else _("считаю время…"))
+        self.sep_l.setText(f"{done / total:.0%} · " + rest)
+        self.show_busy(_("Разделяю на дорожки"), _(BUSY_WHY["separation"]), done / total, rest, self.busy_docked)
 
     def _separated(self, result):
         t, full = result
         self.sep_job = None
         self.wave.card.hide()
+        self.hide_busy()
         if t is not self.current:
             return
         self.stem_cache = full
@@ -2498,6 +3389,7 @@ class Window(QMainWindow):
     def _sep_failed(self, msg: str):
         self.sep_job, self.after_sep = None, []
         self.wave.card.hide()
+        self.hide_busy()
         self.status.setText(msg)
 
     def _wait_for_stems(self, fn, needed: bool = True) -> bool:
@@ -2509,6 +3401,10 @@ class Window(QMainWindow):
             self.after_sep.append(fn)
         self.sep_wait.setText(_("Начнётся сразу, как только дорожки будут готовы"))
         self.sep_wait.show()
+        if self.wave.busy is not None:  # the waiting action shows in the centred card, unfolded
+            self.wave.busy.wait.setText(self.sep_wait.text())
+            self.wave.busy.wait.show()
+            self._undock_busy()
         self.wave._place_overlay()
         return True
 
@@ -2641,12 +3537,17 @@ class Window(QMainWindow):
         """Double-click on the waveform: plays from the bar before that point, so a pause can be heard in place."""
         if self.job or not (self.current and self.current.analysis and self.pcm is not None):
             return
-        self._stop()
         bars = self.current.bars
         i = next((k for k, b in enumerate(bars) if b.start <= t < b.end), None)
-        start = bars[max(i - 1, 0)].start if i is not None else max(0.0, t - 2.0)
+        self._play_at(bars[max(i - 1, 0)].start if i is not None else max(0.0, t - 2.0))
+
+    def _play_at(self, start: float):
+        """Plays from the song time start."""
+        if self.job or not (self.current and self.current.analysis and self.pcm is not None):
+            return
+        self._stop()
         s = self.settings()
-        if self._wait_for_stems(lambda: self._play_from(t), bool(s.levels)):
+        if self._wait_for_stems(lambda: self._play_at(start), bool(s.levels)):
             return
         self._run(preview_job, self.current, s, self.pcm, self.sr, self.stem_cache, bool(s.levels), start,
                   on_done=self._preview_ready)
@@ -2697,10 +3598,10 @@ def accent_color(app: QApplication) -> QColor:
 def style_sheet(app: QApplication) -> str:
     """STYLE with colors for the system light or dark appearance."""
     dark = is_dark(app)
-    colors = ({"@WINDOW@": "#1e1e20", "@SIDEBAR@": "#262628", "@CARD@": "#2c2c2e", "@SEP_CARD@": "rgba(44,44,46,0.9)", "@BORDER@": "#3a3a3c",
-               "@FIELD@": "#a1a1a6"} if dark else
-              {"@WINDOW@": "#f5f5f7", "@SIDEBAR@": "#ececee", "@CARD@": "#ffffff", "@SEP_CARD@": "rgba(255,255,255,0.9)", "@BORDER@": "#d8d8dc",
-               "@FIELD@": "#6e6e73"})
+    colors = ({"@WINDOW@": "#1e1e20", "@SIDEBAR@": "#262628", "@CARD@": "#2c2c2e", "@SEP_CARD@": "rgba(44,44,46,0.92)", "@BORDER@": "#3a3a3c",
+               "@FIELD@": "#a1a1a6", "@WARN@": "#ffb340", "@VEIL@": "rgba(30,30,32,0.80)"} if dark else
+              {"@WINDOW@": "#f5f5f7", "@SIDEBAR@": "#ececee", "@CARD@": "#ffffff", "@SEP_CARD@": "rgba(255,255,255,0.92)", "@BORDER@": "#d8d8dc",
+               "@FIELD@": "#6e6e73", "@WARN@": "#a35a00", "@VEIL@": "rgba(245,245,247,0.82)"})
 
     colors["@ACCENT@"] = accent_color(app).name()
     colors["@ACCENT_TEXT@"] = "palette(highlighted-text)" if dark else "white"
