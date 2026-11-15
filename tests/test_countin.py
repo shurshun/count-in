@@ -1,6 +1,7 @@
 from pathlib import Path
 """Grid, splice and codec-delay checks on synthetic signals with a known tempo and downbeat."""
 
+import os
 import numpy as np
 import soundfile as sf
 import pytest
@@ -396,3 +397,19 @@ def test_language_switch_changes_text():
         assert io.describe(info) == "FLAC · 16 бит · 48 кГц · моно · сжатие до 65%"
     finally:
         i18n.set_language("ru")
+
+
+def test_mute_button_toggles_and_restores_level():
+    os.environ.setdefault("QT_QPA_PLATFORM", "offscreen")
+    from PySide6.QtWidgets import QApplication, QSlider
+    from countin.gui import MUTE, MuteButton
+
+    _app = QApplication.instance() or QApplication([])
+    s = QSlider(minimum=MUTE, maximum=0, value=-6)
+    b = MuteButton(s, "")
+    b.click()
+    assert s.value() == MUTE and b.isChecked()
+    b.click()
+    assert s.value() == -6 and not b.isChecked()
+    s.setValue(MUTE)
+    assert b.isChecked()

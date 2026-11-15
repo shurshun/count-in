@@ -93,9 +93,6 @@ def run(song: Path, scheme: str, lang: str, tmp: Path) -> None:
         elif step["n"] == 1:
             shot = w.grab().toImage()
             shot.save(str(OUT / f"main-{scheme}{sfx}.png"))
-            for width in (800, 1600):  # the website's srcset
-                shot.scaledToWidth(width, Qt.SmoothTransformation).save(
-                    str(OUT / f"main-{scheme}{sfx}-{width}.webp"), "WEBP", 85)
             if scheme == "dark":
                 if lang == "en":
                     social(shot, app.font())

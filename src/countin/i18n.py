@@ -63,6 +63,8 @@ EN = {
     "{v} дБ": "{v} dB",
     "как есть": "unchanged",
     "убрать": "remove",
+    "Убрать гитару": "Remove guitar",
+    "Убрать вокал": "Remove vocals",
     # Status and progress
     "Показать в Finder": "Show in Finder",
     "Показать в папке": "Show in Explorer",
