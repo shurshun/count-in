@@ -108,13 +108,15 @@ def run(song: Path, scheme: str, lang: str, tmp: Path) -> None:
     def tick():
         if step["n"] == 0 and w.pcm is not None:
             w._cancel_separation()  # the shots stage the progress by hand; no need to separate the song
-            w.vocals.setValue(-6)
+            w.vocals.setValue(gui.MUTE)
             w.guitar.setValue(gui.MUTE)
+            w._set_speed(80)  # the speed control shows a slowed song, as in the promo
             w.zone_timer.stop()  # no pause search: it would cover the shots with its progress
-            w.status.setText(_("Сохранено: {name}", name="Demo Song_backing_guitar-off_vocals-6dB.mp3"))
+            w.status.setText(_("Сохранено: {name}", name="Demo Song_backing_guitar-off_vocals-off_80pct.mp3"))
             w.reveal_b.show()
             step["n"] = 1
         elif step["n"] == 1:
+            step["n"] = 2  # processEvents below runs this timer again; the main shot must not be retaken
             shot = w.grab().toImage()
             shot.save(str(OUT / f"main-{scheme}{sfx}.png"))
             if scheme == "light":
