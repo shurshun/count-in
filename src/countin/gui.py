@@ -202,6 +202,8 @@ class Track:
     bars: list[zn.Bar] = field(default_factory=list)  # whole-song bars from the detected downbeats
     zones: list[zn.Zone] | None = None  # pauses that get the hi-hat; None until searched
     zones_key: tuple | None = None  # (levels, threshold) the search ran with
+    search_levels: dict | None = None  # the parts last turned down; pauses are always searched without them
+    auto_done: bool = False  # the silence threshold was fitted to this track's separated backing
     bar_db: list | None = None  # level of each bar against the song (zones.bar_levels); sets the hi-hat level
     covered: set = field(default_factory=set)  # bars under the pauses as last shown
     dismissed: set = field(default_factory=set)  # bars whose pause the user removed; a search never brings them back
@@ -235,6 +237,16 @@ def clicks_for(t: Track, s: Settings) -> list[rd.Click]:
     return clicks
 
 
+def search_levels(t: Track, s: Settings) -> dict:
+    """The levels the pauses are searched with: the current ones, or with every part back on the ones last
+    turned down, so the pauses stay while the guitar plays again to check the hi-hat against it."""
+    return dict(s.levels) or dict(t.search_levels or {})
+
+
+def search_key(t: Track, s: Settings) -> tuple:
+    return tuple(sorted(search_levels(t, s).items())), s.threshold
+
+
 def zones_key(s: Settings) -> tuple:
     return tuple(sorted(s.levels.items())), s.threshold
 
@@ -251,16 +263,25 @@ def find_zones(t: Track, pcm: np.ndarray, sr: int, st: dict[str, np.ndarray] | N
 
 def mix_job(job: "Job", seq: int, pcm: np.ndarray, sr: int, st, levels: dict, search):
     """The backing (the song minus the turned-down stems), its waveform peaks and, when search holds
-    (bars, threshold), the pauses in it. Runs off the UI thread: on a six-minute song this is about 0.4 s."""
+    (bars, threshold, search levels, fit the threshold), the pauses. They are searched in the mix without the
+    search levels' parts, which may differ from what plays; with fit set the threshold first gets fitted to that
+    mix (zones.auto_threshold). Runs off the UI thread: on a six-minute song this is about 0.4 s.
+    Returns (seq, backing, peaks, found pauses or None, (threshold, fitted) or None)."""
     from .core import stems
 
     backing = stems.attenuate(pcm, st, levels) if st and levels else pcm
     env = peaks_per_ms(backing, sr)
-    found = None
+    found, used = None, None
     if search is not None:
-        bars, threshold = search
-        found = zn.zones_from(zn.quiet_bars(backing, sr, bars, zn.level_db(pcm), threshold))
-    return seq, backing, env, found
+        bars, threshold, sl, fit = search
+        mix = backing if sl == levels else stems.attenuate(pcm, st, sl) if st and sl else pcm
+        ref = zn.level_db(pcm)
+        fitted = zn.auto_threshold(mix, sr, bars, ref) if fit else None
+        if fitted is not None:
+            threshold = float(round(fitted))
+        found = zn.zones_from(zn.quiet_bars(mix, sr, bars, ref, threshold))
+        used = (threshold, fit)
+    return seq, backing, env, found, used
 
 
 def fmt_short(t: float) -> str:
@@ -3460,51 +3481,66 @@ class Window(QMainWindow):
         if self.pcm is None or t is None:
             return
         st = self._full_stems()
+        if s.levels:
+            t.search_levels = dict(s.levels)
         levels = dict(s.levels) if st is not None else {}
+        sl = search_levels(t, s) if st is not None else {}
         search = None
-        if t.analysis and s.fill and t.zones_key != zones_key(s) and (st is not None or not s.levels):
-            search = (t.bars, s.threshold)
+        if t.analysis and s.fill and t.zones_key != search_key(t, s) and (st is not None or not search_levels(t, s)):
+            search = (t.bars, s.threshold, sl, bool(sl) and not t.auto_done)
         if (id(st) if levels else None, tuple(sorted(levels.items()))) == self.backing_key and search is None:
             self.wave.update()
             return
         self.mix_seq += 1
-        self.mix_wanted = (t, (id(st) if levels else None, tuple(sorted(levels.items()))), zones_key(s))
+        self.mix_wanted = (t, (id(st) if levels else None, tuple(sorted(levels.items()))), tuple(sorted(sl.items())))
         j = Job(mix_job, self.mix_seq, self.pcm, self.sr, st, levels, search)
         j.signals.done.connect(self._mixed)
         self.mix_pool.start(j)
 
     def _mixed(self, result):
-        seq, backing, env, found = result
+        seq, backing, env, found, used = result
         if seq != self.mix_seq or self.mix_wanted[0] is not self.current:
             return  # the levels moved again or the track changed
-        t, key, zkey = self.mix_wanted
+        t, key, sl = self.mix_wanted
         self.backing_key, self.backing = key, backing
         self.wave.set_env(env, len(backing) / self.sr)
-        if found is not None:
-            self._set_found(t, found, zkey)
+        if found is None:
+            return
+        threshold, fit = used
+        if fit:
+            t.auto_done = True
+            if threshold != self.threshold.value():
+                self.threshold.blockSignals(True)  # the search already ran with it; no second one
+                self.threshold.setValue(int(threshold))
+                self.threshold.blockSignals(False)
+                self._labels()
+                self.status.setText(_("Порог тишины подобран по разделённому треку: {v:+d} дБ", v=int(threshold)))
+        self._set_found(t, found, (sl, float(threshold)))
 
     def _auto_zones(self):
         """With the fill on, pauses follow the levels and the threshold; nothing to press."""
         t, s = self.current, self.settings()
-        if not (t and t.analysis and self.pcm is not None and s.fill) or t.zones_key == zones_key(s):
+        if s.levels and t:
+            t.search_levels = dict(s.levels)
+        if not (t and t.analysis and self.pcm is not None and s.fill) or t.zones_key == search_key(t, s):
             return
         if self.job:
             self.zones_pending = True
             return
         st = self._full_stems()
-        if st is None and s.levels and self.sep_job:
+        if st is None and search_levels(t, s) and self.sep_job:
             return  # _separated searches again
-        if st is not None or not s.levels:
+        if st is not None or not search_levels(t, s):
             self._update_backing()  # the search runs with the mix, off the UI thread
             return
         self._run(zones_job, t, s, self.pcm, self.sr, self.stem_cache, on_done=self._zones_found)
 
     def _set_found(self, t: Track, found: list, key: tuple):
-        """Found pauses only add to the ones already shown: a pause stays until the user removes it, so turning
-        the guitar back on to check the hi-hat against it keeps every pause in place. A removed one never comes
-        back from a later search."""
+        """Found pauses replace the earlier found ones; pauses the user made or edited stay, and one the user
+        removed never comes back. The search always runs without the parts last turned down (search_levels), so
+        turning the guitar back on keeps the pauses while a threshold change rebuilds them."""
         found = [z for z in found if not any(i in t.dismissed for i in range(z.first, z.last + 1))]
-        zones = zn.merge(list(t.zones or []), found)
+        zones = zn.merge([z for z in (t.zones or []) if z.kept], found)
         t.covered = _bars_of(zones)
         changed = zones != t.zones
         t.zones, t.zones_key = zones, key

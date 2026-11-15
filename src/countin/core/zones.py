@@ -57,8 +57,9 @@ def bars_from(beats: np.ndarray, downbeats: np.ndarray, duration: float) -> list
 def quiet_bars(pcm: np.ndarray, sr: int, bars: list[Bar], reference_db: float, threshold_db: float = QUIET_DB) -> set[int]:
     """Indices of bars whose level sits threshold_db or more below reference_db (dBFS of the full mix).
 
-    The level runs up to the bar's last beat: a band that comes back with a pickup on that beat still leaves
-    the bar quiet, so the hi-hat plays up to the entry instead of stopping a bar early. Likewise a bar that
+    The level runs over the first three quarters of the bar: a band that comes back with a pickup on the last
+    beat, or a stray detected beat at the band's entry, still leaves the bar quiet, so the hi-hat plays up to
+    the entry instead of stopping a bar early. Likewise a bar that
     only holds the band's last hit on its first beat joins the pause after it, so the hi-hat starts right after
     the hit and the time never drops.
     A quiet run that reaches the last bar is the song's ending, not a pause, so it is left out.
@@ -67,7 +68,7 @@ def quiet_bars(pcm: np.ndarray, sr: int, bars: list[Bar], reference_db: float, t
         x = pcm[int(a * sr) : int(b * sr)]
         return bool(len(x)) and level_db(x) - reference_db < threshold_db
 
-    out = {i for i, bar in enumerate(bars) if quiet(bar.start, bar.beats[-1] if len(bar.beats) > 1 else bar.end)}
+    out = {i for i, bar in enumerate(bars) if quiet(bar.start, _head_end(bar))}
     for a, _b in ranges(out):
         lead = bars[a - 1] if a > 0 else None
         if lead is not None and len(lead.beats) > 1 and quiet(lead.beats[1], lead.end):
@@ -76,6 +77,31 @@ def quiet_bars(pcm: np.ndarray, sr: int, bars: list[Bar], reference_db: float, t
         if b == len(bars) - 1:
             out -= set(range(a, b + 1))
     return out
+
+
+def _head_end(bar: Bar) -> float:
+    """Where a bar's level measurement stops: three quarters in, so an entry on its last beat stays out."""
+    return bar.start + 0.75 * (bar.end - bar.start)
+
+
+def auto_threshold(pcm: np.ndarray, sr: int, bars: list[Bar], reference_db: float) -> float | None:
+    """A silence threshold that fits this backing. Bars below -40 dB are silent under any threshold and stay
+    out; the rest fall into bars with only bleed or tails left and bars with music, and Otsu's split of the two
+    in dB puts the threshold in the gap, within -40..-12 dB (above -12 a bass-and-drums section would turn into
+    a pause). None when there is no clear quiet group, so the slider keeps its value."""
+    lv = np.array([level_db(pcm[int(b.start * sr) : int(_head_end(b) * sr)]) - reference_db
+                   for b in bars if b.end > b.start])
+    lv = np.sort(lv[lv > -40.0])
+    n = len(lv)
+    if n < 4:
+        return None
+    csum = np.cumsum(lv)
+    i = np.arange(1, n)
+    m0, m1 = csum[:-1] / i, (csum[-1] - csum[:-1]) / (n - i)
+    k = int(np.argmax(i / n * (1 - i / n) * (m1 - m0) ** 2)) + 1
+    if m1[k - 1] - m0[k - 1] < 10.0:
+        return None
+    return float(np.clip((lv[k - 1] + lv[k]) / 2, -40.0, -12.0))
 
 
 def level_db(x: np.ndarray) -> float:

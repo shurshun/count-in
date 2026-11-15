@@ -272,7 +272,7 @@ EN = {
     'Колесо мыши меняет масштаб, перетаскивание и горизонтальная прокрутка трекпада сдвигают волну.': 'The mouse wheel zooms; dragging and sideways trackpad scrolling pan the waveform.',
     'Громкость прослушивания в заголовке окна не попадает в сохранённый файл.': 'The playback volume in the window header never reaches the saved file.',
     'Пауза — это такты, где без убранных инструментов тихо. В ней играет хай-хэт на каждую долю. Отсчёт палочками звучит только в начале песни.': 'A pause is a run of bars that are quiet once the removed instruments are gone. A hi-hat plays on every beat in it. The stick count-in plays only at the start of the song.',
-    'С галочкой «Заполнять паузы хай-хэтом» программа ищет паузы сама. «Порог тишины» задаёт, насколько тише среднего должен быть такт.': 'With “Fill pauses with hi-hat” on, the app finds pauses by itself. “Silence threshold” sets how far below the average level a bar must be.',
+    'С галочкой «Заполнять паузы хай-хэтом» программа ищет паузы сама, по треку без убранных инструментов. «Порог тишины» подбирается по нему автоматически; его можно сдвинуть, и паузы перестроятся. Если вернуть инструмент, паузы останутся.': 'With “Fill pauses with hi-hat” on, the app finds pauses by itself in the track without the parts you turned down. “Silence threshold” gets fitted to it automatically; move it and the pauses rebuild. Turning a part back on keeps the pauses.',
     'Края паузы тянутся мышью по тактам. Текущая пауза подсвечена ярче.': 'Pause edges drag along the bars. The current pause is brighter.',
     'Новая пауза получается кнопкой + в блоке «Заполнение пауз» на такте под указателем, выделением тактов с ⇧ или протяжкой по шкале времени.': 'A new pause comes from the + button in “Pause fill” on the bar under the playhead, from selecting bars with ⇧ or from dragging along the time ruler.',
     'Паузу убирает крестик в её заголовке, кнопка − в блоке «Заполнение пауз» или правый щелчок.': 'The cross in its header, the − button in “Pause fill” or a right-click removes a pause.',
@@ -306,6 +306,7 @@ EN = {
     "{mb:.0f} МБ · песен: {n}": "{mb:.0f} MB · songs: {n}",
     "пусто": "empty",
     "очищаю…": "clearing…",
+    "Порог тишины подобран по разделённому треку: {v:+d} дБ": "Silence threshold fitted to the separated track: {v:+d} dB",
 }
 
 

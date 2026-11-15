@@ -593,3 +593,22 @@ def test_hi_hat_follows_the_music_level_around_a_pause():
     loud = [6.0] * 8
     assert zn.zone_gain(loud, zn.Zone(2, 3)) == pytest.approx(10 ** (3 / 20))  # capped above the count-in level
     assert {c.gain for c in zn.zone_clicks(bars, [zn.Zone(2, 3)], 0.0)} == {1.0}  # without levels: plain
+
+
+def test_auto_threshold_counts_bleed_as_quiet():
+    from countin.core import zones as zn
+
+    sr = 1000
+    rng = np.random.default_rng(0)
+    # bars of 1 s: silence, then two bars with only guitar bleed left, then the band; one quieter bass bar
+    levels = [-65] * 6 + [-28] * 2 + [-4] * 40 + [-13] + [-4] * 20
+    x = np.concatenate([rng.standard_normal(sr) * 10 ** (db / 20) for db in levels]).astype(np.float32)[:, None]
+    bars = [zn.Bar(float(i), float(i + 1), [float(i), i + 0.5]) for i in range(len(levels))]
+    ref = zn.level_db(x)
+    th = zn.auto_threshold(x, sr, bars, ref)
+    assert th is not None
+    quiet = zn.quiet_bars(x, sr, bars, ref, th)
+    assert {6, 7} <= quiet and 48 not in quiet  # the bleed bars count as quiet, the bass bar does not
+
+    flat = np.ones((10 * sr, 1), np.float32) * 0.3
+    assert zn.auto_threshold(flat, sr, bars[:10], zn.level_db(flat)) is None
