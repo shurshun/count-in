@@ -625,3 +625,19 @@ def test_pause_build_up_runs_into_the_entry_in_eighths():
     # the last bar: quarters on 1 and 2, eighths over 3 and 4, the last three louder
     assert [c.time for c in built][4:] == [6, 6.5, 7, 7.25, 7.5, 7.75]
     assert [c.gain > 1 for c in built][-4:] == [False, True, True, True]
+
+
+def test_pause_search_keeps_the_lowest_level_each_part_had():
+    from countin import gui
+
+    from types import SimpleNamespace
+
+    t = gui.Track(Path("x.wav"))
+    s = SimpleNamespace(levels={"guitar": float("-inf")})
+    t.search_levels = gui.search_levels(t, s)
+    s.levels = {"guitar": -5.0}  # raised again to check the hi-hat against it
+    assert gui.search_levels(t, s) == {"guitar": float("-inf")}
+    s.levels = {}
+    assert gui.search_levels(t, s) == {"guitar": float("-inf")}
+    s.levels = {"vocals": -12.0}
+    assert gui.search_levels(t, s) == {"guitar": float("-inf"), "vocals": -12.0}

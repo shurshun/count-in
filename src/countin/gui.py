@@ -202,7 +202,7 @@ class Track:
     bars: list[zn.Bar] = field(default_factory=list)  # whole-song bars from the detected downbeats
     zones: list[zn.Zone] | None = None  # pauses that get the hi-hat; None until searched
     zones_key: tuple | None = None  # (levels, threshold) the search ran with
-    search_levels: dict | None = None  # the parts last turned down; pauses are always searched without them
+    search_levels: dict | None = None  # each part's lowest level on this track; pauses are searched with these
     auto_done: bool = False  # the silence threshold was fitted to this track's separated backing
     bar_db: list | None = None  # level of each bar against the song (zones.bar_levels); sets the hi-hat level
     covered: set = field(default_factory=set)  # bars under the pauses as last shown
@@ -239,9 +239,13 @@ def clicks_for(t: Track, s: Settings) -> list[rd.Click]:
 
 
 def search_levels(t: Track, s: Settings) -> dict:
-    """The levels the pauses are searched with: the current ones, or with every part back on the ones last
-    turned down, so the pauses stay while the guitar plays again to check the hi-hat against it."""
-    return dict(s.levels) or dict(t.search_levels or {})
+    """The levels the pauses are searched with: each part at the lowest level it was set to on this track.
+    Raising a part again, fully or partly, to check the hi-hat against it keeps the pauses where they were;
+    only the threshold or the user's own edits change them."""
+    out = dict(t.search_levels or {})
+    for k, v in s.levels.items():
+        out[k] = min(v, out.get(k, 0.0))
+    return out
 
 
 def search_key(t: Track, s: Settings) -> tuple:
@@ -3492,8 +3496,7 @@ class Window(QMainWindow):
         if self.pcm is None or t is None:
             return
         st = self._full_stems()
-        if s.levels:
-            t.search_levels = dict(s.levels)
+        t.search_levels = search_levels(t, s)
         levels = dict(s.levels) if st is not None else {}
         sl = search_levels(t, s) if st is not None else {}
         search = None
@@ -3531,8 +3534,8 @@ class Window(QMainWindow):
     def _auto_zones(self):
         """With the fill on, pauses follow the levels and the threshold; nothing to press."""
         t, s = self.current, self.settings()
-        if s.levels and t:
-            t.search_levels = dict(s.levels)
+        if t:
+            t.search_levels = search_levels(t, s)
         if not (t and t.analysis and self.pcm is not None and s.fill) or t.zones_key == search_key(t, s):
             return
         if self.job:
