@@ -1,7 +1,7 @@
-from pathlib import Path
 """Grid, splice and codec-delay checks on synthetic signals with a known tempo and downbeat."""
 
 import os
+from pathlib import Path
 import numpy as np
 import soundfile as sf
 import pytest
@@ -74,6 +74,16 @@ def test_pattern_grid_stretches_midi(tmp_path):
     g = rd.pattern_grid(f, first_downbeat=5.0, period=0.5, meter="4/4")
     assert [c.time for c in g] == pytest.approx([3.0, 3.5, 4.0, 4.5, 4.75])
     assert [c.accent for c in g] == [True, False, False, False, False]
+
+
+def test_pattern_grid_quantizes_a_played_midi_onto_the_song_grid():
+    # tests/data/count-in-played-96bpm.mid: an empty bar, then two bars played in by hand at 96 BPM, up to 30
+    # ticks off the grid, kick and hi-hat together on each "1"
+    f = Path(__file__).parent / "data" / "count-in-played-96bpm.mid"
+    g = rd.pattern_grid(f, first_downbeat=10.0, period=0.5, meter="4/4")  # the song runs at 120 BPM
+    assert [c.time for c in g] == pytest.approx([6.0, 7.0, 8.0, 8.5, 9.0, 9.25, 9.5, 9.75])
+    assert [c.accent for c in g] == [True, False, True, False, False, False, False, False]
+    assert g[-1].time < 10.0  # the pattern ends before the downbeat
 
 
 # --- splice ---

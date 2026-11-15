@@ -116,6 +116,7 @@ Count-In inserts a drum count-in before a song's first downbeat and can turn gui
 - Test the timing path with `countin-verify` after touching `render.py`, `io.py` or `analyze.py`.
 - After touching `stems.py` or the RoFormer code, run the slow test (`uv run pytest`).
 - New output format: add it to `io.FORMATS` and `io._codec_args`, then extend `test_lossless_roundtrip_is_sample_exact`.
+- MIDI patterns (`render.pattern_grid`) take only the notes: the file's tempo is ignored, notes are read in quarter-note beats and quantized to sixteenths or eighth-note triplets, notes at one spot merge into one click, empty leading bars drop, and the pattern fills whole bars ending at the downbeat. `tests/data/count-in-played-96bpm.mid` is a hand-played sample (96 BPM, an empty bar, up to 30 ticks off the grid) that the tests lay onto a 120 BPM song.
 - New count-in pattern: add a grid function next to `buildup_grid` in `render.py`, a segment in `gui.py` and a choice in `cli.py`.
 
 ## Known limits

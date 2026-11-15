@@ -58,17 +58,27 @@ def buildup_grid(first_downbeat: float, period: float, bars: int, meter: str) ->
                   BUILDUP_GAIN if i >= len(pos) - 3 else 1.0) for i, q in enumerate(pos)]
 
 
+def _quantize(beat: float) -> float:
+    """A played note on the nearest sixteenth or eighth-note triplet, whichever is closer."""
+    return min((round(beat * d) / d for d in (4, 3)), key=lambda q: abs(q - beat))
+
+
 def pattern_grid(midi_path: str | Path, first_downbeat: float, period: float, meter: str) -> list[Click]:
-    """MIDI note-on positions in beats, stretched to the song tempo. The pattern fills whole bars before the downbeat."""
+    """The MIDI pattern laid on the song's grid. Only the notes count: the file's own tempo is ignored, each
+    note is read in beats (ticks / ticks per quarter) and quantized to sixteenths or eighth-note triplets, so a
+    pattern played in by hand at any tempo lands on the song's beats. Notes at the same spot become one click
+    with the loudest velocity, empty bars at the start are dropped, and the pattern fills whole bars ending at
+    the downbeat."""
     import mido
 
     mid = mido.MidiFile(str(midi_path))
     tick = 0
-    hits = []
+    hits: dict[float, float] = {}
     for msg in mido.merge_tracks(mid.tracks):
         tick += msg.time
         if msg.type == "note_on" and msg.velocity > 0:
-            hits.append((tick / mid.ticks_per_beat, msg.velocity / 127))
+            q = _quantize(tick / mid.ticks_per_beat)
+            hits[q] = max(hits.get(q, 0.0), msg.velocity / 127)
     if not hits:
         raise ValueError(f"no notes in {midi_path}")
 
@@ -76,11 +86,12 @@ def pattern_grid(midi_path: str | Path, first_downbeat: float, period: float, me
     beats, sub = METERS[meter]
     quarters_per_bar = beats * sub / (2 if sub == 3 else 1)
     sec_per_quarter = period * beats / quarters_per_bar
-    last = max(b for b, _ in hits)
-    bars = max(1, math.floor(last / quarters_per_bar) + 1)
+    lead = math.floor(min(hits) / quarters_per_bar + 1e-9) * quarters_per_bar  # empty bars before the first note
+    notes = sorted((b - lead, v) for b, v in hits.items())
+    bars = max(1, math.floor(notes[-1][0] / quarters_per_bar + 1e-9) + 1)
     start = first_downbeat - bars * quarters_per_bar * sec_per_quarter
     return [Click(start + b * sec_per_quarter, math.isclose(b % quarters_per_bar, 0, abs_tol=1e-6), v)
-            for b, v in hits]
+            for b, v in notes]
 
 
 def load_samples(sr: int, folder: Path | None = None) -> tuple[np.ndarray, np.ndarray]:
