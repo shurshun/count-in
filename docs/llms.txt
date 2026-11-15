@@ -3,7 +3,10 @@
 > Free desktop app for macOS (Apple Silicon) and Windows (x64). It finds a song's tempo and first downbeat, inserts a sample-accurate drum count-in before it and can turn guitar and vocals down to make a backing track. Everything runs offline.
 
 - Count-in: 1 or 2 bars in 4/4, 3/4 or 6/8; even, build-up or a custom MIDI pattern. The last click lands exactly one click before the downbeat.
-- Backing tracks: BS-RoFormer separates guitar and vocals in one pass; each has its own level, down to fully removed.
+- Backing tracks: BS-RoFormer separates guitar, vocals, bass, drums and piano in one pass on the GPU (Core ML on macOS, DirectML on Windows); each has its own level, down to fully removed.
+- Pauses: bars that go quiet without the removed parts get a hi-hat on every beat, as loud as the music around them, with an optional build-up into the entry.
+- Speed: 50–100% with the pitch kept; the count-in and hi-hat follow the slowed grid.
+- User guide: https://count-in.app/guide/ (Russian: https://count-in.app/ru/guide/)
 - Formats: opens mp3, FLAC, ALAC, WAV; saves MP3 320 kbps, FLAC, ALAC or WAV with tags and cover art.
 - Interface in English and Russian. Updates itself from GitHub releases.
 - There is also a command-line tool, `countin`, in the same bundle.
