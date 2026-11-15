@@ -1,10 +1,11 @@
 # Build: uv run pyinstaller packaging/countin.spec --noconfirm --distpath build/dist --workpath build/work
 # One bundle, two executables sharing its libraries: the app (Count-In) and the CLI (countin).
+import importlib.util
 import sys
 import tomllib
 from pathlib import Path
 
-from PyInstaller.utils.hooks import copy_metadata
+from PyInstaller.utils.hooks import collect_all, copy_metadata
 
 root = Path(SPECPATH).parent
 version = tomllib.loads((root / "pyproject.toml").read_text(encoding="utf-8"))["project"]["version"]
@@ -25,8 +26,15 @@ datas.append((str(root / "LICENSE"), "."))
 # Package metadata carries the version the update check compares against.
 datas += copy_metadata("countin")
 
+# OpenVINO loads its device plugins (CPU, GPU) by path at run time, so the hooks miss them.
+binaries, hidden = [], []
+if importlib.util.find_spec("openvino"):
+    d, b, h = collect_all("openvino")
+    datas, binaries, hidden = datas + d, b, h
+
 a = Analysis([str(root / "packaging" / f) for f in ("countin_app.py", "countin_cli.py")],
-             pathex=[str(root / "src")], datas=datas, excludes=["tkinter", "matplotlib", "IPython"])
+             pathex=[str(root / "src")], datas=datas, binaries=binaries, hiddenimports=hidden,
+             excludes=["tkinter", "matplotlib", "IPython"])
 pyz = PYZ(a.pure)
 
 
