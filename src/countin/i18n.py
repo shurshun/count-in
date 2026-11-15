@@ -316,6 +316,12 @@ EN = {
     "Скорость прослушивания и сохранения. Тон не меняется, отсчёт и хай-хэт встают на замедленную сетку.": "Speed for listening and saving. The pitch stays; the count-in and the hi-hat land on the slowed grid.",
     "Темп с учётом скорости": "Tempo at this speed",
     "→ {bpm} BPM": "→ {bpm} BPM",
+    "Темп на слух (Tap)": "Tempo by ear (Tap)",
+    "Кнопка Tap в карточке «Темп» открывает окно «Темп на слух», и песня начинает играть чуть раньше «1».": "The Tap button in the Tempo card opens the “Tempo by ear” window, and the song starts playing just before the “1”.",
+    "Стучите пробелом в такт, хотя бы три раза. Время ударов берётся по часам компьютера, а не по звуковому буферу, поэтому темп точный до десятых BPM.": "Tap Space along with the beat, at least three times. The taps are timed by the computer clock, not the audio buffer, so the tempo is right to a tenth of a BPM.",
+    "Остановитесь: через две доли после последнего удара песня продолжает играть с кликом в настуканном темпе и с той же фазой. Так сразу слышно, совпадает ли он с песней.": "Stop: two beats after your last tap the song goes on with a click at the tapped tempo and phase, so you hear at once whether it matches the song.",
+    "Не совпадает — просто стучите заново: пауза дольше двух секунд начинает новый отсчёт.": "If it drifts, just tap again: a gap of more than two seconds starts over.",
+    "«Применить» ставит настуканный темп в карточку «Темп», «Отмена» или закрытие окна оставляют прежний. Музыка при этом останавливается.": "Apply puts the tapped tempo into the Tempo card; Cancel or closing the window keeps the old one. Either way the music stops.",
 }
 
 
