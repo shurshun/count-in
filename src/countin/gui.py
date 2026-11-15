@@ -352,12 +352,18 @@ def analyze_job(job: Job, track: Track):
     return track, pcm, sr
 
 
-def _stems(job: Job, pcm, sr, label: str) -> dict[str, np.ndarray]:
-    from .core import stems
+def _stems(job: Job, pcm, sr, label: str, urgent: bool = False) -> dict[str, np.ndarray]:
+    """Stems from the separation process (core/worker.py), so the interface and the audio keep running. An
+    urgent request, a preview excerpt, goes ahead of the whole-song separation."""
+    from .core import worker
 
-    if not stems._load.cache_info().currsize:
-        job.report(_("{name}: загрузка модели", name=label))
-    return stems.separate(pcm, sr, lambda d, n: job.report(label, d, n), only=tuple(p[0] for p in PARTS))
+    job.report(label)
+    try:
+        return worker.separator().separate(pcm, sr, lambda d, n: job.report(label, d, n),
+                                           only=tuple(p[0] for p in PARTS), urgent=urgent,
+                                           cancelled=job.cancelled.is_set)
+    except worker.Cancelled:
+        raise Cancelled
 
 
 def _covers(cached, i0: int, i1: int) -> bool:
@@ -385,7 +391,7 @@ def preview_job(job: Job, track: Track, s: Settings, pcm: np.ndarray, sr: int, c
         c0, st = cached
         part = {k: v[i0 - c0 : i1 - c0] for k, v in st.items()}
     elif separate:
-        part = _stems(job, pcm[i0:i1], sr, _("Разделяю отрывок"))
+        part = _stems(job, pcm[i0:i1], sr, _("Разделяю отрывок"), urgent=True)
         new_cache = (i0, part)
 
     job.report(_("Сборка отрывка"))
@@ -435,18 +441,14 @@ def save_job(job: Job, t: Track, s: Settings, cached):
 
 
 def warm_models():
-    """Loads the separation model once in the background, so the first separation does not wait for it.
-    Both models stay loaded for the life of the app (lru_cache)."""
-    def load():
-        try:
-            from .core import accel, stems
+    """Starts the separation process and loads its models there, so the first separation does not wait for
+    them; on a Mac's first run it also builds the Core ML model. They stay loaded for the life of the app."""
+    try:
+        from .core import worker
 
-            stems._model()
-            accel.load()  # picks the GPU backend; builds the Core ML model on the first run on a Mac
-        except Exception:
-            log.exception("model warm-up failed")
-
-    threading.Thread(target=load, name="warm-models", daemon=True).start()
+        worker.separator().warm()
+    except Exception:
+        log.exception("model warm-up failed")
 
 
 def zones_job(job: Job, t: Track, s: Settings, pcm: np.ndarray, sr: int, cached):
@@ -2504,10 +2506,9 @@ class Window(QMainWindow):
         self.fill = QCheckBox(_("Заполнять паузы хай-хэтом"), checked=pref_bool(FILL_KEY, True))
         self.fill.setToolTip(_("Такты, где без убранных дорожек тихо, получают хай-хэт на каждую долю. "
                                "Правый щелчок по паузе убирает её, рядом с паузой добавляет такт, края паузы тянутся мышью."))
-        self.zone_l = QLabel(objectName="field")
         h = QHBoxLayout()
         h.setSpacing(8)
-        for w in (self.fill, self.zone_l):
+        for w in (self.fill,):
             h.addWidget(w)
         h.addStretch()
         g.addLayout(h, g.rowCount(), 0, 1, 2)
@@ -2955,7 +2956,6 @@ class Window(QMainWindow):
         self.wave.threshold_db = float(self.threshold.value())
         if self.wave.ref_db is None and self.pcm is not None:
             self.wave.ref_db = zn.level_db(self.pcm)
-        self.zone_l.setText("" if t.zones is None or not self.fill.isChecked() else _("пауз: {n}", n=len(t.zones)))
         if self.wave.current_zone is not None and self.wave.current_zone >= len(self.wave.zones):
             self.wave.current_zone = None
         self._nav_changed()
@@ -3060,7 +3060,7 @@ class Window(QMainWindow):
         self.wave.bars, self.wave.zones, self.wave.ref_db = [], [], None
         self.wave._cache = (None, None)
         self.wave.update()
-        for label in (self.subtitle, self.detector, self.warning, self.file_l, self.status, self.zone_l):
+        for label in (self.subtitle, self.detector, self.warning, self.file_l, self.status):
             label.setText("")
         self.reveal_b.hide()
 
@@ -3314,10 +3314,11 @@ class Window(QMainWindow):
             return
         self.stem_cache = full
         self._update_backing()
-        from .core import stems
+        from .core import worker
 
-        if stems.last:
-            sec, name = stems.last
+        if worker.separator().last:
+            sec, name = worker.separator().last
+            log.info("parts ready in %.1f s with %s", sec, name)
             self.status.setText(_("Дорожки готовы за {m}:{s:02d} · {how}", m=int(sec // 60), s=int(sec % 60), how=name))
         todo, self.after_sep = self.after_sep, []
         for fn in todo:
@@ -3467,8 +3468,6 @@ class Window(QMainWindow):
         """Rebuilds the playing preview after an edit and carries on from the same song position."""
         if self.play_start is None or self.job:
             return
-        if self.sep_job and self._full_stems() is None and (separate or self.settings().levels):
-            return  # _separated restarts it with the stems
         self.resume_at = self.play_start + self.player.position()
         self._stop()
         s = self.settings()
@@ -3498,9 +3497,9 @@ class Window(QMainWindow):
                   on_done=self._preview_ready)
 
     def _separate_now(self, s) -> bool:
-        """Whether a preview separates its own excerpt. Not while the whole song separates in the background:
-        the preview plays the original at once and switches to the parts when they arrive (_separated)."""
-        return bool(s.levels) and not (self.sep_job and self._full_stems() is None)
+        """Whether a preview separates its own excerpt: whenever a part is turned down. During the whole-song
+        separation the excerpt goes ahead of it in the separation process, so playback starts in seconds."""
+        return bool(s.levels)
 
     def _reveal(self):
         if self.last_saved:
