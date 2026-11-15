@@ -248,6 +248,20 @@ def find_zones(t: Track, pcm: np.ndarray, sr: int, st: dict[str, np.ndarray] | N
     return zn.zones_from(zn.quiet_bars(backing, sr, t.bars, zn.level_db(pcm), s.threshold))
 
 
+def mix_job(job: "Job", seq: int, pcm: np.ndarray, sr: int, st, levels: dict, search):
+    """The backing (the song minus the turned-down stems), its waveform peaks and, when search holds
+    (bars, threshold), the pauses in it. Runs off the UI thread: on a six-minute song this is about 0.4 s."""
+    from .core import stems
+
+    backing = stems.attenuate(pcm, st, levels) if st and levels else pcm
+    env = peaks_per_ms(backing, sr)
+    found = None
+    if search is not None:
+        bars, threshold = search
+        found = zn.zones_from(zn.quiet_bars(backing, sr, bars, zn.level_db(pcm), threshold))
+    return seq, backing, env, found
+
+
 def fmt_short(t: float) -> str:
     return f"{int(t // 60)}:{t % 60:04.1f}"
 
@@ -338,19 +352,21 @@ class Job(QRunnable):
 
 
 def analyze_job(job: Job, track: Track):
-    """Returns (track, pcm, sr); the UI keeps the PCM, so the file is decoded once and never on the UI thread."""
+    """Returns (track, pcm, sr, waveform peaks); the UI keeps the PCM, so the file is decoded once and never on
+    the UI thread, and the waveform peaks get made here too."""
     job.report(_("Анализ: {name}", name=track.path.name))
-    pcm, sr = None, 0
+    pcm, sr, env = None, 0, None
     try:
         pcm, info = io.decode(track.path)
         sr = info.sr
         track.duration = len(pcm) / sr
         track.analysis = an.analyze(pcm, sr)
         track.bars = zn.bars_from(track.analysis.beats, track.analysis.downbeats, track.duration)
+        env = peaks_per_ms(pcm, sr)
     except Exception as e:
         log.exception("analysis of %s failed", track.path)
         track.error = str(e)
-    return track, pcm, sr
+    return track, pcm, sr, env
 
 
 def _stems(job: Job, pcm, sr, label: str, urgent: bool = False) -> dict[str, np.ndarray]:
@@ -967,11 +983,15 @@ class Wave(QWidget):
         return self.palette().text().color()
 
     def set_audio(self, pcm: np.ndarray, sr: int):
-        env = peaks_per_ms(pcm, sr)
-        self.peak = max(float(env.max()), 1e-9)
+        self.set_env(peaks_per_ms(pcm, sr), len(pcm) / sr)
+
+    def set_env(self, env: np.ndarray, duration: float):
+        """The waveform from peaks made off the UI thread (peaks_per_ms)."""
+        self.peak = max(float(env.max()), 1e-9) if len(env) else 1e-9
         self.env = env / self.peak
-        self.duration = len(pcm) / sr
+        self.duration = duration
         self._cache = (None, None)
+        self.update()
 
     def show_range(self, a: float, b: float):
         """Shows song time a..b, kept within the song: 5 s before it, or as far as the count-in reaches, and 5 s
@@ -1964,16 +1984,48 @@ class PrefsDialog(QDialog):
         self.to_dir.toggled.connect(self._mode)
         self.group.toggled.connect(lambda on: self._save(OUT_GROUP, on))
 
+        # Stems of songs already separated; the size gets counted off the UI thread
+        cache, g3 = card(_("Кэш дорожек"))
+        self.cache_l = QLabel(_("считаю…"), objectName="field")
+        self.cache_b = QPushButton(_("Очистить"), objectName="tool", clicked=self._clear_cache, enabled=False)
+        row(g3, _("Занимает"), self.cache_l, self.cache_b)
+        g3.addWidget(QLabel(_("Песню, которую уже разделяли, программа открывает без нового разделения."),
+                            objectName="field", wordWrap=True), g3.rowCount(), 0, 1, 2)
+        self.pool = QThreadPool()
+        self._count_cache()
+
         close = QPushButton(_("Готово"), objectName="primary", clicked=self.accept)
         v = QVBoxLayout(self)
         v.addWidget(out)
         v.addWidget(look)
+        v.addWidget(cache)
         v.addWidget(close, 0, Qt.AlignRight)
         self._update()
 
     def _save(self, key, value):
         QSettings().setValue(key, value)
         self._update()
+
+    def _count_cache(self):
+        from .core import stemcache
+
+        self.cache_job = Job(lambda _job: stemcache.size())
+        self.cache_job.signals.done.connect(self._cache_counted)
+        self.pool.start(self.cache_job)
+
+    def _cache_counted(self, result):
+        size, songs = result
+        self.cache_l.setText(_("{mb:.0f} МБ · песен: {n}", mb=size / 1e6, n=songs) if songs else _("пусто"))
+        self.cache_b.setEnabled(songs > 0)
+
+    def _clear_cache(self):
+        from .core import stemcache
+
+        self.cache_b.setEnabled(False)
+        self.cache_l.setText(_("очищаю…"))
+        self.cache_job = Job(lambda _job: (stemcache.clear(), stemcache.size())[1])
+        self.cache_job.signals.done.connect(self._cache_counted)
+        self.pool.start(self.cache_job)
 
     def _pick(self):
         d = QFileDialog.getExistingDirectory(self, _("Папка для сохранения"), self.dir or str(Path.home()))
@@ -2039,13 +2091,16 @@ class Window(QMainWindow):
         self.sep_job: Job | None = None  # whole-song separation started when a track opens
         self.sep_pool = QThreadPool()
         self.sep_pool.setMaxThreadCount(1)
+        self.mix_pool = QThreadPool()  # backing, waveform peaks and pause search (mix_job)
+        self.mix_pool.setMaxThreadCount(1)
+        self.mix_seq, self.mix_wanted = 0, (None, None, None)
         self.after_sep: list = []  # actions that need the whole-song stems, run when they arrive
         self.player = Player()
         self.play_start = None
         self.resume_at = None  # song time a rebuilt preview carries on from
         self.zones_pending = False  # a pause search waits for the running job
         self.models_warm = False  # the separation model starts loading with the first track
-        self.backing_key, self.backing, self.wave_source = None, None, None  # see _backing
+        self.backing_key, self.backing, self.wave_source = None, None, None  # see _update_backing
         self.play_timer = QTimer(self, interval=30, timeout=self._tick)
         self.last_saved: Path | None = None
         self.release = None
@@ -2817,7 +2872,7 @@ class Window(QMainWindow):
         self.file_l.setText(f"{io.describe(i)} · {fmt_time(i.duration)[:-4]}")
 
     def _analyzed(self, result):
-        t, pcm, sr = result
+        t, pcm, sr, env = result
         if t is not self.current:
             return
         self.hide_busy()
@@ -2831,7 +2886,7 @@ class Window(QMainWindow):
         t.t0 = t.analysis.first_downbeat
         self.pcm, self.sr = pcm, sr
         a = t.analysis
-        self.wave.set_audio(self.pcm, self.sr)
+        self.wave.set_env(env, len(pcm) / sr)
         self.wave.beats, self.wave.downs, self.wave.bars = list(a.beats), list(a.downbeats), t.bars
         self.detector.setText(_("Детектор: {bpm:.2f} BPM · «1» на {t} · уверенность {conf:.0%}",
                                 bpm=a.bpm, t=fmt_time(a.first_downbeat), conf=a.confidence))
@@ -3395,28 +3450,36 @@ class Window(QMainWindow):
     def _full_stems(self):
         return self.stem_cache[1] if self.pcm is not None and _covers(self.stem_cache, 0, len(self.pcm)) else None
 
-    def _backing(self, levels: dict) -> np.ndarray:
-        """The song minus the turned-down stems, kept while the levels stay: a threshold change needs no new
-        mix, and the waveform and the pause search share one."""
-        st = self._full_stems()
-        if not (st and levels):
-            return self.pcm
-        key = (id(st), tuple(sorted(levels.items())))
-        if self.backing_key != key:
-            from .core import stems
-
-            self.backing_key, self.backing = key, stems.attenuate(self.pcm, st, levels)
-        return self.backing
-
     def _update_backing(self):
-        """The waveform shows what will be heard: the song minus the turned-down stems, once they exist."""
-        if self.pcm is None:
+        """The waveform shows what will be heard: the song minus the turned-down stems, once they exist. With
+        the fill on, the pauses get searched in the same mix. All of it runs in mix_job off the UI thread; a
+        newer request makes an older result stale."""
+        t, s = self.current, self.settings()
+        if self.pcm is None or t is None:
             return
-        backing = self._backing(self.settings().levels)
-        if backing is not self.wave_source:
-            self.wave_source = backing
-            self.wave.set_audio(backing, self.sr)
-        self.wave.update()
+        st = self._full_stems()
+        levels = dict(s.levels) if st is not None else {}
+        search = None
+        if t.analysis and s.fill and t.zones_key != zones_key(s) and (st is not None or not s.levels):
+            search = (t.bars, s.threshold)
+        if (id(st) if levels else None, tuple(sorted(levels.items()))) == self.backing_key and search is None:
+            self.wave.update()
+            return
+        self.mix_seq += 1
+        self.mix_wanted = (t, (id(st) if levels else None, tuple(sorted(levels.items()))), zones_key(s))
+        j = Job(mix_job, self.mix_seq, self.pcm, self.sr, st, levels, search)
+        j.signals.done.connect(self._mixed)
+        self.mix_pool.start(j)
+
+    def _mixed(self, result):
+        seq, backing, env, found = result
+        if seq != self.mix_seq or self.mix_wanted[0] is not self.current:
+            return  # the levels moved again or the track changed
+        t, key, zkey = self.mix_wanted
+        self.backing_key, self.backing = key, backing
+        self.wave.set_env(env, len(backing) / self.sr)
+        if found is not None:
+            self._set_found(t, found, zkey)
 
     def _auto_zones(self):
         """With the fill on, pauses follow the levels and the threshold; nothing to press."""
@@ -3430,7 +3493,7 @@ class Window(QMainWindow):
         if st is None and s.levels and self.sep_job:
             return  # _separated searches again
         if st is not None or not s.levels:
-            self._set_found(t, find_zones(t, self.pcm, self.sr, st, s, self._backing(s.levels)), zones_key(s))
+            self._update_backing()  # the search runs with the mix, off the UI thread
             return
         self._run(zones_job, t, s, self.pcm, self.sr, self.stem_cache, on_done=self._zones_found)
 

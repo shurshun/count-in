@@ -298,6 +298,14 @@ EN = {
     "волна и паузы обновятся после разделения": "waveform and pauses update after the separation",
     "Волна и паузы без убранных инструментов появятся, когда закончится разделение": "The waveform and pauses without the parts you turned down appear once the separation finishes",
     "Дорожки взяты из кэша: эту песню уже разделяли": "Parts taken from the cache: this song was separated before",
+    "Кэш дорожек": "Parts cache",
+    "считаю…": "counting…",
+    "Очистить": "Clear",
+    "Занимает": "Size",
+    "Песню, которую уже разделяли, программа открывает без нового разделения.": "A song separated before opens without a new separation.",
+    "{mb:.0f} МБ · песен: {n}": "{mb:.0f} MB · songs: {n}",
+    "пусто": "empty",
+    "очищаю…": "clearing…",
 }
 
 

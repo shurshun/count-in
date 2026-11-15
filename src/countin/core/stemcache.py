@@ -78,3 +78,16 @@ def prune(limit: int = LIMIT) -> None:
             break
         shutil.rmtree(e, ignore_errors=True)
         total -= size
+
+
+def size() -> tuple[int, int]:
+    """(bytes, songs) the cache holds."""
+    root = folder()
+    if not root.is_dir():
+        return 0, 0
+    songs = [e for e in root.iterdir() if e.is_dir()]
+    return sum(f.stat().st_size for e in songs for f in e.iterdir()), len(songs)
+
+
+def clear() -> None:
+    shutil.rmtree(folder(), ignore_errors=True)
