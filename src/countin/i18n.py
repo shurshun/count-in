@@ -288,6 +288,11 @@ EN = {
     'Модели': 'Models',
     'Для анализа и разделения нужны модели, около 780 МБ. Программа скачивает их один раз при первом запуске.': 'Analysis and separation need models, about 780 MB. The app downloads them once on first launch.',
     'Папка assets рядом с программой тоже подходит, так модели можно носить на флешке вместе с ней.': 'An assets folder next to the app works too, so the models can travel with it on a flash drive.',
+    "Заполнение пауз": "Pause fill",
+    "＋ Добавить": "＋ Add",
+    "{i} из {n}": "{i} of {n}",
+    "всего {n}": "{n} in all",
+    "нет": "none",
 }
 
 

@@ -136,6 +136,9 @@ QPushButton#tplay:disabled { background: rgba(127,127,127,0.35); }
 QFrame#lcd { background: rgba(127,127,127,0.11); border-radius: 9px; }
 #lcdTime { font-size: 19px; font-weight: 600; }
 #lcdSub { font-size: 12px; color: @FIELD@; }
+QFrame#vsep { background: @BORDER@; }
+#groupTitle { font-size: 13px; font-weight: 600; color: @FIELD@; }
+#chipText { font-size: 14px; font-weight: 600; }
 QFrame#hline { background: @BORDER@; max-height: 1px; min-height: 1px; }
 QPushButton#round { border: 1px solid @BORDER@; border-radius: 16px; background: rgba(127,127,127,0.10); padding: 0;
                     min-width: 32px; max-width: 32px; min-height: 32px; max-height: 32px; }
@@ -2240,22 +2243,42 @@ class Window(QMainWindow):
         lh.addWidget(self.lcd_time)
         lh.addWidget(self.lcd_bar)
         h.addWidget(lcd)
+
+        # Pause fill: title, the count in a chip like the clock, and buttons like the tempo card's
+        def vsep() -> QFrame:
+            line = QFrame(objectName="vsep", fixedWidth=1, fixedHeight=24)  # short of the bar's edges
+            return line
+
         h.addSpacing(10)
-        self.pause_l = QLabel(objectName="field")
-        h.addWidget(self.pause_l)
-        add_b = QPushButton(_("＋ Пауза"), objectName="tbtn", clicked=self._add_pause,
+        h.addWidget(vsep())
+        h.addSpacing(10)
+        h.addWidget(QLabel(_("Заполнение пауз"), objectName="groupTitle"))
+        chip = QFrame(objectName="lcd")
+        ch = QHBoxLayout(chip)
+        ch.setContentsMargins(10, 3, 10, 3)
+        self.pause_l = QLabel(objectName="chipText", alignment=Qt.AlignCenter, minimumWidth=56)
+        ch.addWidget(self.pause_l)
+        h.addWidget(chip)
+        add_b = QPushButton(_("＋ Добавить"), objectName="tapPad", clicked=self._add_pause,
                             toolTip=_("Сделать паузой такт под указателем. Несколько тактов: тяните с ⇧ или по шкале времени."))
-        del_b = QPushButton(_("Убрать"), objectName="tbtn", clicked=self._remove_pause, toolTip=_("Убрать текущую паузу"))
+        del_b = QPushButton(_("Убрать"), objectName="tapPad", clicked=self._remove_pause, toolTip=_("Убрать текущую паузу"))
         help_b = QPushButton("?", objectName="tbtn", clicked=self._help, toolTip=_("Справка Count-In"))
         for b in (add_b, del_b, help_b):
             b.setFocusPolicy(Qt.NoFocus)
+        h.addSpacing(4)
         h.addWidget(add_b)
         h.addWidget(del_b)
         h.addStretch()
+        h.addWidget(vsep())
+        h.addSpacing(6)
         for b in (glyph_button("minus", _("Отдалить"), lambda: self._zoom(2.0)),
                   glyph_button("plus", _("Приблизить"), lambda: self._zoom(0.5)),
-                  glyph_button("fit", _("Весь трек"), self._zoom_fit), help_b):
+                  glyph_button("fit", _("Весь трек"), self._zoom_fit)):
             h.addWidget(b)
+        h.addSpacing(6)
+        h.addWidget(vsep())
+        h.addSpacing(6)
+        h.addWidget(help_b)
         return bar
 
     def _nav_changed(self):
@@ -2271,8 +2294,8 @@ class Window(QMainWindow):
         if icon != self.play_b.property("icon"):  # this runs on every playback tick
             self.play_b.setProperty("icon", icon)
             self.play_b.setIcon(glyph(icon, QColor(255, 255, 255)))
-        self.pause_l.setText(_("Пауза {i} из {n}", i=w.current_zone + 1, n=len(w.zones)) if w.current_zone is not None
-                             else _("пауз: {n}", n=len(w.zones)))
+        self.pause_l.setText(_("{i} из {n}", i=w.current_zone + 1, n=len(w.zones)) if w.current_zone is not None
+                             else _("нет") if not w.zones else _("всего {n}", n=len(w.zones)))
         w.overview.update()
 
     def _jump_pause(self, d: int):
