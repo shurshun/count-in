@@ -1571,21 +1571,6 @@ class Window(QMainWindow):
         self.wave.overlay.setParent(self.wave)
         self.wave.overlay.hide()
 
-        # Pause threshold beside the waveform; the wave draws it as a line, so the level is visible
-        self.threshold = QSlider(Qt.Vertical, minimum=-36, maximum=-6)
-        self.threshold.setValue(int(QSettings().value(THRESHOLD_KEY, zn.QUIET_DB)))
-        self.threshold.setToolTip(_("Насколько тише среднего уровня песни должен быть такт, чтобы считаться паузой"))
-        self.threshold_l = QLabel(alignment=Qt.AlignCenter)
-        self.threshold_box = QWidget()
-        sp = self.threshold_box.sizePolicy()
-        sp.setRetainSizeWhenHidden(True)  # turning the fill off must not widen the waveform
-        self.threshold_box.setSizePolicy(sp)
-        tv = QVBoxLayout(self.threshold_box)
-        tv.setContentsMargins(0, 0, 0, Wave.RULER)
-        tv.setSpacing(4)
-        tv.addWidget(QLabel(_("Порог"), objectName="field", alignment=Qt.AlignCenter))
-        tv.addWidget(self.threshold, 1, Qt.AlignHCenter)
-        tv.addWidget(self.threshold_l)
         hint = QLabel(_("Тяните оранжевый маркер «1» на первую сильную долю. Колесо — масштаб, перетаскивание — сдвиг, "
                         "⌥ — без прилипания к долям. Двойной щелчок — играть отсюда. Пауза: выделите такты с ⇧ или по шкале времени, "
                         "правый щелчок по паузе убирает её."),
@@ -1645,6 +1630,14 @@ class Window(QMainWindow):
             h.addWidget(w)
         h.addStretch()
         g.addLayout(h, g.rowCount(), 0, 1, 2)
+
+        # How quiet a bar must be to count as a pause; the waveform shows the level as a dashed line
+        self.threshold = QSlider(Qt.Horizontal, minimum=-36, maximum=-6, minimumWidth=110)
+        self.threshold.setValue(int(QSettings().value(THRESHOLD_KEY, zn.QUIET_DB)))
+        self.threshold.setToolTip(_("Насколько тише среднего уровня песни должен быть такт, чтобы считаться паузой. "
+                                    "На волне этот уровень показан пунктиром."))
+        self.threshold_l = QLabel(minimumWidth=80)
+        row(g, _("Порог паузы"), self.threshold, self.threshold_l)
         self.trim = QCheckBox(_("Обрезать тишину в начале"))
         g.addWidget(self.trim, g.rowCount(), 0, 1, 2, Qt.AlignLeft | Qt.AlignVCenter)
         self.fmt = QComboBox()
@@ -1686,11 +1679,7 @@ class Window(QMainWindow):
         v.setSpacing(8)
         v.addWidget(self.detector)
         v.addWidget(self.warning)
-        wr = QHBoxLayout()
-        wr.setSpacing(10)
-        wr.addWidget(self.wave, 1)
-        wr.addWidget(self.threshold_box)
-        v.addLayout(wr, 1)
+        v.addWidget(self.wave, 1)
         v.addWidget(hint)
         v.addSpacing(6)
         v.addLayout(cards)
@@ -2057,7 +2046,7 @@ class Window(QMainWindow):
         self.play_b.setEnabled(ready and (not busy or self.play_start is not None))
         self.play_a.setEnabled(self.play_b.isEnabled())
         self.save_b.setEnabled(ready and not busy)
-        self.threshold_box.setVisible(self.fill.isChecked())
+        self.threshold.setEnabled(self.fill.isChecked())
         self.save_a.setEnabled(ready and not busy)
         self.open_b.setEnabled(not busy)
         self.close_b.setEnabled(self.current is not None)
