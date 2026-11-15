@@ -201,6 +201,8 @@ class Track:
     bars: list[zn.Bar] = field(default_factory=list)  # whole-song bars from the detected downbeats
     zones: list[zn.Zone] | None = None  # pauses that get the hi-hat; None until searched
     zones_key: tuple | None = None  # (levels, threshold) the search ran with
+    covered: set = field(default_factory=set)  # bars under the pauses as last shown
+    dismissed: set = field(default_factory=set)  # bars whose pause the user removed; a search never brings them back
 
 
 @dataclass
@@ -457,6 +459,10 @@ def zones_job(job: Job, t: Track, s: Settings, pcm: np.ndarray, sr: int, cached)
 def separate_job(job: Job, t: Track, pcm: np.ndarray, sr: int):
     """Separates the whole song in the background right after it opens. Returns (track, (0, stems))."""
     return t, (0, _stems(job, pcm, sr, _("Разделение на дорожки")))
+
+
+def _bars_of(zones) -> set[int]:
+    return {i for z in zones or [] for i in range(z.first, z.last + 1)}
 
 
 def peaks_per_ms(pcm: np.ndarray, sr: int) -> np.ndarray:
@@ -3380,8 +3386,12 @@ class Window(QMainWindow):
         self._run(zones_job, t, s, self.pcm, self.sr, self.stem_cache, on_done=self._zones_found)
 
     def _set_found(self, t: Track, found: list, key: tuple):
-        """Found pauses replace the old found ones; pauses the user made or edited stay."""
-        zones = zn.merge([z for z in (t.zones or []) if z.kept], found)
+        """Found pauses only add to the ones already shown: a pause stays until the user removes it, so turning
+        the guitar back on to check the hi-hat against it keeps every pause in place. A removed one never comes
+        back from a later search."""
+        found = [z for z in found if not any(i in t.dismissed for i in range(z.first, z.last + 1))]
+        zones = zn.merge(list(t.zones or []), found)
+        t.covered = _bars_of(zones)
         changed = zones != t.zones
         t.zones, t.zones_key = zones, key
         self._refresh()
@@ -3402,6 +3412,9 @@ class Window(QMainWindow):
 
     def _zones_edited(self, zones: list):
         if self.current:
+            t, now = self.current, _bars_of(zones)
+            t.dismissed = (t.dismissed | (t.covered - now)) - now
+            t.covered = now
             self.current.zones = list(zones)
             self._refresh()
             self._restart_preview()
