@@ -295,6 +295,9 @@ EN = {
     "Вернуть «1», найденную детектором": "Back to the \"1\" the detector found",
     "Вернуть отсчёт по умолчанию": "Back to the default count-in",
     "Паузы с хай-хэтом появятся, когда закончится разделение на дорожки: их ищут без убранных инструментов": "Pauses with the hi-hat appear once the parts are separated: they are found without the parts you turned down",
+    "волна и паузы обновятся после разделения": "waveform and pauses update after the separation",
+    "Волна и паузы без убранных инструментов появятся, когда закончится разделение": "The waveform and pauses without the parts you turned down appear once the separation finishes",
+    "Дорожки взяты из кэша: эту песню уже разделяли": "Parts taken from the cache: this song was separated before",
 }
 
 

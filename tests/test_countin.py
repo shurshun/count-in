@@ -562,3 +562,20 @@ def test_pause_starts_right_after_the_last_hit_in_the_band_tempo():
     zb = zn.zone_bars(bars, z)
     assert [len(b.beats) for b in zb] == [4] * len(zb)  # the meter of the bars before the pause
     assert abs((zb[0].end - zb[0].start) - 2.0) < 0.1
+
+
+def test_stem_cache_round_trip_and_pruning(tmp_path, monkeypatch):
+    from countin.core import stemcache
+
+    monkeypatch.setattr(stemcache, "folder", lambda: tmp_path / "cache")
+    song = tmp_path / "song.wav"
+    song.write_bytes(b"not really audio, only hashed")
+    k = stemcache.key(song)
+    st = {"guitar": np.full((1000, 2), 0.25, np.float32), "vocals": np.zeros((1000, 2), np.float32)}
+    assert stemcache.load(k, tuple(st), 1000) is None
+    stemcache.save(k, st, 44100)
+    back = stemcache.load(k, tuple(st), 1000)
+    assert np.allclose(back["guitar"], 0.25, atol=1e-4) and back["vocals"].shape == (1000, 2)
+    assert stemcache.load(k, tuple(st), 999) is None  # another length is another song
+    stemcache.prune(limit=0)
+    assert stemcache.load(k, tuple(st), 1000) is None

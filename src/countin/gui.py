@@ -127,6 +127,7 @@ QFrame#tipCard { background: @TIP_CARD@; border: 1px solid @BORDER@; border-radi
 QScrollArea#helpArea, QScrollArea#helpArea > QWidget > QWidget { background: @WINDOW@; border: none; }
 QFrame#busyPill { background: @SEP_CARD@; border: 1px solid @BORDER@; border-radius: 19px; }
 #pillText { font-size: 14px; font-weight: 600; }
+#pillNote { font-size: 14px; font-weight: 600; color: #ff9f0a; }
 QFrame#transport { background: @CARD@; border: 1px solid @BORDER@; border-radius: 12px; }
 QPushButton#tbtn { border: none; border-radius: 8px; background: transparent; min-width: 34px; min-height: 30px; padding: 0 6px; }
 QPushButton#tbtn:hover { background: rgba(127,127,127,0.18); }
@@ -459,8 +460,30 @@ def zones_job(job: Job, t: Track, s: Settings, pcm: np.ndarray, sr: int, cached)
 
 
 def separate_job(job: Job, t: Track, pcm: np.ndarray, sr: int):
-    """Separates the whole song in the background right after it opens. Returns (track, (0, stems))."""
-    return t, (0, _stems(job, pcm, sr, _("Разделение на дорожки")))
+    """Separates the whole song in the background right after it opens, or takes the stems from the disk cache
+    when the song was separated before. Returns (track, (0, stems), from the cache)."""
+    from .core import stemcache
+
+    names = tuple(p[0] for p in PARTS)
+    job.report(_("Разделение на дорожки"))
+    try:
+        k = stemcache.key(t.path)
+        st = stemcache.load(k, names, len(pcm))
+    except Exception:
+        log.exception("stem cache unreadable")
+        k, st = None, None
+    if st is not None:
+        return t, (0, st), True
+    st = _stems(job, pcm, sr, _("Разделение на дорожки"))
+    if k is not None:
+        def keep():
+            try:
+                stemcache.save(k, st, sr)
+            except Exception:
+                log.exception("stem cache not written")
+
+        threading.Thread(target=keep, name="stem-cache", daemon=True).start()  # writing takes a few seconds
+    return t, (0, st), False
 
 
 def _bars_of(zones) -> set[int]:
@@ -716,8 +739,11 @@ class BusyPill(QFrame):
         h.setSpacing(9)
         self.ring = Ring(22)
         self.text = QLabel(objectName="pillText")
+        self.note = QLabel(objectName="pillNote")  # what waits for the separation, in orange
+        self.note.hide()
         h.addWidget(self.ring)
         h.addWidget(self.text)
+        h.addWidget(self.note)
         shadow = QGraphicsDropShadowEffect(self, blurRadius=24, color=QColor(0, 0, 0, 60))
         shadow.setOffset(0, 5)
         self.setGraphicsEffect(shadow)
@@ -2197,6 +2223,15 @@ class Window(QMainWindow):
         w.busy.set(title, why, frac, eta)
         w.pill.ring.set(frac)
         w.pill.text.setText(title + (f"  ·  {frac:.0%}  ·  {eta}" if frac is not None else ""))
+
+        # A part turned down before the parts exist: the waveform and the pauses wait for them, and the user
+        # should see that rather than think the levels did nothing
+        waiting = bool(self.sep_job and self._full_stems() is None and self.settings().levels)
+        w.pill.note.setText("·  " + _("волна и паузы обновятся после разделения"))
+        w.pill.note.setVisible(waiting)
+        if waiting:
+            w.busy.wait.setText(_("Волна и паузы без убранных инструментов появятся, когда закончится разделение"))
+        w.busy.wait.setVisible(waiting or bool(self.after_sep))
         w.busy.setVisible(not docked)
         w.pill.setVisible(docked)
         self._show_tips()
@@ -3318,7 +3353,7 @@ class Window(QMainWindow):
         self.show_busy(_("Разделяю на дорожки"), _(BUSY_WHY["separation"]), done / total, rest, self.busy_docked)
 
     def _separated(self, result):
-        t, full = result
+        t, full, cached = result
         self.sep_job = None
         self.hide_busy()
         if t is not self.current:
@@ -3327,7 +3362,9 @@ class Window(QMainWindow):
         self._update_backing()
         from .core import worker
 
-        if worker.separator().last:
+        if cached:
+            self.status.setText(_("Дорожки взяты из кэша: эту песню уже разделяли"))
+        elif worker.separator().last:
             sec, name = worker.separator().last
             log.info("parts ready in %.1f s with %s", sec, name)
             self.status.setText(_("Дорожки готовы за {m}:{s:02d} · {how}", m=int(sec // 60), s=int(sec % 60), how=name))
