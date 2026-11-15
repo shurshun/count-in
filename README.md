@@ -35,7 +35,7 @@ The builds are unsigned, so the system warns on first launch.
 1. Drop a track onto the window or open it with ⌘O. The app works on one track at a time and analyzes it in the background.
 2. Check the orange "1" marker on the waveform. If the detector got it wrong, drag the marker to the right beat. It snaps to detected beats; hold ⌥/Alt to place it freely. The mouse wheel zooms, dragging the waveform pans.
 3. Pick the pattern, length and meter. Blue marks on the waveform show where the clicks will sound.
-4. For a backing track, lower the "Гитара" (guitar) and "Вокал" (vocals) sliders.
+4. For a backing track, lower the "Гитара" (guitar) and "Вокал" (vocals) sliders. The speaker button beside each slider removes the part in one click and brings the level back on the next.
 5. Press "Прослушать" (preview) or Space to hear the count-in and 10 seconds of the song. The guitar and vocal sliders change the sound while it plays.
 6. Press "Сохранить" (save) or ⌘S. By default the file goes next to the original, and Finder or Explorer opens with it selected; turn that off in Settings.
 
@@ -166,7 +166,7 @@ Count-In находит темп и первую сильную долю пес�
 1. Перетащите трек в окно или откройте его через ⌘O. Приложение работает с одним треком и анализирует его в фоне.
 2. Проверьте оранжевый маркер «1» на волне. Если детектор ошибся, перетащите маркер на нужную долю: он прилипает к найденным долям, с ⌥/Alt ставится свободно. Колесо мыши меняет масштаб, перетаскивание волны сдвигает её.
 3. Выберите рисунок, длину и размер отсчёта. Синие отметки на волне показывают, где прозвучат клики.
-4. Для бэктрека опустите ползунки «Гитара» и «Вокал».
+4. Для бэктрека опустите ползунки «Гитара» и «Вокал». Кнопка с динамиком рядом с ползунком убирает партию одним нажатием, а следующее нажатие возвращает уровень.
 5. Нажмите «Прослушать» или пробел: прозвучит отсчёт и 10 секунд песни. Во время прослушивания ползунки гитары и вокала меняют звук сразу.
 6. Нажмите «Сохранить» или ⌘S. По умолчанию файл ложится рядом с исходником, а Finder или Проводник открывается с ним; это отключается в настройках.
 
