@@ -41,7 +41,18 @@ def bars_from(beats: np.ndarray, downbeats: np.ndarray, duration: float) -> list
         if not inside or abs(inside[0] - a) > 0.05:
             inside = [float(a)] + inside
         out.append(Bar(float(a), float(b), inside))
-    return out
+
+    # A one-beat "bar" is a stray downbeat: the beat belongs to the bar before it
+    merged: list[Bar] = []
+    for bar in out:
+        if merged and len(bar.beats) < 2:
+            prev = merged[-1]
+            merged[-1] = Bar(prev.start, bar.end, prev.beats + bar.beats)
+        else:
+            merged.append(bar)
+    if len(merged) > 1 and len(merged[0].beats) < 2:
+        merged[:2] = [Bar(merged[0].start, merged[1].end, merged[0].beats + merged[1].beats)]
+    return merged
 
 
 def quiet_bars(pcm: np.ndarray, sr: int, bars: list[Bar], reference_db: float, threshold_db: float = QUIET_DB) -> set[int]:

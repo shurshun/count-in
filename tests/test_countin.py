@@ -424,6 +424,10 @@ def test_zone_count_in_takes_the_next_bar_meter_and_tempo():
     bars = zn.bars_from(np.array(beats), np.array(downs), 8.0)
     assert [len(b.beats) for b in bars] == [4, 4, 3, 4]
 
+    # a stray downbeat on the second beat of a bar folds back into that bar
+    stray = zn.bars_from(np.array(beats), np.array([0, 0.5, 2, 4, 5.8]), 8.0)
+    assert [(b.start, len(b.beats)) for b in stray[:2]] == [(0.0, 4), (2.0, 4)]
+
     clicks = zn.zone_clicks(bars, {2}, downbeat=0.0)
     times = [round(c.time, 3) for c in clicks]
     # count-in: three clicks 0.6 s apart ending one beat before bar 3, then the bar's own beats
