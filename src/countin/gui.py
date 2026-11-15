@@ -2422,7 +2422,7 @@ class Window(QMainWindow):
         self.pause_l = QLabel(objectName="chipText", alignment=Qt.AlignCenter, minimumWidth=56)
         ch.addWidget(self.pause_l)
         h.addWidget(chip)
-        h.addWidget(glyph_button("plus", _("Сделать паузой такт под указателем. Несколько тактов: тяните с ⇧ или по шкале времени."),
+        h.addWidget(glyph_button("plus", _("Сделать паузой такт под плейхедом. Несколько тактов: тяните с ⇧ или по шкале времени."),
                                  self._add_pause, "round"))
         help_b = QPushButton("?", objectName="tbtn", clicked=self._help, toolTip=_("Справка Count-In"))
         help_b.setFocusPolicy(Qt.NoFocus)
