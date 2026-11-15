@@ -202,6 +202,7 @@ EN = {
     "сжатие до {p:.0%}": "compressed to {p:.0%}",
     "Разделение на дорожки": "Separating parts",
     "Разделяю на дорожки": "Separating parts",
+    "Дорожки готовы за {m}:{s:02d} · {how}": "Parts ready in {m}:{s:02d} · {how}",
     "Готовлю модель…": "Preparing the model…",
     "Начнётся сразу, как только дорожки будут готовы": "Starts as soon as the parts are ready",
 }

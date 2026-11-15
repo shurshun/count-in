@@ -1,0 +1,73 @@
+name: windows-gpu-test
+
+# Test builds of the Windows app with GPU separation: one with OpenVINO (Intel GPUs), one with DirectML (any
+# DirectX 12 GPU). Each zip carries the models in an `assets` folder next to Count-In.exe, so nothing downloads.
+on:
+  push:
+    branches: [fill-zones]
+    paths-ignore: ["**.md", "docs/**", "promo/**"]
+
+jobs:
+  build:
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - variant: openvino
+            package: openvino
+          - variant: directml
+            package: onnxruntime-directml
+    runs-on: windows-latest
+    permissions:
+      contents: read
+    defaults:
+      run:
+        shell: bash
+    env:
+      PYTHONUTF8: "1"  # the torch exporter prints emoji; the runner console is cp1252
+    steps:
+      - uses: actions/checkout@v7
+      - uses: astral-sh/setup-uv@v10.3.3
+        with:
+          enable-cache: true
+      - name: ffmpeg
+        run: |
+          curl -fsSL -o ff.zip https://github.com/BtbN/FFmpeg-Builds/releases/download/autobuild-2026-11-13-12-43/ffmpeg-n8.1.3-35-gf1acb0a266-win64-lgpl-8.1.zip
+          echo "ea5e260eb3d669aff29e7bfc100e0ed9ea633e37f02fee358f6d164cb946e421  ff.zip" | sha256sum -c -
+          7z x -y ff.zip > /dev/null
+          mkdir -p bin
+          cp ffmpeg-*/bin/ffmpeg.exe ffmpeg-*/bin/ffprobe.exe bin/
+          cp ffmpeg-*/LICENSE.txt bin/FFMPEG-LICENSE.txt
+      - run: uv sync --locked
+      - uses: actions/cache@v6
+        with:
+          path: models
+          key: models-${{ hashFiles('packaging/fetch_models.sh') }}
+      - run: packaging/fetch_models.sh
+      - name: export the separation core to ONNX
+        run: uv run --with onnx --with onnxscript python -m countin.core.accel onnx
+      - run: uv pip install ${{ matrix.package }}
+      - run: uv run pyinstaller packaging/countin.spec --noconfirm --distpath dist --workpath build/work
+
+      # The runner has no GPU: OpenVINO runs on its CPU, DirectML would crawl on the software adapter, so the
+      # DirectML build is checked with torch.
+      - name: smoke test
+        env:
+          COUNTIN_ASSETS: ${{ github.workspace }}/models
+          COUNTIN_ACCEL: ${{ matrix.variant == 'directml' && 'torch' || '' }}
+        run: |
+          uv run python -c "import numpy as np, soundfile as sf; sr=44100; x=np.zeros((20*sr,2),np.float32); [x.__setitem__(slice(int(t*sr),int(t*sr)+400), 0.8) for t in np.arange(1,20,0.5)]; sf.write('smoke.wav', x, sr)"
+          dist/Count-In/countin smoke.wav --guitar-db=-12 --format mp3 --out smoke_out.mp3
+          test -s smoke_out.mp3
+
+      - name: pack with the models
+        run: |
+          mkdir -p dist/Count-In/assets/separator
+          cp models/final0.ckpt dist/Count-In/assets/
+          cp models/separator/BS-Roformer-SW.ckpt models/separator/BS-Roformer-SW.yaml models/separator/BS-Roformer-SW-core.onnx dist/Count-In/assets/separator/
+          (cd dist && 7z a -tzip -mx=1 "../Count-In-windows-${{ matrix.variant }}.zip" Count-In > /dev/null)
+
+      - uses: actions/upload-artifact@v7
+        with:
+          path: Count-In-windows-${{ matrix.variant }}.zip
+          archive: false

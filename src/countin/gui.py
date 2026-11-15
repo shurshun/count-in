@@ -396,10 +396,10 @@ def warm_models():
     Both models stay loaded for the life of the app (lru_cache)."""
     def load():
         try:
-            from .core import coreml, stems
+            from .core import accel, stems
 
             stems._model()
-            coreml.load()  # builds the Core ML model on the first run on a Mac
+            accel.load()  # picks the GPU backend; builds the Core ML model on the first run on a Mac
         except Exception:
             log.exception("model warm-up failed")
 
@@ -2484,9 +2484,12 @@ class Window(QMainWindow):
             return
         self.stem_cache = full
         self._update_backing()
+        from .core import stems
+
+        if stems.last:
+            sec, name = stems.last
+            self.status.setText(_("Дорожки готовы за {m}:{s:02d} · {how}", m=int(sec // 60), s=int(sec % 60), how=name))
         todo, self.after_sep = self.after_sep, []
-        if todo:
-            self.status.setText("")
         for fn in todo:
             fn()
         self._auto_zones()

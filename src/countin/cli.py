@@ -131,6 +131,7 @@ def main(argv: list[str] | None = None) -> int:
 
         print("separating stems...")
         pcm = stems.attenuate(pcm, stems.separate(pcm, info.sr, only=tuple(levels)), levels)
+        print(f"separated in {stems.last[0]:.1f} s with {stems.last[1]}")
     r = rd.render(pcm, info.sr, clicks, t0, args.pre_roll, args.volume)
     if r.clipped:
         print(f"warning: {r.clipped} samples clipped, lower --volume", file=sys.stderr)
