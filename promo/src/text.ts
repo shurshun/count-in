@@ -11,7 +11,7 @@ export const COPY: Record<Lang, {
 }> = {
   en: {
     shot: "screenshots/main-light-en.png",
-    size: [2360, 1600],
+    size: [2360, 1840],
     syllables: ["Ev", "ery ", "song ", "de", "serves ", "a ", "Count-", "In"],
     tagline: "Free for macOS and Windows · works offline",
     first: { text: "A count-in for every song", accent: "every song" },
@@ -31,7 +31,7 @@ export const COPY: Record<Lang, {
   },
   ru: {
     shot: "screenshots/main-light.png",
-    size: [2402, 1600],
+    size: [2462, 1840],
     syllables: ["У ", "каж", "дой ", "пес", "ни ", "свой ", "от", "счёт"],
     tagline: "Бесплатно для macOS и Windows · работает без интернета",
     first: { text: "Отсчёт перед любой песней", accent: "любой песней" },
