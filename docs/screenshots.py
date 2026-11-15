@@ -67,9 +67,6 @@ def run(song: Path, scheme: str, lang: str, tmp: Path) -> None:
     app.setOrganizationName("Count-In")
     app.setApplicationName("Count-In")
     app.styleHints().setColorScheme(Qt.ColorScheme.Light if scheme == "light" else Qt.ColorScheme.Dark)
-    f = app.font()
-    f.setPointSizeF(f.pointSizeF() + 1.5)
-    app.setFont(f)
     app.setStyleSheet(gui.style_sheet(app))
     gui.apply_icon(app)
 

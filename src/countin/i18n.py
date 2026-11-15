@@ -57,7 +57,7 @@ EN = {
     "Гитара": "Guitar",
     "Вокал": "Vocals",
     "Обрезать тишину в начале": "Trim leading silence",
-    "Формат": "Format",
+    "Выходной формат": "Output format",
     "Как у исходника": "Same as source",
     "{v:+d} дБ": "{v:+d} dB",
     "{v} дБ": "{v} dB",

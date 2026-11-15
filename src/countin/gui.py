@@ -944,11 +944,11 @@ class Window(QMainWindow):
         self.vocals_l = QLabel(minimumWidth=90)
         row(g, _("Вокал"), MuteButton(self.vocals, _("Убрать вокал")), self.vocals, self.vocals_l)
         self.trim = QCheckBox(_("Обрезать тишину в начале"))
-        g.addWidget(self.trim, g.rowCount(), 1)
+        g.addWidget(self.trim, g.rowCount(), 0, 1, 2, Qt.AlignLeft | Qt.AlignVCenter)
         self.fmt = QComboBox()
         for key, name in FORMAT_NAMES.items():
             self.fmt.addItem(_(name), key)
-        row(g, _("Формат"), self.fmt)
+        row(g, _("Выходной формат"), self.fmt)
 
         for w in (self.volume, self.guitar, self.vocals):
             w.valueChanged.connect(self._labels)

@@ -10,7 +10,7 @@ export const COPY: Record<Lang, {
 }> = {
   en: {
     shot: "screenshots/main-light-en.png",
-    size: [2434, 1600],
+    size: [2360, 1600],
     syllables: ["Ev", "ery ", "song ", "de", "serves ", "a ", "Count-", "In"],
     tagline: "Free for macOS and Windows · works offline",
     lines: [
@@ -28,7 +28,7 @@ export const COPY: Record<Lang, {
   },
   ru: {
     shot: "screenshots/main-light.png",
-    size: [2406, 1600],
+    size: [2402, 1600],
     syllables: ["У ", "каж", "дой ", "пес", "ни ", "свой ", "от", "счёт"],
     tagline: "Бесплатно для macOS и Windows · работает без интернета",
     lines: [
