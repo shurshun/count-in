@@ -35,9 +35,10 @@ jobs:
           name: tree-${{ steps.diff.outputs.tree }}
           path: tree.txt
 
-  # A tag whose files match a passed PR build reuses that build's bundles instead of building them again.
+  # A pushed tag whose files match a passed PR build reuses that build's bundles instead of building them again.
+  # A manual run on the tag always builds.
   reuse:
-    if: startsWith(github.ref, 'refs/tags/v')
+    if: github.event_name == 'push' && startsWith(github.ref, 'refs/tags/v')
     runs-on: ubuntu-latest
     permissions:
       contents: read
@@ -140,12 +141,17 @@ jobs:
 
       # The Core ML model the smoke test exports on a miss (about a minute). The key covers everything that shapes
       # the export, so a change to it exports again inside the bundle.
+      # A model compiled on another runner image may not load there.
+      - name: runner image (macOS)
+        if: runner.os == 'macOS'
+        id: image
+        run: echo "image=$ImageOS-$ImageVersion" >> "$GITHUB_OUTPUT"
       - name: Core ML cache (macOS)
         if: runner.os == 'macOS'
         uses: actions/cache@v6
         with:
           path: ~/Library/Application Support/Count-In/assets/separator/BS-Roformer-SW-core.mlmodelc
-          key: coreml-${{ hashFiles('uv.lock', 'packaging/countin.spec', 'src/countin/core/accel.py', 'src/countin/core/stems.py', 'src/countin/core/roformer/**') }}
+          key: coreml-${{ steps.image.outputs.image }}-${{ hashFiles('uv.lock', 'packaging/countin.spec', 'src/countin/core/accel.py', 'src/countin/core/stems.py', 'src/countin/core/roformer/**') }}
 
       - run: uv run pyinstaller packaging/countin.spec --noconfirm --distpath dist --workpath build/work
 
@@ -166,8 +172,12 @@ jobs:
           out=$(${{ matrix.cli }} --check-update 2>&1) || grep -q "HTTP Error" <<<"$out"
           echo "$out"
 
-          ${{ matrix.cli }} smoke.wav --guitar-db=-12 --format mp3 --out smoke_out.mp3
+          out=$(${{ matrix.cli }} smoke.wav --guitar-db=-12 --format mp3 --out smoke_out.mp3)
+          echo "$out"
           test -s smoke_out.mp3
+
+          # A cached Core ML model that fails to load falls back to torch quietly; the Mac must separate with Core ML.
+          if [ "$RUNNER_OS" = macOS ]; then grep -q "with Core ML" <<<"$out"; fi
 
       # The app itself: starts offscreen with the bundled Qt plugins, icons and PortAudio, then quits.
       - name: smoke test (app)
