@@ -1,7 +1,7 @@
-from pathlib import Path
 """Grid, splice and codec-delay checks on synthetic signals with a known tempo and downbeat."""
 
 import os
+from pathlib import Path
 import numpy as np
 import soundfile as sf
 import pytest
@@ -74,6 +74,16 @@ def test_pattern_grid_stretches_midi(tmp_path):
     g = rd.pattern_grid(f, first_downbeat=5.0, period=0.5, meter="4/4")
     assert [c.time for c in g] == pytest.approx([3.0, 3.5, 4.0, 4.5, 4.75])
     assert [c.accent for c in g] == [True, False, False, False, False]
+
+
+def test_pattern_grid_quantizes_a_played_midi_onto_the_song_grid():
+    # tests/data/count-in-played-96bpm.mid: an empty bar, then two bars played in by hand at 96 BPM, up to 30
+    # ticks off the grid, kick and hi-hat together on each "1"
+    f = Path(__file__).parent / "data" / "count-in-played-96bpm.mid"
+    g = rd.pattern_grid(f, first_downbeat=10.0, period=0.5, meter="4/4")  # the song runs at 120 BPM
+    assert [c.time for c in g] == pytest.approx([6.0, 7.0, 8.0, 8.5, 9.0, 9.25, 9.5, 9.75])
+    assert [c.accent for c in g] == [True, False, True, False, False, False, False, False]
+    assert g[-1].time < 10.0  # the pattern ends before the downbeat
 
 
 # --- splice ---
@@ -379,7 +389,10 @@ def test_every_ui_string_has_an_english_version():
 
     # Constants translated where they are shown.
     from countin import gui
-    for text in (*gui.ICON_CHOICES.values(), *gui.OUT_LEVELS.values(), gui.FORMAT_NAMES[None], i18n.LANGUAGES["system"]):
+    parts = [t for _n, label, _i, tip in gui.PARTS for t in (label, tip)]
+    for text in (*gui.ICON_CHOICES.values(), *gui.OUT_LEVELS.values(), gui.FORMAT_NAMES[None], i18n.LANGUAGES["system"],
+                 *parts, *gui.JOB_WHY.values(), *gui.BUSY_WHY.values(), *gui.PHRASES, *gui.TIPS,
+                 *(text for title, lines in gui.HELP for text in (title, *lines))):
         if text not in i18n.EN:
             missing.append(text)
     assert not missing, missing
@@ -413,3 +426,230 @@ def test_mute_button_toggles_and_restores_level():
     assert s.value() == -6 and not b.isChecked()
     s.setValue(MUTE)
     assert b.isChecked()
+
+
+def test_pause_bars_and_hi_hat_only_inside_the_song():
+    from countin.core import zones as zn
+
+    # Two 4/4 bars at 0.5 s, then a 3/4 bar at 0.6 s, then 4/4 again
+    beats = [0, 0.5, 1, 1.5, 2, 2.5, 3, 3.5, 4, 4.6, 5.2, 5.8, 6.3, 6.8, 7.3]
+    downs = [0, 2, 4, 5.8]
+    bars = zn.bars_from(np.array(beats), np.array(downs), 8.0)
+    assert [len(b.beats) for b in bars] == [4, 4, 3, 4]
+
+    # a stray downbeat on the second beat of a bar folds back into that bar
+    stray = zn.bars_from(np.array(beats), np.array([0, 0.5, 2, 4, 5.8]), 8.0)
+    assert [(b.start, len(b.beats)) for b in stray[:2]] == [(0.0, 4), (2.0, 4)]
+
+    # a pause mid-song: only the hi-hat on the bar's own beats, no stick count-in in front of it
+    clicks = zn.zone_clicks(bars, zn.zones_from({2}), downbeat=0.0)
+    assert [round(c.time, 3) for c in clicks] == [4.0, 4.6, 5.2]
+    assert [c.accent for c in clicks] == [True, False, False]
+    assert {c.voice for c in clicks} == {"hihat"}
+
+    # an override plays a steady grid: bars 1-2 (2.0-5.8 s) at 120 BPM in 3/4
+    z = zn.Zone(1, 2, bpm=120.0, beats=3)
+    times = [round(c.time, 3) for c in zn.zone_clicks(bars, [z], downbeat=0.0)]
+    assert times[:3] == [2.0, 2.5, 3.0]
+    assert zn.describe(bars, z)[2:] == (120.0, 3)
+
+
+def test_quiet_bars_and_runs():
+    from countin.core import zones as zn
+
+    sr = 1000
+    x = np.full((4000, 2), 0.3, np.float32)
+    x[1000:3000] = 0.001  # bars 1 and 2 nearly silent
+    x[3500:] = 0.001  # a quiet ending is not a pause
+    bars = [zn.Bar(float(i), float(i + 1), [float(i)]) for i in range(4)] + [zn.Bar(3.5, 4.0, [3.5])]
+    bars[3] = zn.Bar(3.0, 3.5, [3.0])
+    quiet = zn.quiet_bars(x, sr, bars, zn.level_db(x))
+    assert quiet == {1, 2}
+    assert zn.ranges(quiet | {0, 5}) == [(0, 2), (5, 5)]
+
+
+def test_pause_runs_up_to_a_pickup_and_evens_out_a_lost_beat():
+    from countin.core import zones as zn
+
+    # A guitar-only intro: the detector gives bars of 6, 5 and 4 beats, then the band enters on the last
+    # beat of bar 3 (a pickup) and plays 4/4 bars of 1.45 s from 6.37 s.
+    sr = 1000
+    x = np.full((12000, 2), 0.001, np.float32)
+    x[6250:] = 0.3
+    beats = [[0.44, 0.81, 0.99, 1.18, 1.56, 1.93], [2.06, 2.3, 2.42, 2.67, 3.05], [3.43, 3.8, 4.16, 4.54],
+             [4.91, 5.28, 5.65, 6.02], [6.37, 6.73, 7.1, 7.46], [7.82, 8.18, 8.55, 8.91], [9.27, 9.63, 10.0, 10.36]]
+    ends = [2.06, 3.43, 4.91, 6.37, 7.82, 9.27, 10.72]
+    bars = [zn.Bar(b[0], e, b) for b, e in zip(beats, ends)]
+    quiet = zn.quiet_bars(x, sr, bars, zn.level_db(x[6250:]))
+    assert quiet == {0, 1, 2, 3}  # bar 3 counts: the pickup sits on its last beat
+
+    (z,) = zn.zones_from(quiet)
+    zb = zn.zone_bars(bars, z)
+    assert [len(b.beats) for b in zb] == [4, 4, 4, 4]
+    assert zb[0].start == 0.44 and zb[-1].end == 6.37
+    _a, _b, bpm, n = zn.describe(bars, z)
+    assert n == 4 and 160 < bpm < 164
+
+
+def test_assets_search_order_and_copy(tmp_path, monkeypatch):
+    from countin.core import assets
+
+    monkeypatch.setattr(assets, "FILES", {"a.bin": (3, "", ""), "dir/b.bin": (2, "", "")})
+    portable, data = tmp_path / "usb" / "assets", tmp_path / "data"
+    monkeypatch.setattr(assets, "search_dirs", lambda: [portable, data])
+    monkeypatch.setattr(assets, "data_dir", lambda: data)
+    assert assets.missing() == ["a.bin", "dir/b.bin"]
+
+    (portable / "dir").mkdir(parents=True)
+    (portable / "a.bin").write_bytes(b"abc")
+    (portable / "dir" / "b.bin").write_bytes(b"x")  # wrong size: incomplete
+    assert assets.missing() == ["dir/b.bin"]
+    assert assets.path("a.bin") == portable / "a.bin"
+
+    (portable / "dir" / "b.bin").write_bytes(b"xy")
+    assets.copy_from(portable)
+    assert assets.has_all(data) and assets.path("dir") == portable / "dir"
+
+
+def test_pauses_keep_manual_edits_and_join_without_extra_count_in():
+    from countin.core import zones as zn
+
+    beats = np.arange(0, 16, 0.5)
+    bars = zn.bars_from(beats, beats[::4], 16.0)
+
+    # the snapped "1" sits a few ms after the detected bar start: no second count-in, no lost hi-hat
+    first = zn.zone_clicks(bars, [zn.Zone(0, 0)], downbeat=0.016)
+    assert [c.voice for c in first] == ["hihat"] * 4
+
+    # two pauses in a row run on as one hi-hat line
+    joined = zn.zone_clicks(bars, [zn.Zone(1, 1), zn.Zone(2, 2)], downbeat=0.0)
+    assert [c.voice for c in joined] == ["hihat"] * 8
+
+    # an override describes itself as set; the automatic search keeps it
+    edited = zn.Zone(3, 3, beats=6)
+    assert zn.describe(bars, edited)[2:] == (120.0, 6)
+    merged = zn.merge([edited], [zn.Zone(2, 4), zn.Zone(6, 6)])
+    assert [(z.first, z.last) for z in merged] == [(3, 3), (6, 6)]
+
+
+def test_waveform_peaks_stay_on_time_at_44_1_khz():
+    from countin.gui import peaks_per_ms
+
+    sr = 44100
+    pcm = np.zeros((sr * 170, 2), np.float32)
+    pcm[int(169.0 * sr)] = 1.0
+    assert int(np.argmax(peaks_per_ms(pcm, sr))) == 169000
+
+
+def test_pause_starts_right_after_the_last_hit_in_the_band_tempo():
+    from countin.core import zones as zn
+
+    # Four steady 4/4 bars of 2 s, the band's last hit on the "1" of bar 4, silence where the detector loses the
+    # beat (bars of 5 and 6 beats), then the band again.
+    sr = 1000
+    x = np.full((24000, 2), 0.3, np.float32)
+    x[8300:16000] = 0.001
+    starts = [0, 2, 4, 6, 8, 10, 12.2, 14, 16, 18, 20, 22]
+    bars = []
+    for i, a in enumerate(starts):
+        b = starts[i + 1] if i + 1 < len(starts) else 24.0
+        n = {6: 5, 7: 6}.get(i, 4)
+        bars.append(zn.Bar(a, b, list(a + (b - a) / n * np.arange(n))))
+    quiet = zn.quiet_bars(x, sr, bars, zn.level_db(x[:8000]))
+    assert min(quiet) == 4  # the bar with the last hit joins the pause
+
+    (z,) = zn.zones_from(quiet)
+    zb = zn.zone_bars(bars, z)
+    assert [len(b.beats) for b in zb] == [4] * len(zb)  # the meter of the bars before the pause
+    assert abs((zb[0].end - zb[0].start) - 2.0) < 0.1
+
+
+def test_stem_cache_round_trip_and_pruning(tmp_path, monkeypatch):
+    from countin.core import stemcache
+
+    monkeypatch.setattr(stemcache, "folder", lambda: tmp_path / "cache")
+    song = tmp_path / "song.wav"
+    song.write_bytes(b"not really audio, only hashed")
+    k = stemcache.key(song)
+    st = {"guitar": np.full((1000, 2), 0.25, np.float32), "vocals": np.zeros((1000, 2), np.float32)}
+    assert stemcache.load(k, tuple(st), 1000) is None
+    stemcache.save(k, st, 44100)
+    back = stemcache.load(k, tuple(st), 1000)
+    assert np.allclose(back["guitar"], 0.25, atol=1e-4) and back["vocals"].shape == (1000, 2)
+    assert stemcache.load(k, tuple(st), 999) is None  # another length is another song
+    stemcache.prune(limit=0)
+    assert stemcache.load(k, tuple(st), 1000) is None
+
+
+def test_hi_hat_follows_the_music_level_around_a_pause():
+    from countin.core import zones as zn
+
+    beats = np.arange(0, 16, 0.5)
+    bars = zn.bars_from(beats, beats[::4], 16.0)  # eight bars of 2 s
+    quiet_verse = [-12.0, -12.0, -60.0, -60.0, -12.0, -12.0, 0.0, 0.0]
+    gains = [c.gain for c in zn.zone_clicks(bars, [zn.Zone(2, 3)], 0.0, quiet_verse)]
+    assert gains == pytest.approx([10 ** (-12 / 20)] * 8)  # as soft as the verse around it
+
+    loud = [6.0] * 8
+    assert zn.zone_gain(loud, zn.Zone(2, 3)) == pytest.approx(10 ** (3 / 20))  # capped above the count-in level
+    assert {c.gain for c in zn.zone_clicks(bars, [zn.Zone(2, 3)], 0.0)} == {1.0}  # without levels: plain
+
+
+def test_auto_threshold_counts_bleed_as_quiet():
+    from countin.core import zones as zn
+
+    sr = 1000
+    rng = np.random.default_rng(0)
+    # bars of 1 s: silence, then two bars with only guitar bleed left, then the band; one quieter bass bar
+    levels = [-65] * 6 + [-28] * 2 + [-4] * 40 + [-13] + [-4] * 20
+    x = np.concatenate([rng.standard_normal(sr) * 10 ** (db / 20) for db in levels]).astype(np.float32)[:, None]
+    bars = [zn.Bar(float(i), float(i + 1), [float(i), i + 0.5]) for i in range(len(levels))]
+    ref = zn.level_db(x)
+    th = zn.auto_threshold(x, sr, bars, ref)
+    assert th is not None
+    quiet = zn.quiet_bars(x, sr, bars, ref, th)
+    assert {6, 7} <= quiet and 48 not in quiet  # the bleed bars count as quiet, the bass bar does not
+
+    flat = np.ones((10 * sr, 1), np.float32) * 0.3
+    assert zn.auto_threshold(flat, sr, bars[:10], zn.level_db(flat)) is None
+
+
+def test_pause_build_up_runs_into_the_entry_in_eighths():
+    from countin.core import zones as zn
+
+    beats = np.arange(0, 16, 0.5)
+    bars = zn.bars_from(beats, beats[::4], 16.0)  # 4/4 bars of 2 s
+    plain = zn.zone_clicks(bars, [zn.Zone(2, 3)], 0.0)
+    built = zn.zone_clicks(bars, [zn.Zone(2, 3)], 0.0, build_up=True)
+    assert [c.time for c in plain] == [4, 4.5, 5, 5.5, 6, 6.5, 7, 7.5]
+    # the last bar: quarters on 1 and 2, eighths over 3 and 4, the last three louder
+    assert [c.time for c in built][4:] == [6, 6.5, 7, 7.25, 7.5, 7.75]
+    assert [c.gain > 1 for c in built][-4:] == [False, True, True, True]
+
+
+def test_pause_search_keeps_the_lowest_level_each_part_had():
+    from countin import gui
+
+    from types import SimpleNamespace
+
+    t = gui.Track(Path("x.wav"))
+    s = SimpleNamespace(levels={"guitar": float("-inf")})
+    t.search_levels = gui.search_levels(t, s)
+    s.levels = {"guitar": -5.0}  # raised again to check the hi-hat against it
+    assert gui.search_levels(t, s) == {"guitar": float("-inf")}
+    s.levels = {}
+    assert gui.search_levels(t, s) == {"guitar": float("-inf")}
+    s.levels = {"vocals": -12.0}
+    assert gui.search_levels(t, s) == {"guitar": float("-inf"), "vocals": -12.0}
+
+
+def test_render_slows_the_song_and_keeps_clicks_on_the_slowed_grid():
+    sr = 48000
+    pcm = np.zeros((sr * 4, 2), np.float32)
+    pcm[sr * 2 : sr * 2 + 200] = 0.9  # the "1" at 2 s
+    clicks = [rd.Click(1.0, True), rd.Click(1.5, False)]
+    r = rd.render(pcm, sr, clicks, 2.0, speed=0.8)
+    assert len(r.pcm) == pytest.approx(len(pcm) / 0.8, abs=2)
+    assert [s / sr for s in r.click_samples] == pytest.approx([1.25, 1.875])
+    hit = np.argmax(np.abs(r.pcm[int(2.3 * sr) : int(2.7 * sr), 0]) > 0.3) / sr + 2.3
+    assert hit == pytest.approx(2.0 / 0.8 + r.offset, abs=0.003)  # the song's "1" moved to 2.5 s with them

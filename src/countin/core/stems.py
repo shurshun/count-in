@@ -1,17 +1,23 @@
-"""Guitar and vocal attenuation with BS-RoFormer SW, a six-stem model (bass, drums, other, vocals, guitar, piano).
+"""Part attenuation with BS-RoFormer SW, a six-stem model (bass, drums, other, vocals, guitar, piano).
 
 One pass gives a guitar stem that keeps screamed vocals out better than Demucs htdemucs_6s did.
 """
 
+import logging
+import threading
+import time
 from functools import lru_cache
 
 import numpy as np
 import soxr
 
-from .io import resource
+from . import assets
 
 MODEL = "BS-Roformer-SW"
 MODEL_SR = 44100
+
+log = logging.getLogger(__name__)
+last = None  # (seconds, backend name) of the latest separation, shown to the user and kept in the log
 
 # Two overlapping windows per chunk: 4x faster than eight, the stems differ by about -35 dB.
 OVERLAP = 2
@@ -25,15 +31,24 @@ def _device():
     return "cuda" if torch.cuda.is_available() else "cpu"
 
 
-@lru_cache(maxsize=1)
+_load_lock = threading.Lock()
+
+
 def _model():
+    """The loaded model; the warm-up thread and a job may ask at once, the lock makes it load once."""
+    with _load_lock:
+        return _load()
+
+
+@lru_cache(maxsize=1)
+def _load():
     """(model, stem names, chunk length in samples)."""
     import torch
     import yaml
 
     from .roformer.bs_roformer import BSRoformer
 
-    folder = resource("models", "separator")
+    folder = assets.path("separator")
     cfg = yaml.load((folder / f"{MODEL}.yaml").read_text(encoding="utf-8"), Loader=yaml.FullLoader)
     model = BSRoformer(**cfg["model"])
     state = torch.load(folder / f"{MODEL}.ckpt", map_location="cpu", weights_only=True)
@@ -56,6 +71,8 @@ def separate(pcm: np.ndarray, sr: int, progress=None, only: tuple[str, ...] | No
     """
     import torch
 
+    global last
+    began = time.monotonic()
     if pcm.shape[1] > 2:
         raise ValueError(f"guitar attenuation supports mono and stereo, not {pcm.shape[1]} channels")
     model, names, chunk = _model()
@@ -69,25 +86,39 @@ def separate(pcm: np.ndarray, sr: int, progress=None, only: tuple[str, ...] | No
     keep = [i for i, name in enumerate(names) if only is None or name in only]
     out = torch.zeros(len(keep), 2, n)
     weight = torch.zeros(n)
-    starts = _chunk_starts(n, chunk, chunk // OVERLAP)
+    starts = _chunk_starts(n, chunk, int(chunk / OVERLAP))
 
+    from . import accel
+
+    ml = accel.load()
     device = _device()
-    model.to(device)
+
+    # Half precision on Apple GPUs: about 20% faster per chunk, stems within -67 dB of full precision.
+    dtype = torch.float16 if device == "mps" else torch.float32
+    if ml is None:
+        model.to(device, dtype)
     with torch.no_grad():
         for i, s in enumerate(starts):
             part = mix[None, :, s : s + chunk]
-            try:
-                y = model(part.to(device))[0].cpu()
-            except NotImplementedError:
-                device = "cpu"  # an op MPS lacks on this macOS
-                model.to(device)
-                y = model(part)[0]
+            if ml is not None:
+                short = chunk - part.shape[-1]  # the compiled core takes whole chunks only
+                y = accel.run(ml, model, torch.nn.functional.pad(part, (0, short)))[..., : part.shape[-1]]
+            else:
+                try:
+                    y = model(part.to(device, dtype))[0].float().cpu()
+                except NotImplementedError:
+                    device, dtype = "cpu", torch.float32  # an op MPS lacks on this macOS
+                    model.to(device, dtype)
+                    y = model(part)[0]
             w = window[: y.shape[-1]]
             out[..., s : s + y.shape[-1]] += y[keep] * w
             weight[s : s + y.shape[-1]] += w
             if progress:
                 progress(i + 1, len(starts))
     out /= weight.clamp(min=1e-10)
+    name = ml.name if ml is not None else f"torch {device}" + (" fp16" if dtype == torch.float16 else "")
+    last = (time.monotonic() - began, name)
+    log.info("separated %.1f s of audio in %.1f s with %s", n / MODEL_SR, last[0], name)
 
     stems = {}
     for name, y in zip([names[i] for i in keep], out.numpy()):

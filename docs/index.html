@@ -63,6 +63,7 @@
 <header>
 <nav>
   <a class="name" href="#"><img src="favicon.png" alt="">Count-In</a>
+  <a class="link" href="guide/"><span lang="en">Guide</span></a>
   <a class="link gh" href="https://github.com/shurshun/count-in" aria-label="GitHub"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M12 .297c-6.63 0-12 5.373-12 12 0 5.303 3.438 9.8 8.205 11.385.6.113.82-.258.82-.577 0-.285-.01-1.04-.015-2.04-3.338.724-4.042-1.61-4.042-1.61C4.422 18.07 3.633 17.7 3.633 17.7c-1.087-.744.084-.729.084-.729 1.205.084 1.838 1.236 1.838 1.236 1.07 1.835 2.809 1.305 3.495.998.108-.776.417-1.305.76-1.605-2.665-.3-5.466-1.332-5.466-5.93 0-1.31.465-2.38 1.235-3.22-.135-.303-.54-1.523.105-3.176 0 0 1.005-.322 3.3 1.23.96-.267 1.98-.399 3-.405 1.02.006 2.04.138 3 .405 2.28-1.552 3.285-1.23 3.285-1.23.645 1.653.24 2.873.12 3.176.765.84 1.23 1.91 1.23 3.22 0 4.61-2.805 5.625-5.475 5.92.42.36.81 1.096.81 2.22 0 1.606-.015 2.896-.015 3.286 0 .315.21.69.825.57C20.565 22.092 24 17.592 24 12.297c0-6.627-5.373-12-12-12"/></svg><span>GitHub</span></a>
   <button type="button" data-toggle="theme" aria-label="Switch theme"><span class="light-only">☾</span><span class="dark-only">☀</span></button>
   <a class="lang" href="ru/" hreflang="ru" data-lang="ru">RU</a>
@@ -118,12 +119,17 @@
     <div class="card">
       <div class="ico" aria-hidden="true">≋</div>
       <h3><span lang="en">Backing tracks</span></h3>
-      <p lang="en">BS-RoFormer separates guitar and vocals in one pass. Each gets its own slider, from a few dB down to fully removed.</p>
+      <p lang="en">BS-RoFormer separates guitar, vocals, bass, drums and piano in one pass, on the GPU. Each gets its own slider, from a few dB down to fully removed.</p>
       </div>
     <div class="card">
       <div class="ico" aria-hidden="true">▶</div>
-      <h3><span lang="en">Listen before saving</span></h3>
-      <p lang="en">Space plays the count-in and the first seconds of the song. The sliders change the mix while it plays.</p>
+      <h3><span lang="en">Hi-hat in the pauses</span></h3>
+      <p lang="en">Where the song goes quiet without the removed parts, a hi-hat keeps the time, as loud as the music around it and with a build-up into the entry.</p>
+      </div>
+    <div class="card">
+      <div class="ico" aria-hidden="true">◷</div>
+      <h3><span lang="en">Slow it down</span></h3>
+      <p lang="en">Practice at 80–100% speed with the pitch kept. The count-in and the hi-hat follow the slowed grid; save the slowed track too.</p>
       </div>
     <div class="card">
       <div class="ico" aria-hidden="true">♫</div>
@@ -140,7 +146,7 @@
 
 <section>
   <h2><span lang="en">How it works</span></h2>
-  <p class="sub"><span lang="en">A count-in takes seconds. Separating a 4-minute song takes about 2.5 minutes on Apple Silicon, longer on Windows.</span></p>
+  <p class="sub"><span lang="en">A count-in takes seconds. Separation starts as soon as a track opens and takes about a minute for a 3-minute song on Apple Silicon; you can listen and edit meanwhile. <a href="guide/">User guide</a>.</span></p>
   <div class="grid four">
     <div class="card step">
       <div class="ico">1</div>
@@ -152,7 +158,7 @@
       </div>
     <div class="card step">
       <div class="ico">3</div>
-      <p lang="en">Pick the pattern, length and meter. For a backing track, lower guitar and vocals.</p>
+      <p lang="en">Pick the pattern, length and meter. For a backing track, lower the parts you play yourself.</p>
       </div>
     <div class="card step">
       <div class="ico">4</div>

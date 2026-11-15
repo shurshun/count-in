@@ -10,4 +10,14 @@
     <xhtml:link rel="alternate" hreflang="en" href="https://count-in.app/"/>
     <xhtml:link rel="alternate" hreflang="ru" href="https://count-in.app/ru/"/>
   </url>
+  <url>
+    <loc>https://count-in.app/guide/</loc>
+    <xhtml:link rel="alternate" hreflang="en" href="https://count-in.app/guide/"/>
+    <xhtml:link rel="alternate" hreflang="ru" href="https://count-in.app/ru/guide/"/>
+  </url>
+  <url>
+    <loc>https://count-in.app/ru/guide/</loc>
+    <xhtml:link rel="alternate" hreflang="en" href="https://count-in.app/guide/"/>
+    <xhtml:link rel="alternate" hreflang="ru" href="https://count-in.app/ru/guide/"/>
+  </url>
 </urlset>

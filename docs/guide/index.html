@@ -1,0 +1,151 @@
+<!doctype html>
+<!-- Generated from _guide.html by build_site.py -->
+<html lang="en" data-theme="light">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Count-In guide — count-in, pauses and backing tracks</title>
+<meta name="description" content="How to use Count-In: set the first downbeat and tempo, choose a count-in, navigate the song, fill pauses with a hi-hat and turn parts down for a backing track.">
+<link rel="canonical" href="https://count-in.app/guide/">
+<link rel="alternate" hreflang="en" href="https://count-in.app/guide/">
+<link rel="alternate" hreflang="ru" href="https://count-in.app/ru/guide/">
+<link rel="icon" href="/favicon.png" type="image/png">
+<script>try { document.documentElement.dataset.theme = localStorage.getItem("theme") || "light"; } catch {}</script>
+<meta name="theme-color" content="#fbfbfd">
+<link rel="stylesheet" href="/site.css">
+<script src="/site.js" defer></script>
+<style>
+  .guide { max-width: 860px; margin: 0 auto; padding: 24px 0 40px; }
+  .guide h1 { font-size: 40px; letter-spacing: -0.02em; margin: 24px 0 8px; }
+  .guide .lead { margin: 0 0 28px; text-align: left; }
+  .guide .toc { display: flex; flex-wrap: wrap; gap: 8px; margin: 0 0 36px; padding: 0; list-style: none; }
+  .guide .toc a { display: inline-block; padding: 6px 12px; border-radius: 999px; border: 1px solid var(--border);
+                  background: var(--card); color: var(--text); text-decoration: none; font-size: 14px; }
+  .guide section { margin: 0 0 44px; scroll-margin-top: 24px; }
+  .guide h2 { font-size: 26px; letter-spacing: -0.01em; margin: 0 0 14px; text-align: left; }
+  .guide ul { margin: 0 0 18px; padding-left: 20px; }
+  .guide li { margin: 0 0 8px; line-height: 1.55; }
+  .guide figure { margin: 18px 0 0; }
+  .guide figure img { display: block; max-width: 100%; height: auto; border-radius: 12px; border: 1px solid var(--border);
+                      box-shadow: var(--shadow); background: var(--card); }
+  .guide figure.small img { max-width: 360px; }
+  .guide figcaption { color: var(--muted); font-size: 14px; margin-top: 8px; }
+</style>
+</head>
+<body>
+<div class="wrap">
+
+<nav>
+  <a class="name" href="/"><img src="/favicon.png" alt="">Count-In</a>
+  <a class="link gh" href="https://github.com/shurshun/count-in" aria-label="GitHub"><span>GitHub</span></a>
+  <button type="button" data-toggle="theme" aria-label="Switch theme"><span class="light-only">☾</span><span class="dark-only">☀</span></button>
+  <a class="lang" href="/ru/guide/" hreflang="ru" data-lang="ru">RU</a>
+</nav>
+
+<main class="guide">
+  <h1>How to use Count-In</h1>
+  <p class="lead">Open a song, check the orange “1”, pick a count-in and save. Everything else is optional; this page walks through it.</p>
+  <figure><img src="/guide/img/window-en.png" alt="Count-In window with a selected pause" width="1180" height="901"></figure>
+  <ul class="toc">
+    <li><a href="#s1">First downbeat and tempo</a></li>
+    <li><a href="#s2">Tempo by ear (Tap)</a></li>
+    <li><a href="#s3">Count-in</a></li>
+    <li><a href="#s4">Playback and navigation</a></li>
+    <li><a href="#s5">Pauses</a></li>
+    <li><a href="#s6">Backing track</a></li>
+    <li><a href="#s7">Saving</a></li>
+    <li><a href="#s8">Models</a></li>
+  </ul>
+  <section id="s1">
+    <h2>First downbeat and tempo</h2>
+    <ul>
+      <li>The orange “1” marker sits on the first downbeat. The count-in ends right before it.</li>
+      <li>If the detector got it wrong, drag the marker. It snaps to the detected beats; ⌥ turns snapping off.</li>
+      <li>The arrows next to the time move the “1” one beat earlier or later.</li>
+      <li>Set the tempo with − and +, by typing a number, or with Tap: the song plays and you tap Space.</li>
+      <li>×2 and ÷2 help when the detector counted twice as fast or slow.</li>
+      <li>The orange “The detector found another “1”” banner shows up when it is unsure. Click it to take the other candidate.</li>
+    </ul>
+    <figure class="small"><img src="/guide/img/tempo-en.png" alt="First downbeat and tempo" loading="lazy"></figure>
+  </section>
+  <section id="s2">
+    <h2>Tempo by ear (Tap)</h2>
+    <ul>
+      <li>The Tap button in the Tempo card opens the “Tempo by ear” window, and the song starts playing just before the “1”.</li>
+      <li>Tap Space along with the beat, at least three times. The taps are timed by the computer clock, not the audio buffer, so the tempo is right to a tenth of a BPM.</li>
+      <li>Stop: two beats after your last tap the song goes on with a click at the tapped tempo and phase, so you hear at once whether it matches the song.</li>
+      <li>If it drifts, just tap again: a gap of more than two seconds starts over.</li>
+      <li>Apply puts the tapped tempo into the Tempo card; Cancel or closing the window keeps the old one. Either way the music stops.</li>
+    </ul>
+  </section>
+  <section id="s3">
+    <h2>Count-in</h2>
+    <ul>
+      <li>“Even” clicks on every beat, “Build-up” starts sparse and gets denser, MIDI takes the pattern from your file.</li>
+      <li>The count-in lasts one or two bars; the meter is 4/4, 3/4 or 6/8.</li>
+      <li>The count-in volume does not depend on the song's level.</li>
+    </ul>
+    <figure class="small"><img src="/guide/img/count-en.png" alt="Count-in" loading="lazy"></figure>
+  </section>
+  <section id="s4">
+    <h2>Playback and navigation</h2>
+    <ul>
+      <li>Space starts and stops playback. Without a playhead it starts from the count-in.</li>
+      <li>A click on the waveform sets the playhead, and playback starts from it. A double-click plays at once from the bar before that point.</li>
+      <li>The ◀◀ and ▶▶ buttons and the ← and → keys jump to the previous and next pause and play from the bar before it. Home goes back to the count-in.</li>
+      <li>The mini-map under the waveform shows the whole song, the pauses and the visible part. Drag the frame to scroll; a click outside it moves the view there.</li>
+      <li>The mouse wheel zooms; dragging and sideways trackpad scrolling pan the waveform.</li>
+      <li>The playback volume in the window header never reaches the saved file.</li>
+    </ul>
+    <figure><img src="/guide/img/wave-en.png" alt="Playback and navigation" loading="lazy"></figure>
+  </section>
+  <section id="s5">
+    <h2>Pauses</h2>
+    <ul>
+      <li>A pause is a run of bars that are quiet once the removed instruments are gone. A hi-hat plays on every beat in it. The stick count-in plays only at the start of the song.</li>
+      <li>With “Fill pauses with hi-hat” on, the app finds pauses by itself in the track without the parts you turned down. “Silence threshold” gets fitted to it automatically; move it and the pauses rebuild. Turning a part back on keeps the pauses.</li>
+      <li>Pause edges drag along the bars. The current pause is brighter.</li>
+      <li>A new pause comes from the + button in “Pause fill” on the bar under the playhead, from selecting bars with ⇧ or from dragging along the time ruler.</li>
+      <li>The cross in its header, the − button in “Pause fill” or a right-click removes a pause.</li>
+      <li>A click on a pause header opens its own tempo and meter.</li>
+    </ul>
+  </section>
+  <section id="s6">
+    <h2>Backing track</h2>
+    <ul>
+      <li>The guitar, vocals, bass, drums and piano sliders turn a part down or remove it. The speaker button mutes a part in one click.</li>
+      <li>The song separates into parts in the background after it opens. Anything that needs the parts starts by itself once they are ready.</li>
+      <li>Levels can change while the song plays.</li>
+      <li>The floppy disk in the card header saves the current settings as defaults, the arrow next to it restores them.</li>
+    </ul>
+    <figure><img src="/guide/img/backing-en.png" alt="Backing track" loading="lazy"></figure>
+    <figure><img src="/guide/img/busy-en.png" alt="Backing track" loading="lazy"></figure>
+  </section>
+  <section id="s7">
+    <h2>Saving</h2>
+    <ul>
+      <li>“Save” writes the track with the count-in, the hi-hat in pauses and the chosen part levels.</li>
+      <li>By default the format matches the source. MP3 320 kbps, FLAC, ALAC and WAV are available; tags and cover art carry over.</li>
+      <li>“Trim leading silence” removes the empty space before the count-in.</li>
+      <li>The output folder and grouping by artist, year and album are set in Settings.</li>
+    </ul>
+  </section>
+  <section id="s8">
+    <h2>Models</h2>
+    <ul>
+      <li>Analysis and separation need models, about 780 MB. The app downloads them once on first launch.</li>
+      <li>An assets folder next to the app works too, so the models can travel with it on a flash drive.</li>
+    </ul>
+  </section>
+  <section id="help">
+    <h2>Help inside the app</h2>
+    <ul>
+      <li>The same text lives in the app: the “?” button in the transport bar, the Help menu, F1 or ⌘?.</li>
+    </ul>
+    <figure class="small"><img src="/guide/img/help-en.png" alt="Help inside the app" loading="lazy"></figure>
+  </section>
+</main>
+
+</div>
+</body>
+</html>

@@ -19,6 +19,30 @@ from countin.core import io
 from countin.i18n import _
 
 OUT = Path(__file__).resolve().parent / "screenshots"
+GUIDE = Path(__file__).resolve().parent / "guide" / "img"  # shots for the user guide page
+
+
+def card_of(widget):
+    """The card frame a control sits in."""
+    while widget is not None and widget.objectName() != "card":
+        widget = widget.parentWidget()
+    return widget
+
+
+def stage_pauses(w):
+    """Three pauses on the demo track (it has none at the default levels), the middle one selected."""
+    wave = w.wave
+    n = len(wave.bars)
+    wave.zones = []
+    for bar, length in ((n // 4, 4), (n // 2, 2), (3 * n // 4, 3)):
+        wave.add_zone(bar, length)
+    z = wave.zones[1]
+    a, b = wave.bars[z.first].start, wave.bars[z.last].end
+    wave.show_range(a - 8, b + 10)
+    wave.current_zone = 1
+    wave.play_t = wave.bars[max(z.first - 1, 0)].start
+    w._nav_changed()
+    w.wave.setFocus()  # no text cursor blinking in the tempo field
 
 
 def neutral_copy(src: Path, dst: Path) -> Path:
@@ -83,12 +107,16 @@ def run(song: Path, scheme: str, lang: str, tmp: Path) -> None:
 
     def tick():
         if step["n"] == 0 and w.pcm is not None:
-            w.vocals.setValue(-6)
+            w._cancel_separation()  # the shots stage the progress by hand; no need to separate the song
+            w.vocals.setValue(gui.MUTE)
             w.guitar.setValue(gui.MUTE)
-            w.status.setText(_("Сохранено: {name}", name="Demo Song_backing_guitar-off_vocals-6dB.mp3"))
+            w._set_speed(80)  # the speed control shows a slowed song, as in the promo
+            w.zone_timer.stop()  # no pause search: it would cover the shots with its progress
+            w.status.setText(_("Сохранено: {name}", name="Demo Song_backing_guitar-off_vocals-off_80pct.mp3"))
             w.reveal_b.show()
             step["n"] = 1
         elif step["n"] == 1:
+            step["n"] = 2  # processEvents below runs this timer again; the main shot must not be retaken
             shot = w.grab().toImage()
             shot.save(str(OUT / f"main-{scheme}{sfx}.png"))
             if scheme == "light":
@@ -100,13 +128,38 @@ def run(song: Path, scheme: str, lang: str, tmp: Path) -> None:
                 d.close()
                 w.reveal_b.hide()
                 w.status.setText("")
-                w.prog_panel.show()
-                w.prog_label.setText(_("{name}: разделение", name="Demo Song.mp3"))
-                w.progress.setRange(0, 1000)
-                w.progress.setValue(440)
-                w.prog_eta.setText("44% · " + _("осталось ~{m}:{s:02d}", m=1, s=24))
+
+                # Background separation folded into the capsule, with the tips card beside it
+                w.show_busy(_("Разделяю на дорожки"), _(gui.BUSY_WHY["separation"]), 0.44,
+                            _("осталось ~{m}:{s:02d}", m=1, s=24), docked=True)
+                w.tip_timer.stop()
+                w.wave.tips.set(_(gui.TIPS[5]), True)
+                w.wave._place_overlay()
                 app.processEvents()
                 w.grab().save(str(OUT / f"progress-light{sfx}.png"))
+                w.hide_busy()
+
+                # The user guide: the window with a selected pause, then the cards one by one
+                GUIDE.mkdir(parents=True, exist_ok=True)
+                stage_pauses(w)
+                app.processEvents()
+                w.grab().save(str(GUIDE / f"window{sfx}.png"))
+                w.wave.grab().save(str(GUIDE / f"wave{sfx}.png"))
+                w.show_busy(_("Разделяю на дорожки"), _(gui.BUSY_WHY["separation"]), 0.44,
+                            _("осталось ~{m}:{s:02d}", m=1, s=24), docked=True)
+                w.tip_timer.stop()
+                w.wave.tips.set(_(gui.TIPS[8]), True)
+                w.wave._place_overlay()
+                app.processEvents()
+                w.wave.grab().save(str(GUIDE / f"busy{sfx}.png"))
+                w.hide_busy()
+                for name, widget in (("tempo", w.bpm_spin), ("count", w.style_seg), ("backing", w.guitar)):
+                    card_of(widget).grab().save(str(GUIDE / f"{name}{sfx}.png"))
+                w._help()
+                app.processEvents()
+                w.help_dialog.grab().save(str(OUT / f"help-light{sfx}.png"))
+                w.help_dialog.grab().save(str(GUIDE / f"help{sfx}.png"))
+                w.help_dialog.close()
             w.close()
             app.quit()
 

@@ -2,17 +2,22 @@
 
 # Count-In
 
-[count-in.app](https://count-in.app) · [English](#count-in) · [Русский](#русский)
+[count-in.app](https://count-in.app) · [Telegram](https://t.me/count_in_app) · [English](#count-in) · [Русский](#русский)
 
 Count-In finds a song's tempo and first downbeat and puts a drum count-in in front of it. The last click lands exactly one beat before the "one". The same song can become a backing track with the guitar and vocals removed or turned down.
 
 - Count-in of 1 or 2 bars in 4/4, 3/4 or 6/8.
 - Patterns: even, build-up (twice as dense in the second half, the last hits louder) or your own from a MIDI file.
-- A neural network separates guitar and vocals in one pass; each has its own level.
+- A neural network separates the song into guitar, vocals, bass, drums and piano in one pass; each has its own level and a mute button.
+- Pauses: bars that go quiet once parts are removed get a hi-hat on every beat, as loud as the music around them, with an optional build-up into the band's entry.
+- Speed: slow the song down to 80% with the pitch kept; the count-in and the hi-hat land on the slowed grid.
+- Separation runs on the GPU: Core ML on a Mac, DirectML on Windows. A song separated once opens instantly next time.
 - Input: mp3, FLAC, ALAC, WAV. Output: MP3 320 kbps, FLAC, ALAC or WAV, with tags and cover art kept.
-- Works offline. The network is used only for updates.
+- Works offline. The network is used for the one-time model download and for updates.
 
-The interface is in English and Russian; it follows the system language, and Settings can switch it.
+News, releases and feedback: the Telegram channel [@count_in_app](https://t.me/count_in_app).
+
+The interface is in English and Russian; it follows the system language, and Settings can switch it. The [user guide](https://count-in.app/guide/) walks through every feature with screenshots; the same text is in the app under Help (F1).
 
 ## Download
 
@@ -34,12 +39,12 @@ The builds are unsigned, so the system warns on first launch.
 
 The app follows the system appearance and has a [dark theme](docs/screenshots/main-dark-en.png) too.
 
-1. Drop a track onto the window or open it with ⌘O. The app works on one track at a time and analyzes it in the background.
-2. Check the orange "1" marker on the waveform. If the detector got it wrong, drag the marker to the right beat. It snaps to detected beats; hold ⌥/Alt to place it freely. The mouse wheel zooms, dragging the waveform pans.
-3. Pick the pattern, length and meter. Blue marks on the waveform show where the clicks will sound.
-4. For a backing track, lower the "Гитара" (guitar) and "Вокал" (vocals) sliders. The speaker button beside each slider removes the part in one click and brings the level back on the next.
-5. Press "Прослушать" (preview) or Space to hear the count-in and 10 seconds of the song. The guitar and vocal sliders change the sound while it plays.
-6. Press "Сохранить" (save) or ⌘S. By default the file goes next to the original, and Finder or Explorer opens with it selected; turn that off in Settings.
+1. Drop a track onto the window or open it with ⌘O. The app analyzes it and starts separating the parts in the background right away; a card over the waveform shows the progress and tips.
+2. Check the orange "1" marker on the waveform. If the detector got it wrong, drag the marker to the right beat or use the arrows in the Tempo card; the round arrow brings back what the detector found. The wheel zooms, dragging pans, the mini-map under the waveform shows the whole song.
+3. Pick the count-in pattern, length and meter. Blue marks on the waveform show where the clicks will sound.
+4. For a backing track, lower the part sliders in the Backing track card. With "Fill pauses with hi-hat" on, quiet stretches get a hi-hat; the silence threshold fits itself to the song, and the − and + buttons in the transport bar remove or add a pause.
+5. Press Play or Space. A click on the waveform or the mini-map sets the playhead, ← and → jump between pauses, and the speed control slows the song down. Levels change while it plays.
+6. Press Save or ⌘S. By default the file goes next to the original, and Finder or Explorer opens with it selected; turn that off in Settings.
 
 In Settings (⌘,) you can pick one output folder and have files sorted into Artist / Year - Album subfolders from the source tags; each level is a checkbox.
 
@@ -55,16 +60,19 @@ When the detector is unsure, an orange hint appears above the waveform. ×2 and 
 |---|---|
 | Count-in only | `Song_countin.mp3` |
 | Backing track | `Song_backing_guitar-off_vocals-6dB.mp3` |
+| Slowed to 80% | `Song_backing_guitar-off_80pct.mp3` |
 
 ### Processing time
 
-The count-in and analysis take seconds. Separating guitar and vocals takes longer: about 2.5 minutes for a 4-minute song on an Apple Silicon Mac, and noticeably longer on Windows, where only the CPU does the work. The bottom of the window shows the stage, percent and time left, and the job can be cancelled.
+The count-in and analysis take seconds. Separation starts as soon as a track opens and runs on the GPU: about 50 seconds for a 3-minute song on an Apple Silicon Mac (Core ML), on Windows through DirectML on any DirectX 12 graphics card. You can listen and edit while it runs; a preview excerpt gets separated ahead of the rest. A song separated once comes from the cache next time; Settings show its size and clear it.
+
+On first launch the app downloads its models once: about 780 MB on a Mac, plus a 712 MB GPU model on Windows. An `assets` folder next to the app works too, for a copy on a flash drive.
 
 ![Progress](docs/screenshots/progress-light-en.png)
 
 ### Updates
 
-On start, the app checks GitHub for a newer version and downloads it in the background (about 800 MB), checking its SHA-256 against the release. When it is ready, a round blue badge appears left of the version in the bottom right corner, and the menu offers "Restart to Update". Without a restart, the update installs when you quit. "Check for Updates…" sits in the app menu on macOS and under Help on Windows.
+On start, the app checks GitHub for a newer version and downloads it in the background, checking its SHA-256 against the release. When it is ready, a round blue badge appears left of the version in the bottom right corner, and the menu offers "Restart to Update". Without a restart, the update installs when you quit. "Check for Updates…" sits in the app menu on macOS and under Help on Windows.
 
 The app updates itself only from a folder it can write to. Run from Downloads on macOS without moving it, or from a protected folder, the badge opens the download page instead.
 
@@ -133,19 +141,27 @@ Count-In is released under the [MIT License](LICENSE). The bundled third-party c
 | [FFmpeg](https://ffmpeg.org), built without GPL parts, with LAME | LGPL |
 | [Qt for Python](https://doc.qt.io/qtforpython-6/) | LGPL |
 | [PyTorch](https://pytorch.org) | BSD |
+| [Signalsmith Stretch](https://github.com/Signalsmith-Audio/signalsmith-stretch) via [python-stretch](https://github.com/gregogiudici/python-stretch) (slowing down) | MIT |
+| [coremltools](https://github.com/apple/coremltools) (macOS) | BSD |
+| [ONNX Runtime DirectML](https://onnxruntime.ai) (Windows) | MIT |
 
 ---
 
 ## Русский
 
+Новости, релизы и обратная связь — в Telegram-канале [@count_in_app](https://t.me/count_in_app).
+
 Count-In находит темп и первую сильную долю песни и вставляет перед ней барабанный отсчёт. Последний клик звучит ровно за долю до «раз». Из той же песни можно сделать бэктрек: убрать или приглушить гитару и вокал.
 
 - Отсчёт на 1 или 2 такта, размер 4/4, 3/4 или 6/8.
 - Рисунок: ровный, «нарастание» (во второй половине вдвое чаще, последние удары громче) или свой из MIDI-файла.
-- Гитара и вокал отделяются нейросетью за один проход, уровень каждого настраивается отдельно.
+- Нейросеть за один проход разделяет песню на гитару, вокал, бас, барабаны и пианино; у каждой дорожки свой уровень и кнопка отключения.
+- Паузы: такты, где без убранных инструментов тихо, получают хай-хэт на каждую долю, громкостью как музыка вокруг, и по желанию нарастание к вступлению группы.
+- Скорость: песню можно замедлить до 80% без смены тона, отсчёт и хай-хэт встают на замедленную сетку.
+- Разделение идёт на видеокарте: Core ML на Mac, DirectML на Windows. Песню, которую уже разделяли, программа открывает сразу.
 - Вход: mp3, FLAC, ALAC, WAV. Выход: MP3 320 kbps, FLAC, ALAC или WAV, теги и обложка сохраняются.
-- Работает без интернета. Сеть нужна только для обновлений.
-- Интерфейс на русском и английском: язык берётся из системы, его можно сменить в настройках.
+- Работает без интернета. Сеть нужна для одной загрузки моделей и для обновлений.
+- Интерфейс на русском и английском: язык берётся из системы, его можно сменить в настройках. [Справка](https://count-in.app/ru/guide/) со скриншотами описывает все возможности, тот же текст есть в программе в меню «Справка» (F1).
 
 ### Скачать
 
@@ -167,11 +183,11 @@ Count-In находит темп и первую сильную долю пес�
 
 Приложение следует оформлению системы, есть и [тёмная тема](docs/screenshots/main-dark.png).
 
-1. Перетащите трек в окно или откройте его через ⌘O. Приложение работает с одним треком и анализирует его в фоне.
-2. Проверьте оранжевый маркер «1» на волне. Если детектор ошибся, перетащите маркер на нужную долю: он прилипает к найденным долям, с ⌥/Alt ставится свободно. Колесо мыши меняет масштаб, перетаскивание волны сдвигает её.
+1. Перетащите трек в окно или откройте его через ⌘O. Приложение анализирует его и сразу начинает в фоне разделять на дорожки; карточка поверх волны показывает прогресс и советы.
+2. Проверьте оранжевый маркер «1» на волне. Если детектор ошибся, перетащите маркер на нужную долю или сдвиньте стрелками в карточке «Темп»; круглая стрелка возвращает найденное детектором. Колесо меняет масштаб, перетаскивание сдвигает волну, мини-карта под волной показывает всю песню.
 3. Выберите рисунок, длину и размер отсчёта. Синие отметки на волне показывают, где прозвучат клики.
-4. Для бэктрека опустите ползунки «Гитара» и «Вокал». Кнопка с динамиком рядом с ползунком убирает партию одним нажатием, а следующее нажатие возвращает уровень.
-5. Нажмите «Прослушать» или пробел: прозвучит отсчёт и 10 секунд песни. Во время прослушивания ползунки гитары и вокала меняют звук сразу.
+4. Для бэктрека опустите ползунки в карточке «Бэктрек». С галочкой «Заполнять паузы хай-хэтом» тихие места получают хай-хэт; порог тишины подбирается сам, кнопки − и + в панели транспорта убирают и добавляют паузы.
+5. Нажмите Play или пробел. Щелчок по волне или мини-карте ставит курсор, ← и → переходят по паузам, блок «Скорость» замедляет песню. Уровни меняются на ходу.
 6. Нажмите «Сохранить» или ⌘S. По умолчанию файл ложится рядом с исходником, а Finder или Проводник открывается с ним; это отключается в настройках.
 
 В настройках (⌘,) можно один раз выбрать папку для всех файлов и раскладывать их по подпапкам «Исполнитель / Год - Альбом» по тегам исходника, каждый уровень включается галочкой.
@@ -188,16 +204,19 @@ Count-In находит темп и первую сильную долю пес�
 |---|---|
 | Только отсчёт | `Песня_countin.mp3` |
 | Бэктрек | `Песня_backing_guitar-off_vocals-6dB.mp3` |
+| Замедлено до 80% | `Песня_backing_guitar-off_80pct.mp3` |
 
 #### Время обработки
 
-Отсчёт и анализ занимают секунды. Разделение на гитару и вокал работает дольше: около 2.5 минут на 4-минутную песню на Mac с Apple Silicon и заметно дольше на Windows, где считает только процессор. Внизу окна видны этап, проценты и оставшееся время, работу можно отменить.
+Отсчёт и анализ занимают секунды. Разделение начинается сразу после открытия трека и идёт на видеокарте: около 50 секунд на 3-минутную песню на Mac с Apple Silicon (Core ML), на Windows через DirectML на любой видеокарте с DirectX 12. Пока оно идёт, можно слушать и править; отрывок для прослушивания разделяется вне очереди. Песня, которую уже разделяли, берётся из кэша; его размер и очистка есть в настройках.
+
+При первом запуске программа один раз скачивает модели: около 780 МБ на Mac и ещё 712 МБ модели для видеокарты на Windows. Подходит и папка `assets` рядом с программой, например на флешке.
 
 ![Прогресс](docs/screenshots/progress-light.png)
 
 #### Обновления
 
-При запуске приложение проверяет, нет ли новой версии на GitHub, и в фоне скачивает её (около 800 МБ), сверяя SHA-256 с релизом. Когда загрузка готова, справа внизу слева от версии появляется круглый голубой значок, а в меню — пункт «Перезапустить и обновить». Если не перезапускать, обновление установится при выходе. «Проверить обновления…» находится в меню приложения на macOS и в меню «Справка» на Windows.
+При запуске приложение проверяет, нет ли новой версии на GitHub, и в фоне скачивает её, сверяя SHA-256 с релизом. Когда загрузка готова, справа внизу слева от версии появляется круглый голубой значок, а в меню — пункт «Перезапустить и обновить». Если не перезапускать, обновление установится при выходе. «Проверить обновления…» находится в меню приложения на macOS и в меню «Справка» на Windows.
 
 Само обновляется только приложение из папки, куда можно писать. Если на macOS запускать его прямо из «Загрузок», не перенося, или из защищённой папки, значок открывает страницу загрузки.
 
@@ -266,3 +285,6 @@ Count-In распространяется по [лицензии MIT](LICENSE). 
 | [FFmpeg](https://ffmpeg.org), сборка без GPL-частей, с LAME | LGPL |
 | [Qt for Python](https://doc.qt.io/qtforpython-6/) | LGPL |
 | [PyTorch](https://pytorch.org) | BSD |
+| [Signalsmith Stretch](https://github.com/Signalsmith-Audio/signalsmith-stretch) через [python-stretch](https://github.com/gregogiudici/python-stretch) (замедление) | MIT |
+| [coremltools](https://github.com/apple/coremltools) (macOS) | BSD |
+| [ONNX Runtime DirectML](https://onnxruntime.ai) (Windows) | MIT |

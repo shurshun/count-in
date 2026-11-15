@@ -9,11 +9,9 @@ from PyInstaller.utils.hooks import copy_metadata
 root = Path(SPECPATH).parent
 version = tomllib.loads((root / "pyproject.toml").read_text(encoding="utf-8"))["project"]["version"]
 
-datas = [(str(root / "models" / "final0.ckpt"), "models"),
-         (str(root / "models" / "separator"), "models/separator")]
-
+# Model weights stay out of the bundle (core/assets.py finds or downloads them), so updates stay small.
 # Only the click sounds: samples/ may also hold local test tracks.
-datas += [(str(p), "samples") for p in sorted((root / "samples").glob("stick_*.wav"))]
+datas = [(str(p), "samples") for p in sorted((root / "samples").glob("stick_*.wav"))]
 if (root / "bin").exists():
     datas.append((str(root / "bin"), "bin"))
 
@@ -28,7 +26,8 @@ datas.append((str(root / "LICENSE"), "."))
 datas += copy_metadata("countin")
 
 a = Analysis([str(root / "packaging" / f) for f in ("countin_app.py", "countin_cli.py")],
-             pathex=[str(root / "src")], datas=datas, excludes=["tkinter", "matplotlib", "IPython"])
+             pathex=[str(root / "src")], datas=datas,
+             excludes=["tkinter", "matplotlib", "IPython"])
 pyz = PYZ(a.pure)
 
 

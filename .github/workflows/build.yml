@@ -96,7 +96,13 @@ jobs:
       - run: uv run pyinstaller packaging/countin.spec --noconfirm --distpath dist --workpath build/work
 
       # Smoke test of the shipped bundle: 20 s of clicks at 120 BPM through detection, separation and mp3 export.
+      # The bundle carries no models; the smoke tests take them from the fetched models/ folder.
+      # Windows runners have no GPU and DirectML would crawl on the software adapter, so their smoke test separates
+      # with torch; macOS builds and runs the Core ML model.
       - name: smoke test
+        env:
+          COUNTIN_ASSETS: ${{ github.workspace }}/models
+          COUNTIN_ACCEL: ${{ runner.os == 'Windows' && 'torch' || '' }}
         run: |
           uv run python -c "import numpy as np, soundfile as sf; sr=44100; x=np.zeros((20*sr,2),np.float32); [x.__setitem__(slice(int(t*sr),int(t*sr)+400), 0.8) for t in np.arange(1,20,0.5)]; sf.write('smoke.wav', x, sr)"
           ${{ matrix.cli }} --version
@@ -112,6 +118,7 @@ jobs:
       # The app itself: starts offscreen with the bundled Qt plugins, icons and PortAudio, then quits.
       - name: smoke test (app)
         env:
+          COUNTIN_ASSETS: ${{ github.workspace }}/models
           QT_QPA_PLATFORM: offscreen
           COUNTIN_SMOKE: "1"
         run: |

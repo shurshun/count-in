@@ -2,6 +2,7 @@
 
 import math
 from dataclasses import dataclass
+from functools import lru_cache
 from pathlib import Path
 
 import numpy as np
@@ -28,6 +29,7 @@ class Click:
     time: float  # seconds, relative to the original song start
     accent: bool  # first click of a bar
     gain: float = 1.0
+    voice: str = "stick"  # stick for count-ins, hihat for the beats that fill pauses
 
 
 def click_grid(first_downbeat: float, period: float, bars: int, meter: str) -> list[Click]:
@@ -56,17 +58,27 @@ def buildup_grid(first_downbeat: float, period: float, bars: int, meter: str) ->
                   BUILDUP_GAIN if i >= len(pos) - 3 else 1.0) for i, q in enumerate(pos)]
 
 
+def _quantize(beat: float) -> float:
+    """A played note on the nearest sixteenth or eighth-note triplet, whichever is closer."""
+    return min((round(beat * d) / d for d in (4, 3)), key=lambda q: abs(q - beat))
+
+
 def pattern_grid(midi_path: str | Path, first_downbeat: float, period: float, meter: str) -> list[Click]:
-    """MIDI note-on positions in beats, stretched to the song tempo. The pattern fills whole bars before the downbeat."""
+    """The MIDI pattern laid on the song's grid. Only the notes count: the file's own tempo is ignored, each
+    note is read in beats (ticks / ticks per quarter) and quantized to sixteenths or eighth-note triplets, so a
+    pattern played in by hand at any tempo lands on the song's beats. Notes at the same spot become one click
+    with the loudest velocity, empty bars at the start are dropped, and the pattern fills whole bars ending at
+    the downbeat."""
     import mido
 
     mid = mido.MidiFile(str(midi_path))
     tick = 0
-    hits = []
+    hits: dict[float, float] = {}
     for msg in mido.merge_tracks(mid.tracks):
         tick += msg.time
         if msg.type == "note_on" and msg.velocity > 0:
-            hits.append((tick / mid.ticks_per_beat, msg.velocity / 127))
+            q = _quantize(tick / mid.ticks_per_beat)
+            hits[q] = max(hits.get(q, 0.0), msg.velocity / 127)
     if not hits:
         raise ValueError(f"no notes in {midi_path}")
 
@@ -74,11 +86,12 @@ def pattern_grid(midi_path: str | Path, first_downbeat: float, period: float, me
     beats, sub = METERS[meter]
     quarters_per_bar = beats * sub / (2 if sub == 3 else 1)
     sec_per_quarter = period * beats / quarters_per_bar
-    last = max(b for b, _ in hits)
-    bars = max(1, math.floor(last / quarters_per_bar) + 1)
+    lead = math.floor(min(hits) / quarters_per_bar + 1e-9) * quarters_per_bar  # empty bars before the first note
+    notes = sorted((b - lead, v) for b, v in hits.items())
+    bars = max(1, math.floor(notes[-1][0] / quarters_per_bar + 1e-9) + 1)
     start = first_downbeat - bars * quarters_per_bar * sec_per_quarter
     return [Click(start + b * sec_per_quarter, math.isclose(b % quarters_per_bar, 0, abs_tol=1e-6), v)
-            for b, v in hits]
+            for b, v in notes]
 
 
 def load_samples(sr: int, folder: Path | None = None) -> tuple[np.ndarray, np.ndarray]:
@@ -96,6 +109,32 @@ def load_samples(sr: int, folder: Path | None = None) -> tuple[np.ndarray, np.nd
     return out[0], out[1]
 
 
+# Six detuned square waves plus noise through a high band-pass: the analog drum-machine hi-hat recipe.
+# Synthesized, so no sample license is involved.
+HIHAT_FREQS = (205.3, 304.4, 369.6, 522.7, 540.0, 800.0)
+
+
+@lru_cache(maxsize=4)
+def hihat_samples(sr: int) -> tuple[np.ndarray, np.ndarray]:
+    """(accent, plain) closed hi-hat hits; the downbeat one is a little longer and louder."""
+    rng = np.random.default_rng(0)
+
+    def hit(decay: float, peak: float) -> np.ndarray:
+        n = int(sr * decay * 6)
+        t = np.arange(n) / sr
+        x = sum(np.sign(np.sin(2 * np.pi * f * t)) for f in HIHAT_FREQS) / len(HIHAT_FREQS)
+        x = x + 0.8 * rng.standard_normal(n)
+        spec = np.fft.rfft(x)
+        freqs = np.fft.rfftfreq(n, 1 / sr)
+        lo_hz, hi_hz = min(7000.0, 0.3 * sr), min(16000.0, 0.48 * sr)  # low sample rates have no 7-16 kHz band
+        spec[(freqs < lo_hz) | (freqs > hi_hz)] = 0
+        x = np.fft.irfft(spec, n) * np.exp(-t / decay)
+        x[: int(0.001 * sr)] *= np.linspace(0, 1, int(0.001 * sr))  # 1 ms attack, no click from the onset step
+        return (x / np.abs(x).max() * peak).astype(np.float32)
+
+    return hit(0.06, 0.55), hit(0.035, 0.42)
+
+
 def leading_silence(pcm: np.ndarray, sr: int) -> float:
     level = 10 ** (SILENCE_DB / 20)
     loud = np.flatnonzero(np.abs(pcm).max(axis=1) > level)
@@ -105,32 +144,49 @@ def leading_silence(pcm: np.ndarray, sr: int) -> float:
 @dataclass
 class Rendered:
     pcm: np.ndarray
-    offset: float  # original-song time t maps to output time t + offset
+    offset: float  # original-song time t maps to output time t / speed + offset
     click_samples: list[int]  # click onsets in the output
     clipped: int  # samples that hit full scale
 
 
+def stretch(x: np.ndarray, sr: int, speed: float) -> np.ndarray:
+    """(n, channels) audio played at speed (0.8 = 20% slower) with its pitch kept, through Signalsmith
+    Stretch (MIT). Transients stay on time within about a millisecond. The result has round(n / speed)
+    samples."""
+    if speed == 1.0 or not len(x):
+        return x
+    import python_stretch as ps
+
+    st = ps.Signalsmith.Stretch()
+    st.preset(x.shape[1], sr)
+    st.setTimeFactor(speed)
+    y = np.asarray(st.process(np.ascontiguousarray(x.T, dtype=np.float32))).T
+    n = int(round(len(x) / speed))
+    return np.ascontiguousarray(y[:n] if len(y) >= n else np.pad(y, ((0, n - len(y)), (0, 0))), dtype=np.float32)
+
+
 def render(pcm: np.ndarray, sr: int, clicks: list[Click], first_downbeat: float,
            pre_roll: str = "keep", volume_db: float = 0.0,
-           samples: tuple[np.ndarray, np.ndarray] | None = None) -> Rendered:
+           samples: tuple[np.ndarray, np.ndarray] | None = None, speed: float = 1.0) -> Rendered:
     """Mix clicks into the song. Audio before the downbeat stays and gets the clicks on top.
 
     trim cuts leading silence first, never past the downbeat.
     Silence gets prepended when the song starts too late to hold the count-in.
+    With speed below 1 the song gets slower with its pitch kept (stretch) and the clicks land on the slowed
+    grid as they are, so they stay crisp.
     """
     if first_downbeat >= len(pcm) / sr:
         raise ValueError(f"downbeat {first_downbeat:.3f} s is past the end of the song")
     hi, lo = samples or load_samples(sr)
 
     cut = min(int(leading_silence(pcm, sr) * sr), int(first_downbeat * sr)) if pre_roll == "trim" else 0
-    earliest = min(c.time for c in clicks)
+    earliest = min((c.time for c in clicks), default=cut / sr)
 
     # Each click rounds from its own float time, so error never accumulates.
-    pad = max(0, -math.floor(earliest * sr - cut))
-    shift = pad - cut
-    starts = [int(round(c.time * sr)) + shift for c in clicks]
+    pad = max(0, -math.floor((earliest * sr - cut) / speed))
+    starts = [int(round((c.time * sr - cut) / speed)) + pad for c in clicks]
 
-    song = pcm[cut:]
+    song = stretch(pcm[cut:], sr, speed)
     out = np.zeros((pad + len(song), pcm.shape[1]), dtype=np.float32)
     out[pad:] = song
 
@@ -138,10 +194,12 @@ def render(pcm: np.ndarray, sr: int, clicks: list[Click], first_downbeat: float,
     # ponytail: counter only; add a limiter if loud intros clip in practice.
     g = 10 ** (volume_db / 20)
     clipped = 0
+    hat = hihat_samples(sr) if any(c.voice == "hihat" for c in clicks) else None
     for c, s in zip(clicks, starts):
-        x = (hi if c.accent else lo) * (g * c.gain)
+        pair = hat if c.voice == "hihat" else (hi, lo)
+        x = (pair[0] if c.accent else pair[1]) * (g * c.gain)
         end = min(len(out), s + len(x))
         before = np.abs(out[s:end]) > 1.0
         out[s:end] += x[: end - s, None]
         clipped += int(np.sum((np.abs(out[s:end]) > 1.0) & ~before))
-    return Rendered(out, shift / sr, starts, clipped)
+    return Rendered(out, (pad - cut / speed) / sr, starts, clipped)
