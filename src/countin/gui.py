@@ -2491,7 +2491,7 @@ class Window(QMainWindow):
             self.play_b.setProperty("icon", icon)
             self.play_b.setIcon(glyph(icon, QColor(255, 255, 255)))
         self.pause_l.setText(_("{i} из {n}", i=w.current_zone + 1, n=len(w.zones)) if w.current_zone is not None
-                             else _("пауз: {n}", n=len(w.zones)))
+                             else str(len(w.zones)))  # the group title already says what it counts
         w.overview.update()
 
     def _jump_pause(self, d: int):
