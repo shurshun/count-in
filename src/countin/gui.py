@@ -48,6 +48,7 @@ JOB_WHY = {
     "zones_job": "Раскладываю песню на дорожки, чтобы найти паузы без убранных инструментов. Это делается один раз на трек.",
     "preview_job": "Готовлю отрывок: отсчёт и первые секунды песни с вашими настройками.",
     "save_job": "Сохраняю трек с отсчётом и выбранным уровнем дорожек.",
+    "export_job": "Сохраняю мультитрек: партии, клик и темп начинаются с первого такта.",
 }
 
 # Lines that turn up while a job runs
@@ -502,6 +503,45 @@ def save_job(job: Job, t: Track, s: Settings, cached):
     out.parent.mkdir(parents=True, exist_ok=True)
     io.encode(r.pcm, info, out, tags_from=t.path)
     return t, out, full, r.clipped
+
+
+def multitrack_dir(song: Path, s: Settings, info: io.AudioInfo) -> Path:
+    """The folder of a multitrack export, where the backing track would go."""
+    out = target_path(song, s, info)
+    tag = f"_{round(s.speed * 100)}pct" if s.speed != 1.0 else ""
+    return out.parent / f"{song.stem}_multitrack{tag}"
+
+
+def export_job(job: Job, t: Track, s: Settings, cached, what: dict):
+    """Multitrack for a DAW in one folder: the parts (or the whole song) as WAV, the click grid and the tempo
+    map as MIDI, all starting on bar 1. Parts come at full level; the whole song, when parts are off, has the
+    turned-down parts taken out. Returns (track, folder, (0, stems) when separated or None, 0)."""
+    from .core import daw, stems
+
+    job.report(_("{name}: чтение", name=t.path.name))
+    pcm, info = io.decode(t.path)
+    full, st = None, None
+    if what["parts"] or s.levels:
+        st = cached[1] if _covers(cached, 0, len(pcm)) else _stems(job, pcm, info.sr, _("{name}: разделение", name=t.path.name))
+        full = (0, st)
+    if s.fill and t.zones is None:
+        t.zones, t.zones_key = find_zones(t, pcm, info.sr, st, s), zones_key(s)
+    clicks = clicks_for(t, s)
+    cut = rd.leading_silence(pcm, info.sr) if s.pre_roll == "trim" else 0.0
+    g = daw.grid(t.analysis.beats, t.bars, t.zones if s.fill else None, t.t0, 60.0 / t.bpm, s.meter,
+                 min([min(t.t0, cut)] + [c.time for c in clicks]))
+    folder = multitrack_dir(t.path, s, info)
+    folder.mkdir(parents=True, exist_ok=True)
+    backing = stems.attenuate(pcm, st, s.levels) if st and s.levels else pcm
+    tracks = daw.parts(pcm, st) if what["parts"] else {t.path.stem: backing}
+    for name, x in tracks.items():
+        job.report(_("{name}: запись", name=f"{name}.wav"))
+        daw.write_wav(folder / f"{name}.wav", daw.place(x, info.sr, g, s.speed), info.sr)
+    if what["click"]:
+        daw.write_clicks(folder / "click.mid", g, clicks, s.meter, s.speed)
+    if what["tempo"]:
+        daw.write_tempo(folder / "tempo.mid", g, s.meter, s.speed)
+    return t, folder, full, 0
 
 
 def warm_models():
@@ -1955,6 +1995,73 @@ class ZoneDialog(QDialog):
         self.reject()
 
 
+EXPORT_MODE, EXPORT_PARTS, EXPORT_CLICK, EXPORT_TEMPO = (
+    "export/mode", "export/parts", "export/click", "export/tempo")
+
+
+class ExportDialog(QDialog):
+    """What Save writes: one backing track, or a multitrack for a DAW. The choice is remembered."""
+
+    def __init__(self, parent):
+        super().__init__(parent)
+        self.setWindowTitle(_("Сохранить"))
+        self.setMinimumWidth(440)
+        self.backing = QRadioButton(_("Бэктрек одним файлом"))
+        self.multi = QRadioButton(_("Мультитрек для DAW"))
+        note = QLabel(_("Отдельная папка. Все файлы начинаются с первого такта, их можно положить в начало "
+                        "проекта Cubase, Logic или Reaper."), objectName="field", wordWrap=True)
+        self.boxes = {
+            EXPORT_PARTS: QCheckBox(_("Партии отдельными файлами (WAV)")),
+            EXPORT_CLICK: QCheckBox(_("Сетка кликов (MIDI)")),
+            EXPORT_TEMPO: QCheckBox(_("Темповая карта (MIDI)")),
+        }
+        tips = {
+            EXPORT_PARTS: _("Гитара, вокал, бас, барабаны, пианино и всё остальное, на полной громкости. Без галочки пишется один WAV с выбранными уровнями дорожек"),
+            EXPORT_CLICK: _("Отсчёт и хай-хэт в паузах нотами на 10-м канале, General MIDI"),
+            EXPORT_TEMPO: _("Темп и размер каждого такта, чтобы такты DAW совпали с песней"),
+        }
+        v = QVBoxLayout(self)
+        v.addWidget(self.backing)
+        v.addWidget(self.multi)
+        inner = QVBoxLayout()
+        inner.setContentsMargins(24, 0, 0, 0)
+        inner.addWidget(note)
+        for key, box in self.boxes.items():
+            box.setChecked(pref_bool(key, True))
+            box.setToolTip(tips[key])
+            box.toggled.connect(self._update)
+            inner.addWidget(box)
+        v.addLayout(inner)
+        h = QHBoxLayout()
+        h.addStretch()
+        h.addWidget(QPushButton(_("Отмена"), objectName="tool", clicked=self.reject))
+        self.ok = QPushButton(_("Сохранить"), objectName="primary", clicked=self._accept, default=True)
+        h.addWidget(self.ok)
+        v.addLayout(h)
+        (self.multi if QSettings().value(EXPORT_MODE, "backing") == "multi" else self.backing).setChecked(True)
+        self.multi.toggled.connect(self._update)
+        self._update()
+
+    def _update(self):
+        for box in self.boxes.values():
+            box.setEnabled(self.multi.isChecked())
+        self.ok.setEnabled(self.backing.isChecked() or any(b.isChecked() for b in self.boxes.values()))
+
+    def _accept(self):
+        st = QSettings()
+        st.setValue(EXPORT_MODE, "multi" if self.multi.isChecked() else "backing")
+        for key, box in self.boxes.items():
+            st.setValue(key, box.isChecked())
+        self.accept()
+
+    def choice(self) -> dict | None:
+        """None for the backing track, else which multitrack files to write."""
+        if self.backing.isChecked():
+            return None
+        return {"parts": self.boxes[EXPORT_PARTS].isChecked(), "click": self.boxes[EXPORT_CLICK].isChecked(),
+                "tempo": self.boxes[EXPORT_TEMPO].isChecked()}
+
+
 class PrefsDialog(QDialog):
     """Output folder and layout, app icon. Every change is saved at once."""
 
@@ -3331,14 +3438,26 @@ class Window(QMainWindow):
         if not self.save_b.isEnabled():
             return
         self._stop()
-        s = self.settings()
-        if self._wait_for_stems(self._save, bool(s.levels) or s.fill):
+        d = ExportDialog(self)
+        if d.exec() != QDialog.Accepted:
             return
-        out = target_path(self.current.path, s, self.info or io.probe(self.current.path))
-        if out.exists() and QMessageBox.question(
-                self, "Count-In", _("Файл {name} уже есть. Заменить?", name=out.name)) != QMessageBox.Yes:
+        self.export = d.choice()
+        self._write()
+
+    def _write(self):
+        """Writes what the export dialog chose; waits for the background separation when it needs the stems."""
+        s, what = self.settings(), self.export
+        if self._wait_for_stems(self._write, bool(s.levels) or s.fill or bool(what and what["parts"])):
             return
-        self._run(save_job, self.current, s, self.stem_cache, on_done=self._saved)
+        info = self.info or io.probe(self.current.path)
+        out = target_path(self.current.path, s, info) if what is None else multitrack_dir(self.current.path, s, info)
+        ask = _("Файл {name} уже есть. Заменить?") if what is None else _("Папка {name} уже есть. Заменить файлы в ней?")
+        if out.exists() and QMessageBox.question(self, "Count-In", ask.format(name=out.name)) != QMessageBox.Yes:
+            return
+        if what is None:
+            self._run(save_job, self.current, s, self.stem_cache, on_done=self._saved)
+        else:
+            self._run(export_job, self.current, s, self.stem_cache, what, on_done=self._saved)
 
     def _saved(self, result):
         track, out, full, clipped = result

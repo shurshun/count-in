@@ -666,3 +666,63 @@ def test_help_and_project_page_open_the_site_in_the_app_language():
         assert gui.site_url("guide/") == "https://count-in.app/ru/guide/" and gui.site_url() == "https://count-in.app/ru/"
     finally:
         i18n.set_language(was)
+
+
+# --- multitrack export ---
+
+@pytest.mark.parametrize("speed", [1.0, 0.8])
+def test_multitrack_click_and_audio_land_on_the_same_bar_grid(tmp_path, speed):
+    """MIDI notes, read back through the file's own tempo map, and placed audio agree to the millisecond,
+    with a tempo change and a count-in that reaches before the song start."""
+    import mido
+
+    from countin.core import daw, zones as zn
+
+    t0, p1, p2 = 1.0, 0.5, 0.45  # 120 BPM for four bars, then about 133
+    starts = [t0 + k * 4 * p1 for k in range(4)]
+    starts += [starts[-1] + 4 * p1 + k * 4 * p2 for k in range(4)]
+    bars = [zn.Bar(a, a + 4 * (p1 if i < 4 else p2), [a + j * (p1 if i < 4 else p2) for j in range(4)])
+            for i, a in enumerate(starts)]
+    clicks = rd.click_grid(t0, p1, 2, "4/4") + [rd.Click(b.beats[2], False) for b in bars]
+    beats = [x for b in bars for x in b.beats]
+    g = daw.grid(beats, bars, None, t0, p1, "4/4", min([0.0] + [c.time for c in clicks]))
+    assert g.start <= -3.0 and all(a.end == b.start for a, b in zip(g.bars, g.bars[1:]))
+
+    daw.write_clicks(tmp_path / "click.mid", g, clicks, "4/4", speed)
+    now, got = 0.0, []
+    for msg in mido.MidiFile(str(tmp_path / "click.mid")):
+        now += msg.time
+        if msg.type == "note_on":
+            got.append(now)
+    want = sorted((c.time - g.start) / speed for c in clicks)
+    assert np.allclose(got, want, atol=1e-3)
+
+    x = np.zeros((int(16 * SR), 1), np.float32)
+    x[int(round(bars[5].beats[2] * SR))] = 1.0
+    y = daw.place(x, SR, g, speed)
+    at = np.argmax(np.abs(y[:, 0])) / SR
+    assert abs(at - (bars[5].beats[2] - g.start) / speed) < 2e-3
+
+
+@pytest.mark.parametrize("meter,shift,ratio", [("4/4", 0, 1), ("3/4", 1, 1), ("4/4", 1, 2), ("4/4", 0, 0.5), ("6/8", 0, 1)])
+def test_tempo_map_follows_the_marker_meter_and_tempo_the_user_set(tmp_path, meter, shift, ratio):
+    """Steady 120 BPM song whose detected downbeats are wrong (bars of 3, 5 and 4 beats). The tempo map keeps
+    one meter and one tempo from the "1" marker, also with the marker a beat later and with BPM doubled or halved."""
+    import mido
+
+    from countin.core import daw, zones as zn
+
+    p = 0.5
+    beats = [2.0 + k * p for k in range(64)]
+    downs = [beats[i] for i in (0, 3, 8, 12, 16, 20, 24, 28, 32)]
+    bars = zn.bars_from(beats, downs, 40.0)
+    t0, period = beats[shift], p / ratio
+    g = daw.grid(beats, bars, None, t0, period, meter, 0.0)
+    daw.write_tempo(tmp_path / "t.mid", g, meter)
+    track = mido.MidiFile(str(tmp_path / "t.mid")).tracks[0]
+    sigs = {(m.numerator, m.denominator) for m in track if m.type == "time_signature"}
+    beat_quarters = 1.5 if meter == "6/8" else 1
+    bpms = [mido.tempo2bpm(m.tempo) for m in track if m.type == "set_tempo"]
+    assert len(sigs) == 1
+    assert np.allclose(bpms, 60 / period * beat_quarters, rtol=1e-3)
+    assert any(abs(b.start - t0) < 1e-9 for b in g.bars)

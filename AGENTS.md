@@ -10,6 +10,7 @@ Count-In inserts a drum count-in before a song's first downbeat and can turn gui
 | `src/countin/core/analyze.py` | beat and downbeat detection, grid fit, attack snap, confidence |
 | `src/countin/core/render.py` | click grids (even, build-up, MIDI), sample-accurate mixing |
 | `src/countin/core/stems.py` | BS-RoFormer SW separation and stem attenuation |
+| `src/countin/core/daw.py` | multitrack export: bar grid from bar 1, parts as float WAV, click and tempo map as MIDI |
 | `src/countin/core/zones.py` | whole-song bars, quiet-bar detection, fill-zone clicks |
 | `src/countin/core/roformer/` | vendored BS-RoFormer model code (MIT, see its LICENSE) |
 | `src/countin/gui.py` | the app: window, waveform, jobs, live preview player |
@@ -51,6 +52,17 @@ Count-In inserts a drum count-in before a song's first downbeat and can turn gui
 | PySide6-Essentials | native look, LGPL, smallest Qt wheel | full PySide6 (adds WebEngine etc.) |
 | sounddevice for preview | stems mix block by block, so sliders work live | afplay/winsound: no live mixing; QtMultimedia: needs PySide6-Addons |
 | PyInstaller onedir | best torch support; onedir starts without unpacking 1.3 GB | onefile; Nuitka (slow, fragile with torch) |
+
+## Multitrack export (`core/daw.py`)
+
+- Save opens `ExportDialog`: a backing track as one file (`save_job`) or a multitrack folder (`export_job`). The choice sits in `export/*` settings.
+- Output time 0 is bar 1. `daw.grid` adds even bars at the set tempo before the "1" marker until it reaches the song start and the earliest click.
+- Song bars group beats in the chosen meter from the marker, not the detected downbeats: a stray downbeat in `bars_from` turned bars into 7/4 or 2/4. `song_beats` walks from the marker at the set BPM and takes the detected beat nearest one beat ahead, within a quarter beat, and adapts the beat length to it. Sections the detector counts at double rate keep the song tempo; real tempo changes come through. On the demo track the map went from 46–285 BPM over 138 bars to 81 BPM with one 95 BPM section over 99 bars.
+- Pauses with their own tempo or meter splice in their zone bars. The last bar gets filled to a whole bar, so the meter holds to the end.
+- The tempo map has a tempo and meter event on every bar line. Each tempo rounds against the time the MIDI has reached, so rounding never adds up. 6/8 is written as 6/8 with a dotted quarter per beat.
+- `click.mid` carries the same tempo track plus GM drum notes on channel 10 (wood blocks for the count-in, closed hi-hat for pauses).
+- Parts are the five separated stems at full level plus `other`, the mix minus them, so they sum back to the song. With parts off the folder gets one WAV with the turned-down parts taken out. They are 32-bit float WAV, because stems of a loud master peak above full scale. With a speed below 1 each part gets stretched on its own.
+- `test_multitrack_click_and_audio_land_on_the_same_bar_grid` reads notes back through the tempo map and checks them against the placed audio. `test_tempo_map_follows_the_marker_meter_and_tempo_the_user_set` covers a moved marker, 3/4, 6/8 and doubled or halved BPM over wrong detected downbeats.
 
 ## App internals (`gui.py`)
 
