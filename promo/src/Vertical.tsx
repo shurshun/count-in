@@ -1,107 +1,86 @@
-import { AbsoluteFill, Img, interpolate, staticFile, useCurrentFrame } from "remotion";
-import { Intro, starts } from "./Promo";
-import { BEAT, C, EndCard, FONT, ONE, Soundtrack, T, UrlPill, clamp, f, useSpring } from "./shared";
-import { COPY, Line } from "./text";
-import { ZoomShot } from "./zoom";
+import { AbsoluteFill, Easing, Img, interpolate, staticFile } from "remotion";
+import { C, EndCard, FONT, ONE, Soundtrack, T, clamp, f } from "./shared";
+import { FOCUS } from "./zoom";
+import { Flash, Footer, Header, Hook, pop, useBeat, useCount, useLine } from "./verticalParts";
 
-// 9:16 cut for Reels and Shorts. App on top, the line below it.
-// Safe zones: the platforms cover ~250 px at the top, ~450 px at the bottom and ~150 px on the right,
-// so the line sits in 1160–1470 and keeps clear of the right edge.
+// 9:16 cut for Reels and Shorts. The whole window stays in view, a ring marks the control
+// and a magnified lens of it pops out below. The accent word carries the line.
 
-const W = 1080;
-const TEXT_TOP = 1160, TEXT_BOTTOM = 1470;
+const WIN = 760, LENS = { w: 820, h: 430 }, RINGS = { x: 540, y: 560 };
 
-const Accent = ({ line }: { line: Line }) => {
-  if (!line.accent || !line.text.includes(line.accent)) return <>{line.text}</>;
-  const [l, r] = line.text.split(line.accent);
-  return <>{l}<span style={{ color: "#fff" }}>{line.accent}</span>{r}</>;
-};
-
-const Beats = () => {
-  const frame = useCurrentFrame();
-  const n = Math.floor((frame / 30 - ONE) / BEAT);
-  return (
-    <div style={{ display: "flex", gap: 14 }}>
-      {[0, 1, 2, 3].map((k) => (
-        <div key={k} style={{ width: 16, height: 16, borderRadius: 8, background: ((n % 4) + 4) % 4 === k ? C.text : "rgba(0,0,0,.18)" }} />
-      ))}
-    </div>
-  );
-};
-
-/** Huge dark type with a white accent, the beat dots under it. */
-const LineText = ({ line, at }: { line: Line; at: number }) => {
-  const s = useSpring(at, 11);
-  return (
-    <div style={{ position: "absolute", left: 70, right: 150, top: TEXT_TOP, height: TEXT_BOTTOM - TEXT_TOP, display: "flex", flexDirection: "column",
-      justifyContent: "center", gap: 30 }}>
-      <div style={{ fontSize: 104, fontWeight: 900, letterSpacing: -4, lineHeight: 1, color: C.text, transform: `scale(${0.9 + 0.1 * s})`,
-        transformOrigin: "left center", opacity: s }}>
-        <Accent line={line} />
-      </div>
-      <Beats />
-    </div>
-  );
-};
-
-const APPLE = "M12.152 6.896c-.948 0-2.415-1.078-3.96-1.04-2.04.027-3.91 1.183-4.961 3.014-2.117 3.675-.546 9.103 1.519 12.09 1.013 1.454 2.208 3.09 3.792 3.039 1.52-.065 2.09-.987 3.935-.987 1.831 0 2.35.987 3.96.948 1.637-.026 2.676-1.48 3.676-2.948 1.156-1.688 1.636-3.325 1.662-3.415-.039-.013-3.182-1.221-3.22-4.857-.026-3.04 2.48-4.494 2.597-4.559-1.429-2.09-3.623-2.324-4.39-2.376-2-.156-3.675 1.09-4.61 1.09zM15.53 3.83c.843-1.012 1.4-2.427 1.245-3.83-1.207.052-2.662.805-3.532 1.818-.78.896-1.454 2.338-1.273 3.714 1.338.104 2.715-.688 3.559-1.701";
-const WINDOWS = "M2 2h9.5v9.5H2zM12.5 2H22v9.5h-9.5zM2 12.5h9.5V22H2zM12.5 12.5H22V22h-9.5z";
-const Os = ({ d }: { d: string }) => <svg width="40" height="40" viewBox="0 0 24 24"><path d={d} fill={C.text} /></svg>;
-
-// The header already names the app, so the first line says what it does
-const FIRST: Line = { text: "A count-in for every song", accent: "every song" };
-
-/** App name above the window. */
-const Header = () => {
-  const s = useSpring(ONE, 16);
-  return (
-    <div style={{ position: "absolute", top: 110, left: 0, right: 0, display: "flex", justifyContent: "center", alignItems: "center", gap: 20, opacity: s }}>
-      <Img src={staticFile("icon.png")} style={{ width: 84, height: 84 }} />
-      <div style={{ fontSize: 64, fontWeight: 900, letterSpacing: -2, color: C.text }}>Count-In</div>
-    </div>
-  );
-};
-
-/** Platforms and the address under the line. */
-const Footer = () => {
-  const s = useSpring(ONE + 0.4, 16);
-  return (
-    <div style={{ position: "absolute", top: 1560, left: 0, right: 0, display: "flex", flexDirection: "column", alignItems: "center", gap: 18, opacity: s }}>
-      <div style={{ display: "flex", alignItems: "center", gap: 18, fontSize: 40, fontWeight: 700, color: C.text }}>
-        <Os d={APPLE} /><Os d={WINDOWS} /><span>Available for macOS and Windows</span>
-      </div>
-      <div style={{ fontSize: 40, fontWeight: 700, color: C.text }}>For free</div>
-      <UrlPill size={38} />
-    </div>
-  );
-};
-
-/** Orange stage: name on top, the window tilted in 3D, the line, platforms at the bottom. */
 export const Vertical = () => {
-  const frame = useCurrentFrame();
-  const copy = COPY.en;
-  const at = starts(copy.lines);
-  let i = 0;
-  while (i + 1 < at.length && frame >= f(at[i + 1])) i++;
-  const enter = interpolate(frame, [f(ONE), f(ONE) + 12], [1, 0], clamp);
-  const app = { left: 60, top: 250, w: W - 120, h: 860 };
+  const { frame, copy, at, i, line } = useLine();
+  const { k, pulse } = useBeat();
+  const { digit, kick } = useCount();
+  const intro = frame < f(ONE);
+  const [W, H] = copy.size;
+  const winH = (WIN * H) / W;
+
+  const p = interpolate(frame, [f(at[i]), f(at[i]) + 14], [0, 1], { ...clamp, easing: Easing.bezier(0.2, 0.8, 0.2, 1) });
+  const prev = FOCUS[Math.max(0, i - 1)], cur = FOCUS[i];
+  const mix = (k: number) => prev[k] + (cur[k] - prev[k]) * p;
+  const [fx, fy, z] = [mix(0), mix(1), mix(2)];
+
+  // The lens shows only while a control is in focus; without it the window takes the room
+  const show = (prev[2] > 1 ? 1 : 0) * (1 - p) + (cur[2] > 1 ? 1 : 0) * p;
+  const s = 0.33 * z;
+  const x = Math.min(0, Math.max(LENS.w - W * s, LENS.w / 2 - fx * W * s));
+  const y = Math.min(0, Math.max(LENS.h - H * s, LENS.h / 2 - fy * H * s));
+
+  const [l, r] = line.text.split(line.accent!).map((t) => t.trim());
+  const t = pop(frame, at[i], 0, 12);
+  const small = { fontSize: 78, fontWeight: 800, letterSpacing: -1.5, color: C.text, opacity: t };
   return (
     <AbsoluteFill style={{ background: C.accent, fontFamily: FONT }}>
       <Soundtrack />
-      {frame < f(ONE) && <Intro syllables={copy.syllables} orange />}
-      {frame >= f(ONE) && frame < f(T.end) && (
+      {frame < f(T.end) ? (
         <>
-          <div style={{ position: "absolute", left: app.left, top: app.top, width: app.w, height: app.h, borderRadius: 32, overflow: "hidden",
-            background: "#fff", boxShadow: "0 30px 80px rgba(120,60,0,.35)",
-            transform: `translateY(${-enter * 300}px) perspective(1800px) rotateX(8deg) rotateZ(-2deg)` }}>
-            <ZoomShot w={app.w} h={app.h} src={copy.shot} size={copy.size} starts={at} />
-          </div>
-          <LineText key={i} line={i === 0 ? FIRST : copy.lines[i]} at={at[i]} />
+          {[1, 2, 3].map((n) => {
+            const d = n * 420 * (1 + 0.05 * pulse);
+            return <div key={n} style={{ position: "absolute", left: RINGS.x - d / 2, top: RINGS.y - d / 2, width: d, height: d, borderRadius: d,
+              border: `${6 + 10 * pulse}px solid rgba(255,255,255,.28)` }} />;
+          })}
           <Header />
+          {intro ? (
+            <div style={{ position: "absolute", top: RINGS.y - 300, left: 0, right: 0, height: 600, display: "flex", alignItems: "center", justifyContent: "center",
+              fontSize: 420, fontWeight: 900, color: "#fff", transform: `scale(${kick})` }}>{digit || ""}</div>
+          ) : (
+            <>
+              <div style={{ position: "absolute", left: (1080 - WIN) / 2, top: 265, width: WIN, height: winH, transformOrigin: "50% 0",
+                transform: `translateY(${(1 - show) * 90}px) scale(${pop(frame, ONE) * (1.24 - 0.24 * show)}) perspective(1800px) rotateX(10deg) rotateZ(-3deg)` }}>
+                <Img src={staticFile(copy.shot)} style={{ width: WIN, borderRadius: 18, boxShadow: "0 30px 80px rgba(120,60,0,.4)" }} />
+                <div style={{ position: "absolute", left: fx * WIN - 46, top: fy * winH - 46, width: 92, height: 92, borderRadius: 46, opacity: show,
+                  border: `8px solid ${C.accent}`, boxShadow: "0 0 0 5px #fff, 0 8px 24px rgba(0,0,0,.35)", scale: `${1 + 0.18 * pulse}` }} />
+              </div>
+              <div style={{ position: "absolute", left: 110, top: 700, width: LENS.w, height: LENS.h, borderRadius: 44, overflow: "hidden", background: "#fff",
+                border: "10px solid #fff", boxShadow: "0 30px 80px rgba(120,60,0,.5)", transformOrigin: `${fx * 100}% 0`,
+                transform: `scale(${show}) rotate(1.5deg)` }}>
+                <Img src={staticFile(copy.shot)} style={{ position: "absolute", left: 0, top: 0, width: W, height: H, maxWidth: "none", transformOrigin: "0 0",
+                  transform: `translate(${x}px, ${y}px) scale(${s})` }} />
+                <Flash />
+              </div>
+            </>
+          )}
+          <div style={{ position: "absolute", left: 70, right: 150, top: 1150, height: 320, display: "flex", flexDirection: "column", justifyContent: "center" }}>
+            {intro ? (
+              <div style={{ fontSize: 108, fontWeight: 900, letterSpacing: -4, lineHeight: 1.05 }}>
+                <Hook ghost="rgba(0,0,0,.32)" fill={C.text} accent="#fff" />
+              </div>
+            ) : (
+              <div key={i}>
+                {l && <div style={small}>{l}</div>}
+                <div style={{ fontSize: 150, fontWeight: 900, letterSpacing: -6, lineHeight: 0.95, color: "#fff", transformOrigin: "0 60%",
+                  transform: `scale(${0.6 + 0.4 * t})`, opacity: Math.min(1, t * 2) }}>{line.accent}</div>
+                {r && <div style={small}>{r}</div>}
+              </div>
+            )}
+          </div>
+          <div style={{ position: "absolute", left: 70, top: 1492, display: "flex", gap: 14 }}>
+            {[0, 1, 2, 3].map((n) => <div key={n} style={{ width: 16, height: 16, borderRadius: 8, background: n === k ? C.text : "rgba(0,0,0,.18)" }} />)}
+          </div>
           <Footer />
         </>
-      )}
-      {frame >= f(T.end) && <EndCard tagline={copy.tagline} bg={C.accent} fg="rgba(0,0,0,.6)" />}
+      ) : <EndCard tagline={copy.tagline} bg={C.accent} fg="rgba(0,0,0,.6)" />}
     </AbsoluteFill>
   );
 };

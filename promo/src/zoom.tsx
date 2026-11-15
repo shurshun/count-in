@@ -2,7 +2,7 @@ import { Easing, Img, interpolate, staticFile, useCurrentFrame } from "remotion"
 import { T, clamp, f } from "./shared";
 
 // Focus point (fraction of the screenshot) and zoom for each line, in line order
-const FOCUS: [number, number, number][] = [
+export const FOCUS: [number, number, number][] = [
   [0.5, 0.5, 1],      // whole window
   [0.17, 0.8, 2.6],   // tempo card
   [0.45, 0.2, 3],     // the orange "1" marker
