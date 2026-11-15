@@ -2427,7 +2427,7 @@ class Window(QMainWindow):
         help_b = QPushButton("?", objectName="tbtn", clicked=self._help, toolTip=_("Справка Count-In"))
         help_b.setFocusPolicy(Qt.NoFocus)
 
-        # Speed: − percent +, slower with the pitch kept; steps of 5% from 50% to 100%
+        # Speed: − percent +, slower with the pitch kept; steps of 5% from 80% to 100%; slower than that the stretch smears the sound
         h.addSpacing(10)
         h.addWidget(vsep())
         h.addSpacing(10)
@@ -2460,8 +2460,8 @@ class Window(QMainWindow):
         return bar
 
     def _set_speed(self, pct: int):
-        """Playback and export speed in percent, 50..100; a playing preview carries on at the new speed."""
-        pct = int(np.clip(pct, 50, 100))
+        """Playback and export speed in percent, 80..100; a playing preview carries on at the new speed."""
+        pct = int(np.clip(pct, 80, 100))
         if pct == self.speed:
             return
         self.speed = pct

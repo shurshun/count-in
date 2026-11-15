@@ -10,7 +10,7 @@ Count-In finds a song's tempo and first downbeat and puts a drum count-in in fro
 - Patterns: even, build-up (twice as dense in the second half, the last hits louder) or your own from a MIDI file.
 - A neural network separates the song into guitar, vocals, bass, drums and piano in one pass; each has its own level and a mute button.
 - Pauses: bars that go quiet once parts are removed get a hi-hat on every beat, as loud as the music around them, with an optional build-up into the band's entry.
-- Speed: slow the song down to 50% with the pitch kept; the count-in and the hi-hat land on the slowed grid.
+- Speed: slow the song down to 80% with the pitch kept; the count-in and the hi-hat land on the slowed grid.
 - Separation runs on the GPU: Core ML on a Mac, DirectML on Windows. A song separated once opens instantly next time.
 - Input: mp3, FLAC, ALAC, WAV. Output: MP3 320 kbps, FLAC, ALAC or WAV, with tags and cover art kept.
 - Works offline. The network is used for the one-time model download and for updates.
@@ -156,7 +156,7 @@ Count-In находит темп и первую сильную долю пес�
 - Рисунок: ровный, «нарастание» (во второй половине вдвое чаще, последние удары громче) или свой из MIDI-файла.
 - Нейросеть за один проход разделяет песню на гитару, вокал, бас, барабаны и пианино; у каждой дорожки свой уровень и кнопка отключения.
 - Паузы: такты, где без убранных инструментов тихо, получают хай-хэт на каждую долю, громкостью как музыка вокруг, и по желанию нарастание к вступлению группы.
-- Скорость: песню можно замедлить до 50% без смены тона, отсчёт и хай-хэт встают на замедленную сетку.
+- Скорость: песню можно замедлить до 80% без смены тона, отсчёт и хай-хэт встают на замедленную сетку.
 - Разделение идёт на видеокарте: Core ML на Mac, DirectML на Windows. Песню, которую уже разделяли, программа открывает сразу.
 - Вход: mp3, FLAC, ALAC, WAV. Выход: MP3 320 kbps, FLAC, ALAC или WAV, теги и обложка сохраняются.
 - Работает без интернета. Сеть нужна для одной загрузки моделей и для обновлений.
