@@ -1,7 +1,7 @@
 import React from "react";
 import { AbsoluteFill, Img, interpolate, spring, staticFile, useCurrentFrame } from "remotion";
 import { starts } from "./Promo";
-import { BEAT, C, EIGHTHS, FPS, ONE, QUARTERS, T, UrlPill, clamp, f } from "./shared";
+import { BEAT, C, FPS, ONE, T, UrlPill, clamp, f } from "./shared";
 import { COPY, Line } from "./text";
 
 // Parts of the 9:16 cut. Safe zones: top 250, bottom 450, right 150 px.
@@ -26,21 +26,6 @@ export const useBeat = () => {
   const x = (useCurrentFrame() / FPS - ONE) / BEAT;
   const n = Math.floor(x);
   return { k: ((n % 4) + 4) % 4, pulse: Math.max(0, 1 - (x - n) * 2.5) };
-};
-
-/** The two count-in bars: the spoken count, the eighths heard so far, a kick on every click. */
-export const useCount = () => {
-  const frame = useCurrentFrame();
-  const q = QUARTERS.filter((t) => frame >= f(t)).length;
-  const e = EIGHTHS.filter((t) => frame >= f(t)).length;
-  const last = e ? EIGHTHS[e - 1] : QUARTERS[Math.max(0, q - 1)];
-  return { e, digit: e ? Math.ceil(e / 2) : q, kick: interpolate(frame - f(last), [0, 5], [1.12, 1], clamp) };
-};
-
-/** The hook is readable from the first frame; the clicks fill it in syllable by syllable. */
-export const Hook = ({ ghost, fill, accent }: { ghost: string; fill: string; accent: string }) => {
-  const { e } = useCount();
-  return <>{COPY.en.syllables.map((s, i) => <span key={i} style={{ color: i < e ? (i >= 6 ? accent : fill) : ghost }}>{s}</span>)}</>;
 };
 
 /** White flash when the guitar and the vocals drop out. */

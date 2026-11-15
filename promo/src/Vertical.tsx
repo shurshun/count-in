@@ -1,7 +1,8 @@
 import { AbsoluteFill, Easing, Img, interpolate, staticFile } from "remotion";
 import { C, EndCard, FONT, ONE, Soundtrack, T, clamp, f } from "./shared";
 import { FOCUS } from "./zoom";
-import { Flash, Footer, Header, Hook, pop, useBeat, useCount, useLine } from "./verticalParts";
+import { Intro } from "./Promo";
+import { Flash, Footer, Header, pop, useBeat, useLine } from "./verticalParts";
 
 // 9:16 cut for Reels and Shorts. The whole window stays in view, a ring marks the control
 // and a magnified lens of it pops out below. The accent word carries the line.
@@ -11,7 +12,6 @@ const WIN = 760, LENS = { w: 820, h: 430 }, RINGS = { x: 540, y: 560 };
 export const Vertical = () => {
   const { frame, copy, at, i, line } = useLine();
   const { k, pulse } = useBeat();
-  const { digit, kick } = useCount();
   const intro = frame < f(ONE);
   const [W, H] = copy.size;
   const winH = (WIN * H) / W;
@@ -33,7 +33,8 @@ export const Vertical = () => {
   return (
     <AbsoluteFill style={{ background: C.accent, fontFamily: FONT }}>
       <Soundtrack />
-      {frame < f(T.end) ? (
+      {intro && <Intro syllables={copy.syllables} orange />}
+      {intro ? null : frame < f(T.end) ? (
         <>
           {[1, 2, 3].map((n) => {
             const d = n * 420 * (1 + 0.05 * pulse);
@@ -41,11 +42,7 @@ export const Vertical = () => {
               border: `${6 + 10 * pulse}px solid rgba(255,255,255,.28)` }} />;
           })}
           <Header />
-          {intro ? (
-            <div style={{ position: "absolute", top: RINGS.y - 300, left: 0, right: 0, height: 600, display: "flex", alignItems: "center", justifyContent: "center",
-              fontSize: 420, fontWeight: 900, color: "#fff", transform: `scale(${kick})` }}>{digit || ""}</div>
-          ) : (
-            <>
+          <>
               <div style={{ position: "absolute", left: (1080 - WIN) / 2, top: 265, width: WIN, height: winH, transformOrigin: "50% 0",
                 transform: `translateY(${(1 - show) * 90}px) scale(${pop(frame, ONE) * (1.24 - 0.24 * show)}) perspective(1800px) rotateX(10deg) rotateZ(-3deg)` }}>
                 <Img src={staticFile(copy.shot)} style={{ width: WIN, borderRadius: 18, boxShadow: "0 30px 80px rgba(120,60,0,.4)" }} />
@@ -59,21 +56,14 @@ export const Vertical = () => {
                   transform: `translate(${x}px, ${y}px) scale(${s})` }} />
                 <Flash />
               </div>
-            </>
-          )}
+          </>
           <div style={{ position: "absolute", left: 70, right: 150, top: 1150, height: 320, display: "flex", flexDirection: "column", justifyContent: "center" }}>
-            {intro ? (
-              <div style={{ fontSize: 108, fontWeight: 900, letterSpacing: -4, lineHeight: 1.05 }}>
-                <Hook ghost="rgba(0,0,0,.32)" fill={C.text} accent="#fff" />
-              </div>
-            ) : (
-              <div key={i}>
+            <div key={i}>
                 {l && <div style={small}>{l}</div>}
                 <div style={{ fontSize: 150, fontWeight: 900, letterSpacing: -6, lineHeight: 0.95, color: "#fff", transformOrigin: "0 60%",
                   transform: `scale(${0.6 + 0.4 * t})`, opacity: Math.min(1, t * 2) }}>{line.accent}</div>
                 {r && <div style={small}>{r}</div>}
-              </div>
-            )}
+            </div>
           </div>
           <div style={{ position: "absolute", left: 70, top: 1492, display: "flex", gap: 14 }}>
             {[0, 1, 2, 3].map((n) => <div key={n} style={{ width: 16, height: 16, borderRadius: 8, background: n === k ? C.text : "rgba(0,0,0,.18)" }} />)}
