@@ -66,10 +66,11 @@ const Header = () => {
 const Footer = () => {
   const s = useSpring(ONE + 0.4, 16);
   return (
-    <div style={{ position: "absolute", top: 1560, left: 0, right: 0, display: "flex", flexDirection: "column", alignItems: "center", gap: 22, opacity: s }}>
+    <div style={{ position: "absolute", top: 1560, left: 0, right: 0, display: "flex", flexDirection: "column", alignItems: "center", gap: 18, opacity: s }}>
       <div style={{ display: "flex", alignItems: "center", gap: 18, fontSize: 40, fontWeight: 700, color: C.text }}>
-        <Os d={APPLE} /><Os d={WINDOWS} /><span>Free for macOS and Windows</span>
+        <Os d={APPLE} /><Os d={WINDOWS} /><span>Available for macOS and Windows</span>
       </div>
+      <div style={{ fontSize: 40, fontWeight: 700, color: C.text }}>For free</div>
       <UrlPill size={38} />
     </div>
   );
