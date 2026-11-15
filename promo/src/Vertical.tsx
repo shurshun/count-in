@@ -1,6 +1,6 @@
 import { AbsoluteFill, Img, interpolate, staticFile, useCurrentFrame } from "remotion";
 import { Intro, starts } from "./Promo";
-import { BEAT, C, EndCard, FONT, ONE, Soundtrack, T, clamp, f, useSpring } from "./shared";
+import { BEAT, C, EndCard, FONT, ONE, Soundtrack, T, UrlPill, clamp, f, useSpring } from "./shared";
 import { COPY, Line } from "./text";
 import { ZoomShot } from "./zoom";
 
@@ -70,7 +70,7 @@ const Footer = () => {
       <div style={{ display: "flex", alignItems: "center", gap: 18, fontSize: 40, fontWeight: 700, color: C.text }}>
         <Os d={APPLE} /><Os d={WINDOWS} /><span>Free for macOS and Windows</span>
       </div>
-      <div style={{ fontSize: 38, fontWeight: 600, color: C.text, padding: "10px 30px", borderRadius: 30, background: "rgba(255,255,255,.35)" }}>count-in.app</div>
+      <UrlPill size={38} />
     </div>
   );
 };

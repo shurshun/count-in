@@ -49,6 +49,18 @@ export const Window = ({ src, style }: { src: string; style?: React.CSSPropertie
   </div>
 );
 
+/** The site address as a browser would show it: globe, muted https://, the domain. */
+export const UrlPill = ({ size, style }: { size: number; style?: React.CSSProperties }) => (
+  <div style={{ display: "flex", alignItems: "center", gap: size * 0.4, fontSize: size, fontWeight: 600, color: C.text,
+    padding: `${size * 0.4}px ${size * 0.87}px ${size * 0.4}px ${size * 0.65}px`, borderRadius: size, background: C.card,
+    border: `2px solid ${C.border}`, boxShadow: "0 8px 30px rgba(0,0,0,.12)", ...style }}>
+    <svg width={size * 0.96} height={size * 0.96} viewBox="0 0 24 24" fill="none" stroke={C.accent} strokeWidth="2" strokeLinecap="round">
+      <circle cx="12" cy="12" r="10" /><path d="M2 12h20M12 2a15 15 0 0 1 0 20M12 2a15 15 0 0 0 0 20" />
+    </svg>
+    <span><span style={{ color: C.muted, fontWeight: 400 }}>https://</span>count-in.app</span>
+  </div>
+);
+
 export const EndCard = ({ tagline, bg = C.bg, fg = C.muted }: { tagline: string; bg?: string; fg?: string }) => {
   const s = useSpring(T.end);
   const s2 = useSpring(T.end + 0.5);
@@ -57,14 +69,7 @@ export const EndCard = ({ tagline, bg = C.bg, fg = C.muted }: { tagline: string;
       <Img src={staticFile("icon.png")} style={{ width: 200, height: 200, transform: `scale(${s})` }} />
       <div style={{ fontSize: 120, fontWeight: 800, letterSpacing: -3, marginTop: 24, opacity: s }}>Count-In</div>
       <div style={{ fontSize: 42, color: fg, marginTop: 8, maxWidth: "88%", textAlign: "center", opacity: s2 }}>{tagline}</div>
-      <div style={{ marginTop: 48, display: "flex", alignItems: "center", gap: 18, fontSize: 46, fontWeight: 600, padding: "18px 40px 18px 30px",
-        borderRadius: 40, background: C.card, border: `2px solid ${C.border}`, boxShadow: "0 8px 30px rgba(0,0,0,.12)",
-        opacity: s2, transform: `translateY(${(1 - s2) * 30}px)` }}>
-        <svg width="44" height="44" viewBox="0 0 24 24" fill="none" stroke={C.accent} strokeWidth="2" strokeLinecap="round">
-          <circle cx="12" cy="12" r="10" /><path d="M2 12h20M12 2a15 15 0 0 1 0 20M12 2a15 15 0 0 0 0 20" />
-        </svg>
-        <span><span style={{ color: C.muted, fontWeight: 400 }}>https://</span>count-in.app</span>
-      </div>
+      <UrlPill size={46} style={{ marginTop: 48, opacity: s2, transform: `translateY(${(1 - s2) * 30}px)` }} />
     </AbsoluteFill>
   );
 };
