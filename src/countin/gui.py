@@ -77,6 +77,8 @@ QPushButton#update { background: #0a84ff; color: white; border: none; border-rad
 QPushButton#update:hover { background: #409cff; }
 #title { font-size: 24px; font-weight: 600; }
 #headerLabel { font-size: 15px; color: @FIELD@; }
+QPushButton#iconButton { border: 1px solid transparent; border-radius: 7px; background: transparent; padding: 0; }
+QPushButton#iconButton:hover { border-color: @BORDER@; background: rgba(127,127,127,0.10); }
 #progOverlay { background: transparent; }
 #progTitle { font-size: 26px; font-weight: 700; }
 #progWhy, #progEta { font-size: 15px; color: @FIELD@; }
@@ -876,12 +878,18 @@ class Wave(QWidget):
         self.show_range(t - r * span, t + (1 - r) * span)
 
 
-def card(title: str) -> tuple[QFrame, QGridLayout]:
+def card(title: str, *buttons: QWidget) -> tuple[QFrame, QGridLayout]:
+    """A titled card; buttons sit at the right end of the title row."""
     f = QFrame(objectName="card")
     v = QVBoxLayout(f)
     v.setContentsMargins(14, 12, 14, 14)
     v.setSpacing(10)
-    v.addWidget(QLabel(title, objectName="cardTitle"))
+    head = QHBoxLayout()
+    head.addWidget(QLabel(title, objectName="cardTitle"))
+    head.addStretch()
+    for b in buttons:
+        head.addWidget(b, 0, Qt.AlignVCenter)
+    v.addLayout(head)
     g = QGridLayout()
     g.setHorizontalSpacing(10)
     g.setVerticalSpacing(9)
@@ -943,7 +951,21 @@ def part_icon(kind: str, color: QColor, size: int = 16) -> QPixmap:
     p.setPen(Qt.NoPen)
     p.setBrush(color)
     s = size / 16
-    if kind == "speaker":
+    if kind == "save":  # floppy disk
+        p.drawRoundedRect(QRectF(2 * s, 2 * s, 12 * s, 12 * s), 1.6 * s, 1.6 * s)
+        p.setCompositionMode(QPainter.CompositionMode_Clear)
+        p.drawRect(QRectF(4.5 * s, 2 * s, 6.5 * s, 4 * s))  # shutter opening
+        p.drawRoundedRect(QRectF(4 * s, 8.5 * s, 8 * s, 4 * s), 0.8 * s, 0.8 * s)  # label
+        p.setCompositionMode(QPainter.CompositionMode_SourceOver)
+        p.drawRect(QRectF(8.6 * s, 2.6 * s, 1.6 * s, 2.6 * s))  # shutter slot
+    elif kind == "reset":  # arrow turning back
+        p.setBrush(Qt.NoBrush)
+        p.setPen(QPen(color, 1.6 * s, Qt.SolidLine, Qt.RoundCap))
+        p.drawArc(QRectF(2.5 * s, 2.5 * s, 11 * s, 11 * s), 100 * 16, 270 * 16)
+        p.setPen(Qt.NoPen)
+        p.setBrush(color)
+        p.drawPolygon(QPolygonF([QPointF(1.0 * s, 4.2 * s), QPointF(6.4 * s, 2.0 * s), QPointF(5.6 * s, 7.4 * s)]))
+    elif kind == "speaker":
         p.drawPolygon(QPolygonF([QPointF(1.5 * s, 6 * s), QPointF(4.5 * s, 6 * s), QPointF(8.5 * s, 2.5 * s),
                                  QPointF(8.5 * s, 13.5 * s), QPointF(4.5 * s, 10 * s), QPointF(1.5 * s, 10 * s)]))
         p.setBrush(Qt.NoBrush)
@@ -1459,6 +1481,7 @@ class Window(QMainWindow):
         self.reveal_a = file.addAction(_("Показать сохранённый файл"), self._reveal)
         file.addSeparator()
         file.addAction(_("Сохранить настройки как по умолчанию"), self._save_defaults)
+        file.addAction(_("Вернуть настройки по умолчанию"), self._reset_settings)
         prefs = file.addAction(_("Настройки…"), QKeySequence.Preferences, self._prefs)
         prefs.setMenuRole(QAction.PreferencesRole)
 
@@ -1612,7 +1635,9 @@ class Window(QMainWindow):
         row(g, _("Громкость"), self.volume, self.volume_l)
         self.pattern: Path | None = None
 
-        mix, g = card(_("Бэктрек"))
+        save_b = self._icon_button("save", _("Сохранить эти настройки как настройки по умолчанию"), self._save_defaults)
+        reset_b = self._icon_button("reset", _("Вернуть настройки по умолчанию"), self._reset_settings)
+        mix, g = card(_("Бэктрек"), reset_b, save_b)
         self.parts: dict[str, QSlider] = {}
         self.part_l: dict[str, QLabel] = {}
         for name, label, icon, tip in PARTS:
@@ -1644,10 +1669,6 @@ class Window(QMainWindow):
         for key, name in FORMAT_NAMES.items():
             self.fmt.addItem(_(name), key)
         row(g, _("Выходной формат"), self.fmt)
-        defaults_b = QPushButton(_("Сохранить настройки как по умолчанию"), objectName="small", clicked=self._save_defaults,
-                                 toolTip=_("Отсчёт, дорожки, паузы и формат будут такими для каждого нового трека"))
-        defaults_b.setFocusPolicy(Qt.NoFocus)
-        g.addWidget(defaults_b, g.rowCount(), 0, 1, 2, Qt.AlignLeft)
 
         for w in (self.volume, *self.parts.values()):
             w.valueChanged.connect(self._labels)
@@ -2252,6 +2273,33 @@ class Window(QMainWindow):
         st.setValue(FILL_KEY, self.fill.isChecked())
         st.setValue(THRESHOLD_KEY, self.threshold.value())
         self.status.setText(_("Настройки сохранены как настройки по умолчанию"))
+
+    def _icon_button(self, kind: str, tip: str, slot) -> QPushButton:
+        b = QPushButton(objectName="iconButton", clicked=slot, toolTip=tip)
+        b.setIcon(QIcon(part_icon(kind, QColor(127, 127, 127), 18)))
+        b.setIconSize(QSize(18, 18))
+        b.setFixedSize(30, 28)
+        b.setFocusPolicy(Qt.NoFocus)
+        b.setCursor(Qt.PointingHandCursor)
+        return b
+
+    def _reset_settings(self):
+        """Back to the saved defaults, or to the factory settings when none are saved."""
+        if QSettings().value(DEFAULTS + "style") is not None:
+            self._load_defaults()
+            self.status.setText(_("Настройки по умолчанию восстановлены"))
+            return
+        self.style_seg.set_value("buildup")
+        self.bars_seg.set_value(2)
+        self.meter_seg.set_value("4/4")
+        self.volume.setValue(0)
+        for s in self.parts.values():
+            s.setValue(0)
+        self.trim.setChecked(False)
+        self.fmt.setCurrentIndex(0)
+        self.fill.setChecked(True)
+        self.threshold.setValue(int(zn.QUIET_DB))
+        self.status.setText(_("Настройки сброшены"))
 
     def _load_defaults(self):
         """Saved defaults; a value that no longer fits (an old meter, a removed format) is skipped."""
