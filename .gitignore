@@ -1,6 +1,7 @@
 .venv/
 __pycache__/
 models/*.ckpt
+models/*.onnx
 *.mp3
 .DS_Store
 out/
