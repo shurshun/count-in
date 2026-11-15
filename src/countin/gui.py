@@ -2028,8 +2028,8 @@ class PrefsDialog(QDialog):
 
         # Stems of songs already separated; the size gets counted off the UI thread
         cache, g3 = card(_("Кэш дорожек"))
-        self.cache_l = QLabel(_("считаю…"), objectName="field")
-        self.cache_b = QPushButton(_("Очистить"), objectName="tool", clicked=self._clear_cache, enabled=False)
+        self.cache_l = QLabel(_("считаю…"), objectName="field", minimumWidth=190)
+        self.cache_b = QPushButton(_("Очистить"), objectName="small", clicked=self._clear_cache, enabled=False)
         row(g3, _("Занимает"), self.cache_l, self.cache_b)
         g3.addWidget(QLabel(_("Песню, которую уже разделяли, программа открывает без нового разделения."),
                             objectName="field", wordWrap=True), g3.rowCount(), 0, 1, 2)
@@ -2397,7 +2397,7 @@ class Window(QMainWindow):
         lh = QHBoxLayout(lcd)
         lh.setContentsMargins(12, 3, 12, 3)
         lh.setSpacing(8)
-        self.lcd_time = QLabel(objectName="lcdTime", minimumWidth=74)
+        self.lcd_time = QLabel(objectName="lcdTime", minimumWidth=96)  # room for "−0:03.36" in the count-in
         self.lcd_bar = QLabel(objectName="lcdSub", minimumWidth=52)
         lh.addWidget(self.lcd_time)
         lh.addWidget(self.lcd_bar)
