@@ -2,7 +2,7 @@
 
 # Count-In
 
-[count-in.app](https://count-in.app) · [English](#count-in) · [Русский](#русский)
+[count-in.app](https://count-in.app) · [Telegram](https://t.me/count_in_app) · [English](#count-in) · [Русский](#русский)
 
 Count-In finds a song's tempo and first downbeat and puts a drum count-in in front of it. The last click lands exactly one beat before the "one". The same song can become a backing track with the guitar and vocals removed or turned down.
 
@@ -14,6 +14,8 @@ Count-In finds a song's tempo and first downbeat and puts a drum count-in in fro
 - Separation runs on the GPU: Core ML on a Mac, DirectML on Windows. A song separated once opens instantly next time.
 - Input: mp3, FLAC, ALAC, WAV. Output: MP3 320 kbps, FLAC, ALAC or WAV, with tags and cover art kept.
 - Works offline. The network is used for the one-time model download and for updates.
+
+News, releases and feedback: the Telegram channel [@count_in_app](https://t.me/count_in_app).
 
 The interface is in English and Russian; it follows the system language, and Settings can switch it. The [user guide](https://count-in.app/guide/) walks through every feature with screenshots; the same text is in the app under Help (F1).
 
@@ -149,6 +151,8 @@ Count-In is released under the [MIT License](LICENSE). The bundled third-party c
 ---
 
 ## Русский
+
+Новости, релизы и обратная связь — в Telegram-канале [@count_in_app](https://t.me/count_in_app).
 
 Count-In находит темп и первую сильную долю песни и вставляет перед ней барабанный отсчёт. Последний клик звучит ровно за долю до «раз». Из той же песни можно сделать бэктрек: убрать или приглушить гитару и вокал.
 
