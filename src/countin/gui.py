@@ -948,7 +948,13 @@ class Wave(QWidget):
         self._cache = (None, None)
 
     def show_range(self, a: float, b: float):
-        self.v0, self.v1 = a, b
+        """Shows song time a..b, kept within the song: 5 s before it, or as far as the count-in reaches, and 5 s
+        after the end."""
+        lo = min(-5.0, min((c.time for c in self.clicks), default=0.0) - 1.0)
+        hi = max(self.duration, 0.0) + 5.0
+        span = min(b - a, hi - lo)
+        a = min(max(a, lo), hi - span)
+        self.v0, self.v1 = a, a + span
         self.update()
 
     def _place_overlay(self):
@@ -2168,9 +2174,12 @@ class Window(QMainWindow):
         return panel
 
     def _next_tip(self):
-        """A practical tip for every progress display."""
+        """A practical tip for every progress display; while the parts separate with a part turned down, a note
+        that the pauses come only after it."""
         tip = True  # music lines are off until a better set is chosen
         text = _(random.choice(TIPS))
+        if self.sep_job and self._full_stems() is None and self.fill.isChecked() and self.settings().levels:
+            text = _("Паузы с хай-хэтом появятся, когда закончится разделение на дорожки: их ищут без убранных инструментов")
         self.prog_phrase.setText(text)
         self.wave.busy.phrase.setText(text)
         self.wave.tips.set(text, tip)
@@ -3267,6 +3276,8 @@ class Window(QMainWindow):
         """Guitar, vocals or the threshold stopped moving: show the backing and search the pauses again."""
         self._update_backing()
         self._auto_zones()
+        if self.sep_job:
+            self._next_tip()  # says at once that the pauses wait for the separation
 
     # --- background separation ---
 

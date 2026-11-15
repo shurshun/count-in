@@ -294,6 +294,7 @@ EN = {
     "Вернуть темп, найденный детектором": "Back to the tempo the detector found",
     "Вернуть «1», найденную детектором": "Back to the \"1\" the detector found",
     "Вернуть отсчёт по умолчанию": "Back to the default count-in",
+    "Паузы с хай-хэтом появятся, когда закончится разделение на дорожки: их ищут без убранных инструментов": "Pauses with the hi-hat appear once the parts are separated: they are found without the parts you turned down",
 }
 
 
