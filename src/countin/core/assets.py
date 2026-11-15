@@ -14,9 +14,12 @@ sees it), falling back to the original publishers.
 import hashlib
 import os
 import shutil
+import ssl
 import sys
 import urllib.request
 from pathlib import Path
+
+import truststore
 
 RELEASE = "https://github.com/shurshun/count-in/releases/download/assets-v1/"
 
@@ -110,11 +113,14 @@ def download(progress=None, cancelled=lambda: False) -> None:
         dest = data_dir() / name
         dest.parent.mkdir(parents=True, exist_ok=True)
         part = dest.with_name(dest.name + ".part")
+        errors = []
         for url in (RELEASE + name.split("/")[-1], fallback):
             h = hashlib.sha256()
             got = 0
             try:
-                with urllib.request.urlopen(url, timeout=60) as r, open(part, "wb") as f:
+                # The bundled Python has no CA file, so TLS checks against the system's certificates.
+                tls = truststore.SSLContext(ssl.PROTOCOL_TLS_CLIENT)
+                with urllib.request.urlopen(url, timeout=60, context=tls) as r, open(part, "wb") as f:
                     while chunk := r.read(1 << 20):
                         if cancelled():
                             raise InterruptedError
@@ -126,15 +132,17 @@ def download(progress=None, cancelled=lambda: False) -> None:
             except InterruptedError:
                 part.unlink(missing_ok=True)
                 raise
-            except OSError:
+            except OSError as e:
                 part.unlink(missing_ok=True)
+                errors.append(f"{url}: {e}")
                 continue
             if h.hexdigest() == sha:
                 part.replace(dest)
                 break
             part.unlink(missing_ok=True)
+            errors.append(f"{url}: checksum mismatch")
         else:
-            raise RuntimeError(f"could not download {name}")
+            raise RuntimeError(f"could not download {name} ({'; '.join(errors)})")
         done += size
 
 
