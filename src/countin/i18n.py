@@ -290,6 +290,10 @@ EN = {
     'Папка assets рядом с программой тоже подходит, так модели можно носить на флешке вместе с ней.': 'An assets folder next to the app works too, so the models can travel with it on a flash drive.',
     "Заполнение пауз": "Pause fill",
     "{i} из {n}": "{i} of {n}",
+    "Пока дорожки разделяются, играет оригинал": "The original plays while the parts separate",
+    "Вернуть темп, найденный детектором": "Back to the tempo the detector found",
+    "Вернуть «1», найденную детектором": "Back to the \"1\" the detector found",
+    "Вернуть отсчёт по умолчанию": "Back to the default count-in",
 }
 
 

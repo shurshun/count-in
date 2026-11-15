@@ -865,6 +865,7 @@ class Overview(QWidget):
             half = (wv.v1 - wv.v0) / 2
             wv.show_range(t - half, t + half)
         self.grab_dt = t - wv.v0
+        self.press_x = e.position().x()
 
     def mouseMoveEvent(self, e):
         if self.grab_dt is not None:
@@ -872,8 +873,11 @@ class Overview(QWidget):
             a = self.t_of(e.position().x()) - self.grab_dt
             wv.show_range(a, a + wv.v1 - wv.v0)
 
-    def mouseReleaseEvent(self, _e):
+    def mouseReleaseEvent(self, e):
         self.grab_dt = None
+        if abs(e.position().x() - getattr(self, "press_x", -1e9)) < 4:  # a click, not a drag: the playhead goes there
+            self.wave.set_playhead(self.t_of(e.position().x()), snap=False)
+            self.wave.playheadClicked.emit()
 
 
 class Wave(QWidget):
@@ -889,7 +893,8 @@ class Wave(QWidget):
     zonesEdited = Signal(object)
     zoneClicked = Signal(int)
     spanSelected = Signal(int, int)  # first and last bar of a span dragged with Shift or along the ruler
-    playFrom = Signal(float)  # double-click: play from here
+    playFrom = Signal(float)
+    playheadClicked = Signal()  # the user put the playhead somewhere by a click  # double-click: play from here
     navChanged = Signal()  # the play position or the current pause changed
     RULER = 20
 
@@ -1345,6 +1350,7 @@ class Wave(QWidget):
             self.zonesEdited.emit(self.zones)
         elif self.drag and self.drag[0] == "pan" and abs(e.position().x() - self.press_x) < 4:
             self.set_playhead(self.t_of(e.position().x()), snap=not e.modifiers() & Qt.AltModifier)
+            self.playheadClicked.emit()
         self.drag = None
 
     def set_playhead(self, t: float, snap: bool = True):
@@ -2154,9 +2160,9 @@ class Window(QMainWindow):
         return panel
 
     def _next_tip(self):
-        """A practical tip, and about one time in four a music line, for every progress display."""
-        tip = random.random() >= 0.25
-        text = _(random.choice(TIPS)) if tip else "♪  " + _(random.choice(PHRASES))
+        """A practical tip for every progress display."""
+        tip = True  # music lines are off until a better set is chosen
+        text = _(random.choice(TIPS))
         self.prog_phrase.setText(text)
         self.wave.busy.phrase.setText(text)
         self.wave.tips.set(text, tip)
@@ -2413,7 +2419,7 @@ class Window(QMainWindow):
                 h.addStretch() if w is None else h.addWidget(w, 0, Qt.AlignVCenter)
             return h
 
-        tempo, g = card(_("Темп"))
+        tempo, g = card(_("Темп"), self._icon_button("reset", _("Вернуть темп, найденный детектором"), self._reset_tempo))
         tempo.setMinimumWidth(310)
         read = QVBoxLayout()
         read.setSpacing(0)
@@ -2429,7 +2435,8 @@ class Window(QMainWindow):
         g.addLayout(pads, 1, 0, 1, 2)
         g.addWidget(QFrame(objectName="hline"), 2, 0, 1, 2)
         g.addLayout(line(QLabel("1", objectName="badge", alignment=Qt.AlignCenter),
-                         QLabel(_("Первая доля"), objectName="cardTitle"), None), 3, 0, 1, 2)
+                         QLabel(_("Первая доля"), objectName="cardTitle"), None,
+                         self._icon_button("reset", _("Вернуть «1», найденную детектором"), self._reset_t0)), 3, 0, 1, 2)
         g.addLayout(line(glyph_button("left", _("«1» на долю раньше"), lambda: self._shift_beat(-1), "round"), None,
                          self.t0_spin, None,
                          glyph_button("right", _("«1» на долю позже"), lambda: self._shift_beat(1), "round")), 4, 0, 1, 2)
@@ -2463,7 +2470,7 @@ class Window(QMainWindow):
 
         tempo = self._tempo_card()
 
-        count, g = card(_("Отсчёт"))
+        count, g = card(_("Отсчёт"), self._icon_button("reset", _("Вернуть отсчёт по умолчанию"), self._reset_count))
         self.style_seg = Segmented([(_("Ровный"), "even"), (_("Нарастание"), "buildup"), ("MIDI…", "midi")], "buildup")
         self.style_seg.changed.connect(self._style_changed)
         row(g, _("Рисунок"), self.style_seg)
@@ -2523,6 +2530,7 @@ class Window(QMainWindow):
         self.wave.zoneClicked.connect(self._edit_zone)
         self.wave.spanSelected.connect(self._span_selected)
         self.wave.playFrom.connect(self._play_from)
+        self.wave.playheadClicked.connect(self._seek)
 
         # Pauses get searched again shortly after the levels or the threshold stop moving.
         self.zone_timer = QTimer(self, singleShot=True, interval=500, timeout=self._levels_settled)
@@ -2849,6 +2857,37 @@ class Window(QMainWindow):
             self.current.t0 = max(0.0, self.current.t0 + k * 60.0 / self.current.bpm)
             self._show_track_values()
 
+    def _reset_tempo(self):
+        """The tempo the detector found, for the meter now chosen."""
+        t = self.current
+        if t and t.analysis:
+            t.bpm = 60.0 / an.beat_period(t.analysis, rd.METERS[self.meter_seg.value()][0])[0]
+            t.bpm_manual = False
+            self._show_track_values()
+
+    def _reset_t0(self):
+        """The first downbeat the detector found."""
+        t = self.current
+        if t and t.analysis:
+            t.t0 = t.analysis.first_downbeat
+            self._show_track_values()
+
+    def _reset_count(self):
+        """The count-in from the saved defaults, or the factory one when none are saved."""
+        st = QSettings()
+        saved = st.value(DEFAULTS + "style") is not None
+        for seg, key, cast, factory in ((self.style_seg, "style", str, "buildup"), (self.bars_seg, "bars", int, 2),
+                                        (self.meter_seg, "meter", str, "4/4")):
+            try:
+                v = cast(st.value(DEFAULTS + key)) if saved else factory
+            except (TypeError, ValueError):
+                v = factory
+            seg.set_value(v if v in seg.values else factory)
+        try:
+            self.volume.setValue(int(st.value(DEFAULTS + "volume", 0)) if saved else 0)
+        except (TypeError, ValueError):
+            self.volume.setValue(0)
+
     def _use_alt(self):
         if self.current and self.current.analysis.alt_downbeat is not None:
             self.current.t0 = self.current.analysis.alt_downbeat
@@ -3055,9 +3094,7 @@ class Window(QMainWindow):
         if self.wave.play_t is not None:
             return self._play_at(self.wave.play_t)
         s = self.settings()
-        if self._wait_for_stems(self._play, bool(s.levels)):
-            return
-        self._run(preview_job, self.current, s, self.pcm, self.sr, self.stem_cache, bool(s.levels),
+        self._run(preview_job, self.current, s, self.pcm, self.sr, self.stem_cache, self._separate_now(s),
                   on_done=self._preview_ready)
 
     def _preview_ready(self, result):
@@ -3067,7 +3104,9 @@ class Window(QMainWindow):
             return
         if new_cache:
             self.stem_cache = new_cache
-        self.status.setText(clip_note(clipped) or (_("Дорожки можно менять на ходу") if stems else ""))
+        self.status.setText(clip_note(clipped) or (_("Дорожки можно менять на ходу") if stems else
+                            _("Пока дорожки разделяются, играет оригинал") if self.sep_job and self.settings().levels
+                            else ""))
         self._gains()
         resume, self.resume_at = self.resume_at, None
         try:
@@ -3084,9 +3123,15 @@ class Window(QMainWindow):
         if self.player.done:
             self._stop()
             return
-        self.wave.cursor_t = self.play_start + self.player.position()
+        w = self.wave
+        w.cursor_t = self.play_start + self.player.position()
+
+        # The view pages along with the playhead, as in a DAW, unless the user is moving it by hand
+        span = w.v1 - w.v0
+        if w.drag is None and w.overview.grab_dt is None and not w.v0 <= w.cursor_t <= w.v1 - 0.03 * span:
+            w.show_range(w.cursor_t - 0.05 * span, w.cursor_t + 0.95 * span)
         self._nav_changed()
-        self.wave.update()
+        w.update()
 
     def _stop(self):
         if self.play_start is None:
@@ -3425,16 +3470,24 @@ class Window(QMainWindow):
         i = next((k for k, b in enumerate(bars) if b.start <= t < b.end), None)
         self._play_at(bars[max(i - 1, 0)].start if i is not None else max(0.0, t - 2.0))
 
+    def _seek(self):
+        """A click that moves the playhead during playback carries on from there at once."""
+        if self.play_start is not None and self.wave.play_t is not None:
+            self._play_at(self.wave.play_t)
+
     def _play_at(self, start: float):
         """Plays from the song time start."""
         if self.job or not (self.current and self.current.analysis and self.pcm is not None):
             return
         self._stop()
         s = self.settings()
-        if self._wait_for_stems(lambda: self._play_at(start), bool(s.levels)):
-            return
-        self._run(preview_job, self.current, s, self.pcm, self.sr, self.stem_cache, bool(s.levels), start,
+        self._run(preview_job, self.current, s, self.pcm, self.sr, self.stem_cache, self._separate_now(s), start,
                   on_done=self._preview_ready)
+
+    def _separate_now(self, s) -> bool:
+        """Whether a preview separates its own excerpt. Not while the whole song separates in the background:
+        the preview plays the original at once and switches to the parts when they arrive (_separated)."""
+        return bool(s.levels) and not (self.sep_job and self._full_stems() is None)
 
     def _reveal(self):
         if self.last_saved:
