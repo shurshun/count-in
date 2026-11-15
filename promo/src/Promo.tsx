@@ -15,19 +15,19 @@ export const Words = ({ text, accent }: { text: string; accent?: string }) => {
   return <>{l}<span style={{ color: ACCENT_ON_ORANGE }}>{accent}</span>{r}</>;
 };
 
-export const Intro = ({ syllables, dark }: { syllables: string[]; dark?: boolean }) => {
+export const Intro = ({ syllables, dark, orange }: { syllables: string[]; dark?: boolean; orange?: boolean }) => {
   const frame = useCurrentFrame();
   const q = QUARTERS.filter((t) => frame >= f(t)).length;
   const e = EIGHTHS.filter((t) => frame >= f(t)).length;
   const last = e ? EIGHTHS[e - 1] : QUARTERS[Math.max(0, q - 1)];
   const kick = interpolate(frame - f(last), [0, 5], [1.08, 1], clamp);
   return (
-    <AbsoluteFill style={{ background: dark ? "#111113" : C.bg, alignItems: "center", justifyContent: "center", fontFamily: FONT, color: dark ? "#fff" : C.text }}>
+    <AbsoluteFill style={{ background: orange ? C.accent : dark ? "#111113" : C.bg, alignItems: "center", justifyContent: "center", fontFamily: FONT, color: dark ? "#fff" : C.text }}>
       {e === 0 ? (
         <div style={{ fontSize: 360, fontWeight: 900, transform: `scale(${kick})` }}>{q || ""}</div>
       ) : (
         <div style={{ fontSize: 150, fontWeight: 900, letterSpacing: -4, maxWidth: "90%", textAlign: "center", lineHeight: 1.05, transform: `scale(${kick})` }}>
-          {syllables.map((s, i) => <span key={i} style={{ color: i < e ? (i >= 6 ? C.accent : dark ? "#fff" : C.text) : "transparent" }}>{s}</span>)}
+          {syllables.map((s, i) => <span key={i} style={{ color: i < e ? (i >= 6 ? (orange ? "#fff" : C.accent) : dark ? "#fff" : C.text) : "transparent" }}>{s}</span>)}
         </div>
       )}
     </AbsoluteFill>
