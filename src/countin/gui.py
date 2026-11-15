@@ -2200,11 +2200,13 @@ class Window(QMainWindow):
         w.update()
 
     def _dock_busy(self):
+        """Variant B: a few seconds into the separation the card folds into the capsule."""
+        if variant("PROGRESS") != "B" or not self.sep_job:
+            return
         self.busy_docked = True
-        if self.sep_job:
-            self.wave.busy.hide()
-            self.wave.pill.setVisible(variant("PROGRESS") == "B")
-            self.wave._place_overlay()
+        self.wave.busy.hide()
+        self.wave.pill.show()
+        self.wave._place_overlay()
 
     def _undock_busy(self):
         """The capsule opens back into the card for a few seconds."""
@@ -2212,7 +2214,8 @@ class Window(QMainWindow):
         self.wave.pill.hide()
         self.wave.busy.show()
         self.wave._place_overlay()
-        self.dock_timer.start()
+        if not self.after_sep:  # with an action waiting for the stems the card stays open
+            self.dock_timer.start()
 
     # --- navigation (design variants) ---
 
@@ -3598,9 +3601,9 @@ def accent_color(app: QApplication) -> QColor:
 def style_sheet(app: QApplication) -> str:
     """STYLE with colors for the system light or dark appearance."""
     dark = is_dark(app)
-    colors = ({"@WINDOW@": "#1e1e20", "@SIDEBAR@": "#262628", "@CARD@": "#2c2c2e", "@SEP_CARD@": "rgba(44,44,46,0.92)", "@BORDER@": "#3a3a3c",
+    colors = ({"@WINDOW@": "#1e1e20", "@SIDEBAR@": "#262628", "@CARD@": "#2c2c2e", "@SEP_CARD@": "rgba(44,44,46,0.9)", "@BORDER@": "#3a3a3c",
                "@FIELD@": "#a1a1a6", "@WARN@": "#ffb340", "@VEIL@": "rgba(30,30,32,0.80)"} if dark else
-              {"@WINDOW@": "#f5f5f7", "@SIDEBAR@": "#ececee", "@CARD@": "#ffffff", "@SEP_CARD@": "rgba(255,255,255,0.92)", "@BORDER@": "#d8d8dc",
+              {"@WINDOW@": "#f5f5f7", "@SIDEBAR@": "#ececee", "@CARD@": "#ffffff", "@SEP_CARD@": "rgba(255,255,255,0.9)", "@BORDER@": "#d8d8dc",
                "@FIELD@": "#6e6e73", "@WARN@": "#a35a00", "@VEIL@": "rgba(245,245,247,0.82)"})
 
     colors["@ACCENT@"] = accent_color(app).name()
