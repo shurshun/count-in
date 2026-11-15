@@ -83,6 +83,7 @@ def run(song: Path, scheme: str, lang: str, tmp: Path) -> None:
 
     def tick():
         if step["n"] == 0 and w.pcm is not None:
+            w._cancel_separation()  # the shots stage the progress by hand; no need to separate the song
             w.vocals.setValue(-6)
             w.guitar.setValue(gui.MUTE)
             w.status.setText(_("Сохранено: {name}", name="Demo Song_backing_guitar-off_vocals-6dB.mp3"))
@@ -100,13 +101,20 @@ def run(song: Path, scheme: str, lang: str, tmp: Path) -> None:
                 d.close()
                 w.reveal_b.hide()
                 w.status.setText("")
-                w.prog_panel.show()
-                w.prog_label.setText(_("{name}: разделение", name="Demo Song.mp3"))
-                w.progress.setRange(0, 1000)
-                w.progress.setValue(440)
-                w.prog_eta.setText("44% · " + _("осталось ~{m}:{s:02d}", m=1, s=24))
+
+                # Background separation folded into the capsule, with the tips card beside it
+                w.show_busy(_("Разделяю на дорожки"), _(gui.BUSY_WHY["separation"]), 0.44,
+                            _("осталось ~{m}:{s:02d}", m=1, s=24), docked=True)
+                w.tip_timer.stop()
+                w.wave.tips.set(_(gui.TIPS[5]), True)
+                w.wave._place_overlay()
                 app.processEvents()
                 w.grab().save(str(OUT / f"progress-light{sfx}.png"))
+                w.hide_busy()
+                w._help()
+                app.processEvents()
+                w.help_dialog.grab().save(str(OUT / f"help-light{sfx}.png"))
+                w.help_dialog.close()
             w.close()
             app.quit()
 

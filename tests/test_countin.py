@@ -381,7 +381,8 @@ def test_every_ui_string_has_an_english_version():
     from countin import gui
     parts = [t for _n, label, _i, tip in gui.PARTS for t in (label, tip)]
     for text in (*gui.ICON_CHOICES.values(), *gui.OUT_LEVELS.values(), gui.FORMAT_NAMES[None], i18n.LANGUAGES["system"],
-                 *parts, *gui.JOB_WHY.values(), *gui.PHRASES):
+                 *parts, *gui.JOB_WHY.values(), *gui.BUSY_WHY.values(), *gui.PHRASES, *gui.TIPS,
+                 *(text for title, lines in gui.HELP for text in (title, *lines))):
         if text not in i18n.EN:
             missing.append(text)
     assert not missing, missing
