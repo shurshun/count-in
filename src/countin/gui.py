@@ -89,6 +89,7 @@ QPushButton#iconButton:hover { background: rgba(127,127,127,0.24); }
 #drop { border: 2px dashed @BORDER@; border-radius: 18px; color: @FIELD@; font-size: 18px; }
 QFrame#card { background: @CARD@; border: 1px solid @BORDER@; border-radius: 12px; }
 #cardTitle { font-weight: 600; font-size: 16px; }
+QDoubleSpinBox#big { font-size: 20px; font-weight: 600; min-height: 34px; min-width: 130px; }
 #field { color: @FIELD@; }
 QPushButton[seg] { border: 1px solid rgba(127,127,127,0.35); background: rgba(127,127,127,0.06);
                    padding: 3px 11px; min-height: 18px; border-radius: 0; }
@@ -408,6 +409,11 @@ def zones_job(job: Job, t: Track, s: Settings, pcm: np.ndarray, sr: int, cached)
     return t, find_zones(t, pcm, sr, st, s), zones_key(s), (0, st)
 
 
+def separate_job(job: Job, t: Track, pcm: np.ndarray, sr: int):
+    """Separates the whole song in the background right after it opens. Returns (track, (0, stems))."""
+    return t, (0, _stems(job, pcm, sr, _("Разделение на дорожки")))
+
+
 def keep(slider_value: int) -> float:
     """Linear gain a level slider leaves on its stem."""
     return 0.0 if slider_value == MUTE else 10 ** (slider_value / 20)
@@ -518,7 +524,8 @@ class Wave(QWidget):
         self.t0 = None
         self.bars, self.zones, self.fill = [], [], True
         self.sel = None  # bars (first, last) while a span is being dragged
-        self.peak, self.ref_db, self.threshold_db = 1.0, None, None  # for the pause threshold line
+        self.peak, self.ref_db, self.threshold_db = 1.0, None, None  # for the pause threshold band
+        self.threshold_full = False  # band over the whole track while the slider moves
         self.labels: list[tuple[QRectF, int]] = []
         self.overlay: QWidget | None = None  # progress card shown over the dimmed waveform during a job
         self.cursor_t = None
@@ -670,14 +677,20 @@ class Wave(QWidget):
             sel.setAlpha(50)
             p.fillRect(QRectF(xa, 0, xb - xa, wh), sel)
 
-        # Pause threshold: bars whose level stays under this line become pauses (RMS shown as a sine peak).
+        # Pause threshold as an orange band from the top and bottom: bars whose level stays inside the gap
+        # between them become pauses (RMS shown as a sine peak). While the slider moves, the band covers the
+        # whole track; otherwise only a strip at the right edge shows it.
         if self.fill and self.ref_db is not None and self.threshold_db is not None and self.env is not None:
             a = min(10 ** ((self.ref_db + self.threshold_db) / 20) * 1.414 / self.peak, 1.0)
             mid = wh / 2
-            pen = QPen(QColor(255, 105, 97, 170), 1.5, Qt.DashLine)  # pastel red, softer than the system red
-            p.setPen(pen)
-            for y in (mid - a * mid * 0.92, mid + a * mid * 0.92):
-                p.drawLine(QPointF(0, y), QPointF(w, y))
+            gap = a * mid * 0.92
+            band = QColor(ORANGE)
+            band.setAlpha(38 if self.threshold_full else 150)
+            x0, bw = (0, w) if self.threshold_full else (w - 12, 8)
+            p.setPen(Qt.NoPen)
+            p.setBrush(band)
+            p.drawRoundedRect(QRectF(x0, 4, bw, max(mid - gap - 4, 0)), 3, 3)
+            p.drawRoundedRect(QRectF(x0, mid + gap, bw, max(mid - gap - 4, 0)), 3, 3)
 
         # Pause labels on top: span, meter and tempo; a click opens the editor.
         self.labels = []
@@ -1058,6 +1071,17 @@ def row(grid: QGridLayout, label, *widgets) -> None:
         h.addWidget(w)
     h.addStretch()
     grid.addLayout(h, r, 1)
+
+
+def stack(grid: QGridLayout, label: str, *widgets) -> None:
+    """A label above its controls, for a narrow card."""
+    grid.addWidget(QLabel(label, objectName="field"), grid.rowCount(), 0)
+    h = QHBoxLayout()
+    h.setSpacing(6)
+    for w in widgets:
+        h.addWidget(w)
+    h.addStretch()
+    grid.addLayout(h, grid.rowCount(), 0)
 
 
 # --- preferences ---
@@ -1450,6 +1474,10 @@ class Window(QMainWindow):
         self.analysis_pool.setMaxThreadCount(1)
         self.job_pool = QThreadPool()
         self.job_pool.setMaxThreadCount(1)
+        self.sep_job: Job | None = None  # whole-song separation started when a track opens
+        self.sep_pool = QThreadPool()
+        self.sep_pool.setMaxThreadCount(1)
+        self.after_sep: list = []  # actions that need the whole-song stems, run when they arrive
         self.player = Player()
         self.play_start = None
         self.resume_at = None  # song time a rebuilt preview carries on from
@@ -1614,20 +1642,20 @@ class Window(QMainWindow):
                       objectName="subtitle", wordWrap=True)
 
         tempo, g = card(_("Темп и первая доля"))
-        self.bpm_spin = QDoubleSpinBox(decimals=2, minimum=30, maximum=320, singleStep=0.1, suffix=" BPM")
+        self.bpm_spin = QDoubleSpinBox(decimals=2, minimum=30, maximum=320, singleStep=0.1, suffix=" BPM", objectName="big")
         self.bpm_spin.valueChanged.connect(self._bpm_edited)
         x2 = QPushButton("×2", objectName="small", clicked=lambda: self._scale_bpm(2.0))
         half = QPushButton("÷2", objectName="small", clicked=lambda: self._scale_bpm(0.5))
         tap = QPushButton(_("Tap…"), objectName="small", clicked=self._tap)
         tap.setToolTip(_("Настучать темп пробелом под играющую песню"))
-        row(g, _("Темп"), self.bpm_spin, x2, half, tap)
-        self.t0_spin = QDoubleSpinBox(decimals=3, maximum=36000, singleStep=0.001, suffix=_(" с"))
+        stack(g, _("Темп"), self.bpm_spin, x2, half, tap)
+        self.t0_spin = QDoubleSpinBox(decimals=3, maximum=36000, singleStep=0.001, suffix=_(" с"), objectName="big")
         self.t0_spin.valueChanged.connect(self._t0_edited)
         prev_b = QPushButton("◀", objectName="small", clicked=lambda: self._shift_beat(-1))
         next_b = QPushButton("▶", objectName="small", clicked=lambda: self._shift_beat(1))
-        row(g, _("Доля «1»"), self.t0_spin, prev_b, next_b)
+        stack(g, _("Доля «1»"), self.t0_spin, prev_b, next_b)
         self.alt_b = QPushButton(_("Взять кандидата детектора"), objectName="small", clicked=self._use_alt)
-        g.addWidget(self.alt_b, g.rowCount(), 1)
+        g.addWidget(self.alt_b, g.rowCount(), 0, Qt.AlignLeft)
         sp = self.alt_b.sizePolicy()
         sp.setRetainSizeWhenHidden(True)  # the card keeps its height when the button comes and goes
         self.alt_b.setSizePolicy(sp)
@@ -1644,7 +1672,7 @@ class Window(QMainWindow):
         self.meter_seg = Segmented([(m, m) for m in rd.METERS], "4/4")
         self.meter_seg.changed.connect(self._meter_changed)
         row(g, _("Размер"), self.meter_seg)
-        self.volume = QSlider(Qt.Horizontal, minimum=-24, maximum=6, value=0, minimumWidth=110)
+        self.volume = QSlider(Qt.Horizontal, minimum=-24, maximum=6, value=0, minimumWidth=90)
         self.volume_l = QLabel(minimumWidth=60)
         row(g, _("Громкость"), self.volume, self.volume_l)
         self.pattern: Path | None = None
@@ -1700,13 +1728,18 @@ class Window(QMainWindow):
         for w in (*self.parts.values(), self.threshold):
             w.valueChanged.connect(lambda _v: self.zone_timer.start())  # start(int) would take the value as msec
         self.threshold.valueChanged.connect(self._labels)
+        self.threshold_timer = QTimer(self, singleShot=True, interval=1200)
+        self.threshold_timer.timeout.connect(self._threshold_shown)
+        self.threshold.valueChanged.connect(self._threshold_moved)
+        self.threshold.sliderReleased.connect(self.threshold_timer.start)
         self.threshold.valueChanged.connect(self._refresh)
         self.threshold.valueChanged.connect(lambda v: QSettings().setValue(THRESHOLD_KEY, v))
 
         cards = QHBoxLayout()
         cards.setSpacing(12)
-        for c in (tempo, count, mix):
-            cards.addWidget(c, 1)
+        cards.addWidget(tempo, 0)
+        cards.addWidget(count, 0)
+        cards.addWidget(mix, 1)  # the backing card takes the room the other two leave
 
         page = QWidget()
         v = QVBoxLayout(page)
@@ -1735,7 +1768,12 @@ class Window(QMainWindow):
         self.update_b = QPushButton("↓", objectName="update", clicked=self._update_action)
         self.update_b.setFocusPolicy(Qt.NoFocus)
         self.update_b.setCursor(Qt.PointingHandCursor)
+        self.sep_bar = QProgressBar(textVisible=False, fixedHeight=6, fixedWidth=120, maximum=1000)
+        self.sep_l = QLabel(objectName="field")
+        self.sep_bar.hide()
         sb.addWidget(self.file_l)
+        sb.addWidget(self.sep_bar)
+        sb.addWidget(self.sep_l)
         sb.addWidget(self.status, 1)
         sb.addPermanentWidget(self.reveal_b)
 
@@ -1950,6 +1988,7 @@ class Window(QMainWindow):
         bar = 60.0 / t.bpm * rd.METERS[self.meter_seg.value()][0]
         self.wave.show_range(t.t0 - bar * self.bars_seg.value() - 1.0, t.t0 + 6.0)
         self._enable()
+        self._start_separation()
         self._auto_zones()
 
     def _show_track_values(self):
@@ -2073,6 +2112,16 @@ class Window(QMainWindow):
         self.zone_l.setText("" if t.zones is None or not self.fill.isChecked() else _("пауз: {n}", n=len(t.zones)))
         self.wave.update()
 
+    def _threshold_moved(self, _v):
+        self.wave.threshold_full = True
+        self.threshold_timer.start()
+
+    def _threshold_shown(self):
+        if self.threshold.isSliderDown():
+            return  # sliderReleased starts the timer again
+        self.wave.threshold_full = False
+        self.wave.update()
+
     # --- jobs ---
 
     def _enable(self):
@@ -2156,6 +2205,7 @@ class Window(QMainWindow):
         """Forgets the current track: its audio, stems, waveform and pauses."""
         self.current, self.pcm, self.info, self.stem_cache, self.last_saved = None, None, None, None, None
         self.resume_at, self.zones_pending = None, False
+        self._cancel_separation()
         self.backing_key, self.backing, self.wave_source = None, None, None
         self.wave.env, self.wave.t0, self.wave.beats, self.wave.downs, self.wave.clicks = None, None, [], [], []
         self.wave.bars, self.wave.zones, self.wave.ref_db = [], [], None
@@ -2198,6 +2248,8 @@ class Window(QMainWindow):
         if self.job or not (self.current and self.current.analysis and self.pcm is not None):
             return
         s = self.settings()
+        if self._wait_for_stems(self._play, bool(s.levels)):
+            return
         self._run(preview_job, self.current, s, self.pcm, self.sr, self.stem_cache, bool(s.levels),
                   on_done=self._preview_ready)
 
@@ -2245,6 +2297,8 @@ class Window(QMainWindow):
             return
         self._stop()
         s = self.settings()
+        if self._wait_for_stems(self._save, bool(s.levels) or s.fill):
+            return
         out = target_path(self.current.path, s, self.info or io.probe(self.current.path))
         if out.exists() and QMessageBox.question(
                 self, "Count-In", _("Файл {name} уже есть. Заменить?", name=out.name)) != QMessageBox.Yes:
@@ -2357,6 +2411,68 @@ class Window(QMainWindow):
         self._update_backing()
         self._auto_zones()
 
+    # --- background separation ---
+
+    def _start_separation(self):
+        if self.sep_job or self._full_stems() is not None:
+            return
+        self.sep_job = Job(separate_job, self.current, self.pcm, self.sr)
+        self.sep_job.signals.progress.connect(self._sep_progress)
+        self.sep_job.signals.done.connect(self._separated)
+        self.sep_job.signals.failed.connect(self._sep_failed)
+        self.sep_bar.setValue(0)
+        self.sep_bar.show()
+        self.sep_l.setText(_("Разделение на дорожки"))
+        self.sep_pool.start(self.sep_job)
+
+    def _cancel_separation(self):
+        j, self.sep_job, self.after_sep = self.sep_job, None, []
+        if j:
+            j.cancelled.set()
+            for sig in (j.signals.progress, j.signals.done, j.signals.failed):
+                try:
+                    sig.disconnect()
+                except (RuntimeError, TypeError):
+                    pass
+        self.sep_bar.hide()
+        self.sep_l.setText("")
+
+    def _sep_progress(self, _text: str, done: int, total: int):
+        if total:
+            self.sep_bar.setValue(int(done / total * 1000))
+            self.sep_l.setText(_("Разделение на дорожки: {p:.0%}", p=done / total))
+
+    def _separated(self, result):
+        t, full = result
+        self.sep_job = None
+        self.sep_bar.hide()
+        self.sep_l.setText("")
+        if t is not self.current:
+            return
+        self.stem_cache = full
+        self._update_backing()
+        todo, self.after_sep = self.after_sep, []
+        for fn in todo:
+            fn()
+        self._auto_zones()
+        self._restart_preview()  # a preview that played without stems picks them up now
+
+    def _sep_failed(self, msg: str):
+        self.sep_job, self.after_sep = None, []
+        self.sep_bar.hide()
+        self.sep_l.setText("")
+        self.status.setText(msg)
+
+    def _wait_for_stems(self, fn, needed: bool = True) -> bool:
+        """While the background separation runs, an action that needs stems waits for it instead of separating
+        on its own. True when fn got queued."""
+        if not (needed and self.sep_job) or self._full_stems() is not None:
+            return False
+        if fn not in self.after_sep:
+            self.after_sep.append(fn)
+        self.status.setText(_("Начнётся, когда закончится разделение"))
+        return True
+
     def _full_stems(self):
         return self.stem_cache[1] if self.pcm is not None and _covers(self.stem_cache, 0, len(self.pcm)) else None
 
@@ -2392,6 +2508,8 @@ class Window(QMainWindow):
             self.zones_pending = True
             return
         st = self._full_stems()
+        if st is None and s.levels and self.sep_job:
+            return  # _separated searches again
         if st is not None or not s.levels:
             self._set_found(t, find_zones(t, self.pcm, self.sr, st, s, self._backing(s.levels)), zones_key(s))
             return
@@ -2472,6 +2590,8 @@ class Window(QMainWindow):
         """Rebuilds the playing preview after an edit and carries on from the same song position."""
         if self.play_start is None or self.job:
             return
+        if self.sep_job and self._full_stems() is None and (separate or self.settings().levels):
+            return  # _separated restarts it with the stems
         self.resume_at = self.play_start + self.player.position()
         self._stop()
         s = self.settings()
@@ -2487,6 +2607,8 @@ class Window(QMainWindow):
         i = next((k for k, b in enumerate(bars) if b.start <= t < b.end), None)
         start = bars[max(i - 1, 0)].start if i is not None else max(0.0, t - 2.0)
         s = self.settings()
+        if self._wait_for_stems(lambda: self._play_from(t), bool(s.levels)):
+            return
         self._run(preview_job, self.current, s, self.pcm, self.sr, self.stem_cache, bool(s.levels), start,
                   on_done=self._preview_ready)
 

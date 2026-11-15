@@ -200,6 +200,9 @@ EN = {
     "стерео": "stereo",
     "{n} кан.": "{n} ch",
     "сжатие до {p:.0%}": "compressed to {p:.0%}",
+    "Разделение на дорожки": "Separating parts",
+    "Разделение на дорожки: {p:.0%}": "Separating parts: {p:.0%}",
+    "Начнётся, когда закончится разделение": "Starts when the separation finishes",
 }
 
 
