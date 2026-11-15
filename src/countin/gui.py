@@ -434,6 +434,7 @@ class Wave(QWidget):
     t0Changed = Signal(float)
     zonesEdited = Signal(object)
     zoneClicked = Signal(int)
+    spanSelected = Signal(int, int)  # first and last bar of a span dragged with Shift or along the ruler
     RULER = 20
 
     def __init__(self):
@@ -446,6 +447,8 @@ class Wave(QWidget):
         self.beats, self.downs, self.clicks = [], [], []
         self.t0 = None
         self.bars, self.zones, self.fill = [], [], True
+        self.sel = None  # bars (first, last) while a span is being dragged
+        self.peak, self.ref_db, self.threshold_db = 1.0, None, None  # for the pause threshold line
         self.labels: list[tuple[QRectF, int]] = []
         self.cursor_t = None
         self.drag = None
@@ -456,7 +459,8 @@ class Wave(QWidget):
         b = sr // 1000
         n = len(m) // b
         env = m[: n * b].reshape(n, b).max(axis=1)
-        self.env = env / max(float(env.max()), 1e-9)
+        self.peak = max(float(env.max()), 1e-9)
+        self.env = env / self.peak
         self.duration = len(pcm) / sr
         self._cache = (None, None)
 
@@ -560,6 +564,22 @@ class Wave(QWidget):
             f.setBold(True)
             p.setFont(f)
             p.drawText(QRectF(x - 9, 3, 18, 18), Qt.AlignCenter, "1")
+        if self.sel:
+            a, b = self.sel
+            xa, xb = self.x_of(self.bars[a].start), self.x_of(self.bars[b].end)
+            sel = QColor(accent)
+            sel.setAlpha(50)
+            p.fillRect(QRectF(xa, 0, xb - xa, wh), sel)
+
+        # Pause threshold: bars whose level stays under this line become pauses (RMS shown as a sine peak).
+        if self.fill and self.ref_db is not None and self.threshold_db is not None and self.env is not None:
+            a = min(10 ** ((self.ref_db + self.threshold_db) / 20) * 1.414 / self.peak, 1.0)
+            mid = wh / 2
+            pen = QPen(QColor(255, 105, 97, 170), 1.5, Qt.DashLine)  # pastel red, softer than the system red
+            p.setPen(pen)
+            for y in (mid - a * mid * 0.92, mid + a * mid * 0.92):
+                p.drawLine(QPointF(0, y), QPointF(w, y))
+
         # Pause labels on top: span, meter and tempo; a click opens the editor.
         self.labels = []
         f = p.font()
@@ -642,6 +662,13 @@ class Wave(QWidget):
         if label is not None:
             self.zoneClicked.emit(label)
             return
+        if self.bars and (e.modifiers() & Qt.ShiftModifier or pos.y() > self.height() - self.RULER):
+            i = self._bar_at(self.t_of(x))
+            if i is not None:
+                self.drag = ("select", i)
+                self.sel = (i, i)
+                self.update()
+            return
         if self._near_marker(x):
             self.drag = "marker"
         elif self.bars and (hit := self._near_edge(x)):
@@ -661,6 +688,13 @@ class Wave(QWidget):
                     t = b
             self.t0 = float(np.clip(t, 0.0, max(self.duration - 0.01, 0.0)))
             self.t0Changed.emit(self.t0)
+            self.update()
+        elif self.drag and self.drag[0] == "select":
+            t = self.t_of(x)
+            i = self._bar_at(t)
+            if i is None:
+                i = 0 if t < self.bars[0].start else len(self.bars) - 1
+            self.sel = (min(self.drag[1], i), max(self.drag[1], i))
             self.update()
         elif self.drag and self.drag[0] == "edge":
             _kind, i, side = self.drag
@@ -685,6 +719,11 @@ class Wave(QWidget):
                            Qt.SizeHorCursor if self._near_marker(x) or edge else Qt.OpenHandCursor)
 
     def mouseReleaseEvent(self, _event):
+        if self.drag and self.drag[0] == "select" and self.sel:
+            a, b = self.sel
+            self.sel = None
+            self.update()
+            self.spanSelected.emit(a, b)
         self.drag = None
 
     def wheelEvent(self, e):
@@ -751,9 +790,56 @@ class MuteButton(QPushButton):
                 p.drawArc(QRectF(x + 7 - r, y - r, 2 * r, 2 * r), -50 * 16, 100 * 16)
 
 
-def row(grid: QGridLayout, label: str, *widgets) -> None:
+def part_icon(kind: str, color: QColor, size: int = 16) -> QPixmap:
+    """Small guitar or microphone glyph for the backing-track rows, drawn so it follows the theme colour."""
+    dpr = 2
+    pix = QPixmap(size * dpr, size * dpr)
+    pix.setDevicePixelRatio(dpr)
+    pix.fill(Qt.transparent)
+    p = QPainter(pix)
+    p.setRenderHint(QPainter.Antialiasing)
+    p.setPen(Qt.NoPen)
+    p.setBrush(color)
+    s = size / 16
+    if kind == "guitar":
+        p.save()
+        p.translate(8 * s, 8 * s)
+        p.rotate(45)
+        p.drawRoundedRect(QRectF(-0.9 * s, -8 * s, 1.8 * s, 9 * s), 0.6 * s, 0.6 * s)  # neck
+        p.drawRoundedRect(QRectF(-1.6 * s, -8.6 * s, 3.2 * s, 2.4 * s), 0.8 * s, 0.8 * s)  # head
+        p.drawEllipse(QPointF(0, 1.4 * s), 3.2 * s, 2.8 * s)  # upper bout
+        p.drawEllipse(QPointF(0, 4.6 * s), 4.0 * s, 3.4 * s)  # lower bout
+        p.setBrush(QColor(0, 0, 0, 0))
+        p.setCompositionMode(QPainter.CompositionMode_Clear)
+        p.drawEllipse(QPointF(0, 2.8 * s), 1.1 * s, 1.1 * s)  # sound hole
+        p.restore()
+    else:
+        p.drawRoundedRect(QRectF(5.5 * s, 1 * s, 5 * s, 8.5 * s), 2.5 * s, 2.5 * s)  # capsule
+        p.setBrush(Qt.NoBrush)
+        p.setPen(QPen(color, 1.4 * s, Qt.SolidLine, Qt.RoundCap))
+        p.drawArc(QRectF(3.5 * s, 3.5 * s, 9 * s, 8.5 * s), 180 * 16, 180 * 16)  # holder
+        p.drawLine(QPointF(8 * s, 12 * s), QPointF(8 * s, 14.6 * s))  # stem
+        p.drawLine(QPointF(5.5 * s, 14.6 * s), QPointF(10.5 * s, 14.6 * s))  # base
+    p.end()
+    return pix
+
+
+def icon_label(kind: str, text: str) -> QWidget:
+    w = QWidget()
+    h = QHBoxLayout(w)
+    h.setContentsMargins(0, 0, 0, 0)
+    h.setSpacing(6)
+    icon = QLabel()
+    icon.setPixmap(part_icon(kind, QColor(127, 127, 127)))
+    h.addWidget(icon)
+    h.addWidget(QLabel(text, objectName="field"))
+    return w
+
+
+def row(grid: QGridLayout, label, *widgets) -> None:
+    """A label (text or a widget) and the controls after it."""
     r = grid.rowCount()
-    grid.addWidget(QLabel(label, objectName="field"), r, 0)
+    grid.addWidget(label if isinstance(label, QWidget) else QLabel(label, objectName="field"), r, 0)
     h = QHBoxLayout()
     h.setSpacing(6)
     for w in widgets:
@@ -782,6 +868,104 @@ def output_prefs() -> tuple[Path | None, tuple[bool, bool, bool] | None]:
         return None, None
     group = tuple(pref_bool(k, True) for k in OUT_LEVELS) if pref_bool(OUT_GROUP, False) else None
     return Path(root), group
+
+
+class TapDialog(QDialog):
+    """Tap tempo over the playing song: Space taps, and once the taps stop the song carries on with a click
+    at the tapped tempo and phase. Closing stops it; Apply keeps the tempo."""
+
+    def __init__(self, parent, pcm: np.ndarray, sr: int, start: float, bpm: float):
+        super().__init__(parent)
+        self.setWindowTitle(_("Темп на слух"))
+        self.setMinimumWidth(460)
+        self.pcm, self.sr, self.bpm = pcm, sr, bpm
+        self.taps: list[float] = []  # song times of the taps
+        self.clicking = False
+        self.player = Player()
+        self.offset = 0.0  # song time of the first sample the player got
+        self.wall0 = time.monotonic()
+
+        v = QVBoxLayout(self)
+        v.setSpacing(14)
+        self.value = QLabel(f"{bpm:.1f}", alignment=Qt.AlignCenter)
+        f = self.value.font()
+        f.setPointSizeF(f.pointSizeF() * 4.5)
+        f.setBold(True)
+        self.value.setFont(f)
+        v.addWidget(self.value)
+        v.addWidget(QLabel("BPM", objectName="field", alignment=Qt.AlignCenter))
+        self.hint = QLabel(objectName="subtitle", alignment=Qt.AlignCenter, wordWrap=True)
+        v.addWidget(self.hint)
+        h = QHBoxLayout()
+        h.addStretch()
+        for text, slot, name in ((_("Отмена"), self.reject, "tool"), (_("Применить"), self.accept, "primary")):
+            b = QPushButton(text, objectName=name, clicked=slot)
+            b.setFocusPolicy(Qt.NoFocus)
+            b.setAutoDefault(False)
+            h.addWidget(b)
+        v.addLayout(h)
+        self._show_hint()
+
+        self.timer = QTimer(self, interval=100, timeout=self._check)
+        self.timer.start()
+        self._play_from(start, clicks=False)
+
+    def _now(self) -> float:
+        """Song time heard right now. The wall clock, not the player's block counter: blocks are 43 ms coarse."""
+        lag = self.player.stream.latency if self.player.stream else 0.0
+        return self.offset + max(0.0, time.monotonic() - self.wall0 - lag)
+
+    def _play_from(self, t: float, clicks: bool):
+        """Plays the song from t, with the tapped click on top when clicks is set."""
+        i0 = int(max(0.0, t) * self.sr)
+        part = self.pcm[i0:].copy()
+        if clicks and len(self.taps) >= 2:
+            hi, lo = rd.load_samples(self.sr)
+            p = 60.0 / self.bpm
+            k = int(np.ceil((t - self.taps[-1]) / p))
+            for n in range(k, k + int(len(part) / self.sr / p) + 1):
+                s = int(round((self.taps[-1] + n * p) * self.sr)) - i0
+                if 0 <= s < len(part):
+                    x = lo[: len(part) - s]
+                    part[s : s + len(x)] += x[:, None]
+        self.offset, self.clicking = i0 / self.sr, clicks
+        try:
+            self.player.play(part, {}, self.sr)
+            self.wall0 = time.monotonic()
+        except Exception as e:  # no output device
+            self.hint.setText(_("Не удалось воспроизвести: {e}", e=e))
+
+    def _show_hint(self):
+        self.hint.setText(_("Стучите пробелом в такт, клик с вашим темпом пойдёт сам") if not self.clicking
+                          else _("Играет клик с настуканным темпом. Пробел, чтобы настучать заново"))
+
+    def keyPressEvent(self, e):
+        if e.key() != Qt.Key_Space or e.isAutoRepeat():
+            return super().keyPressEvent(e)
+        now = self._now()
+        if self.clicking or (self.taps and now - self.taps[-1] > 2.0):
+            self.taps = []
+            if self.clicking:
+                self._play_from(now, clicks=False)
+                now = self._now()
+        self.taps = (self.taps + [now])[-12:]
+        if len(self.taps) >= 3:
+            self.bpm = float(np.clip(60.0 / float(np.median(np.diff(self.taps))), 30, 320))
+            self.value.setText(f"{self.bpm:.1f}")
+        self._show_hint()
+
+    def _check(self):
+        """Two beats without a tap: the tapping is over, the click takes over at the tapped tempo."""
+        if self.player.done:
+            self.timer.stop()
+        elif not self.clicking and len(self.taps) >= 3 and self._now() - self.taps[-1] > 2 * 60.0 / self.bpm:
+            self._play_from(self._now(), clicks=True)
+            self._show_hint()
+
+    def done(self, r):
+        self.timer.stop()
+        self.player.stop()
+        super().done(r)
 
 
 class ZoneDialog(QDialog):
@@ -1067,15 +1251,30 @@ class Window(QMainWindow):
         self.warning = QLabel(objectName="warning", wordWrap=True)
         self.wave = Wave()
         self.wave.t0Changed.connect(self._marker_moved)
+
+        # Pause threshold beside the waveform; the wave draws it as a line, so the level is visible
+        self.threshold = QSlider(Qt.Vertical, minimum=-36, maximum=-6)
+        self.threshold.setValue(int(QSettings().value(THRESHOLD_KEY, zn.QUIET_DB)))
+        self.threshold.setToolTip(_("Насколько тише среднего уровня песни должен быть такт, чтобы считаться паузой"))
+        self.threshold_l = QLabel(alignment=Qt.AlignCenter)
+        self.threshold_box = QWidget()
+        tv = QVBoxLayout(self.threshold_box)
+        tv.setContentsMargins(0, 0, 0, Wave.RULER)
+        tv.setSpacing(4)
+        tv.addWidget(QLabel(_("Порог"), objectName="field", alignment=Qt.AlignCenter))
+        tv.addWidget(self.threshold, 1, Qt.AlignHCenter)
+        tv.addWidget(self.threshold_l)
         hint = QLabel(_("Тяните оранжевый маркер «1» на первую сильную долю. Колесо — масштаб, перетаскивание — сдвиг, "
-                        "⌥ — без прилипания к долям."), objectName="subtitle", wordWrap=True)
+                        "⌥ — без прилипания к долям. Пауза: выделите такты с ⇧ или по шкале времени, правый щелчок убирает."),
+                      objectName="subtitle", wordWrap=True)
 
         tempo, g = card(_("Темп и первая доля"))
         self.bpm_spin = QDoubleSpinBox(decimals=2, minimum=30, maximum=320, singleStep=0.1, suffix=" BPM")
         self.bpm_spin.valueChanged.connect(self._bpm_edited)
         x2 = QPushButton("×2", objectName="small", clicked=lambda: self._scale_bpm(2.0))
         half = QPushButton("÷2", objectName="small", clicked=lambda: self._scale_bpm(0.5))
-        tap = QPushButton("Tap", objectName="small", clicked=self._tap)
+        tap = QPushButton(_("Tap…"), objectName="small", clicked=self._tap)
+        tap.setToolTip(_("Настучать темп пробелом под играющую песню"))
         row(g, _("Темп"), self.bpm_spin, x2, half, tap)
         self.t0_spin = QDoubleSpinBox(decimals=3, maximum=36000, singleStep=0.001, suffix=_(" с"))
         self.t0_spin.valueChanged.connect(self._t0_edited)
@@ -1105,28 +1304,20 @@ class Window(QMainWindow):
         mix, g = card(_("Бэктрек"))
         self.guitar = QSlider(Qt.Horizontal, minimum=MUTE, maximum=0, value=0, minimumWidth=140)
         self.guitar_l = QLabel(minimumWidth=90)
-        row(g, _("Гитара"), MuteButton(self.guitar, _("Убрать гитару")), self.guitar, self.guitar_l)
+        row(g, icon_label("guitar", _("Гитара")), MuteButton(self.guitar, _("Убрать гитару")), self.guitar, self.guitar_l)
         self.vocals = QSlider(Qt.Horizontal, minimum=MUTE, maximum=0, value=0, minimumWidth=140)
         self.vocals_l = QLabel(minimumWidth=90)
-        row(g, _("Вокал"), MuteButton(self.vocals, _("Убрать вокал")), self.vocals, self.vocals_l)
+        row(g, icon_label("mic", _("Вокал")), MuteButton(self.vocals, _("Убрать вокал")), self.vocals, self.vocals_l)
         self.fill = QCheckBox(_("Заполнять паузы хай-хэтом"), checked=pref_bool(FILL_KEY, True))
         self.fill.setToolTip(_("Такты, где без гитары и вокала тихо, получают хай-хэт на каждую долю и отсчёт палочками за такт до паузы. "
                                "Правый щелчок по такту на волне добавляет или убирает его, края зоны тянутся мышью."))
-        self.add_b = QPushButton(_("+ Пауза"), objectName="small", clicked=self._add_zone)
-        self.add_b.setToolTip(_("Добавить паузу из двух тактов посередине видимой части волны"))
-        self.add_b.setFocusPolicy(Qt.NoFocus)
         self.zone_l = QLabel(objectName="field")
         h = QHBoxLayout()
         h.setSpacing(8)
-        for w in (self.fill, self.add_b, self.zone_l):
+        for w in (self.fill, self.zone_l):
             h.addWidget(w)
         h.addStretch()
         g.addLayout(h, g.rowCount(), 0, 1, 2)
-        self.threshold = QSlider(Qt.Horizontal, minimum=-36, maximum=-6, minimumWidth=140)
-        self.threshold.setValue(int(QSettings().value(THRESHOLD_KEY, zn.QUIET_DB)))
-        self.threshold.setToolTip(_("Насколько тише среднего уровня песни должен быть такт, чтобы считаться паузой"))
-        self.threshold_l = QLabel(minimumWidth=60)
-        row(g, _("Порог паузы"), self.threshold, self.threshold_l)
         self.trim = QCheckBox(_("Обрезать тишину в начале"))
         g.addWidget(self.trim, g.rowCount(), 0, 1, 2, Qt.AlignLeft | Qt.AlignVCenter)
         self.fmt = QComboBox()
@@ -1142,12 +1333,14 @@ class Window(QMainWindow):
         self.fill.toggled.connect(self._fill_toggled)
         self.wave.zonesEdited.connect(self._zones_edited)
         self.wave.zoneClicked.connect(self._edit_zone)
+        self.wave.spanSelected.connect(self._span_selected)
 
         # Pauses get searched again shortly after the levels or the threshold stop moving.
         self.zone_timer = QTimer(self, singleShot=True, interval=500, timeout=self._levels_settled)
         for w in (self.guitar, self.vocals, self.threshold):
             w.valueChanged.connect(self.zone_timer.start)
         self.threshold.valueChanged.connect(self._labels)
+        self.threshold.valueChanged.connect(self._refresh)
         self.threshold.valueChanged.connect(lambda v: QSettings().setValue(THRESHOLD_KEY, v))
 
         cards = QHBoxLayout()
@@ -1161,7 +1354,11 @@ class Window(QMainWindow):
         v.setSpacing(8)
         v.addWidget(self.detector)
         v.addWidget(self.warning)
-        v.addWidget(self.wave, 1)
+        wr = QHBoxLayout()
+        wr.setSpacing(10)
+        wr.addWidget(self.wave, 1)
+        wr.addWidget(self.threshold_box)
+        v.addLayout(wr, 1)
         v.addWidget(hint)
         v.addSpacing(6)
         v.addLayout(cards)
@@ -1343,7 +1540,7 @@ class Window(QMainWindow):
         self.status.setText("")
         self.stack.setCurrentIndex(1)
         self.wave.env, self.wave.t0, self.wave.beats, self.wave.downs, self.wave.clicks = None, None, [], [], []
-        self.wave.bars, self.wave.zones = [], []
+        self.wave.bars, self.wave.zones, self.wave.ref_db = [], [], None
         self.zone_l.setText("")
         self.wave._cache = (None, None)
         self.wave.update()
@@ -1421,13 +1618,14 @@ class Window(QMainWindow):
             self._show_track_values()
 
     def _tap(self):
-        now = time.monotonic()
-        if self.taps and now - self.taps[-1] > 2.0:
-            self.taps = []
-        self.taps = (self.taps + [now])[-8:]
-        if len(self.taps) >= 3 and self.current:
-            self.current.bpm = float(np.clip(60.0 / float(np.median(np.diff(self.taps))), 30, 320))
-            self.current.bpm_manual = True
+        """Opens the tap window over the playing song; Apply sets the tempo."""
+        t = self.current
+        if not (t and t.analysis and self.pcm is not None):
+            return
+        self._stop()
+        d = TapDialog(self, self.pcm, self.sr, max(0.0, t.t0 - 1.0), t.bpm)
+        if d.exec() == QDialog.Accepted and d.taps:
+            t.bpm, t.bpm_manual = d.bpm, True
             self._show_track_values()
 
     def _meter_changed(self, meter: str):
@@ -1510,6 +1708,9 @@ class Window(QMainWindow):
         self.wave.t0 = t.t0
         self.wave.zones = t.zones or []
         self.wave.fill = self.fill.isChecked()
+        self.wave.threshold_db = float(self.threshold.value())
+        if self.wave.ref_db is None and self.pcm is not None:
+            self.wave.ref_db = zn.level_db(self.pcm)
         self.zone_l.setText("" if t.zones is None or not self.fill.isChecked() else _("пауз: {n}", n=len(t.zones)))
         self.wave.update()
 
@@ -1521,7 +1722,7 @@ class Window(QMainWindow):
         self.play_b.setEnabled(ready and (not busy or self.play_start is not None))
         self.play_a.setEnabled(self.play_b.isEnabled())
         self.save_b.setEnabled(ready and not busy)
-        self.add_b.setEnabled(ready and self.fill.isChecked())
+        self.threshold_box.setVisible(self.fill.isChecked())
         self.save_a.setEnabled(ready and not busy)
         self.open_b.setEnabled(not busy)
         self.open_a.setEnabled(not busy)
@@ -1719,23 +1920,26 @@ class Window(QMainWindow):
             self._refresh()
             self._restart_preview()
 
-    def _add_zone(self):
+    def _span_selected(self, first: int, last: int):
+        """A dragged span becomes a pause (replacing the ones it overlaps); its tempo and meter open at once."""
         t = self.current
         if not (t and t.bars):
             return
-        mid = (self.wave.v0 + self.wave.v1) / 2
-        bar = self.wave._bar_at(mid)
-        if bar is None:
-            bar = 0 if mid < t.bars[0].start else len(t.bars) - 1
-        if t.zones is None:
-            t.zones = []
-        self.wave.zones = t.zones
-        self.wave.add_zone(bar, 2)
+        if not self.fill.isChecked():
+            self.fill.setChecked(True)
+        kept = [z for z in (t.zones or []) if z.last < first or z.first > last]
+        z = zn.Zone(first, last)
+        t.zones = sorted(kept + [z], key=lambda q: q.first)
+        self._zones_edited(t.zones)
+        if not self._edit_zone(t.zones.index(z)):
+            t.zones.remove(z)
+            self._zones_edited(t.zones)
 
-    def _edit_zone(self, i: int):
+    def _edit_zone(self, i: int) -> bool:
+        """Tempo and meter of pause i; False when the dialog was cancelled."""
         t = self.current
         if not (t and t.zones and i < len(t.zones)):
-            return
+            return False
         z = t.zones[i]
         a, b, bpm, n = zn.describe(t.bars, z)
         d = ZoneDialog(self, a, b, bpm, n)
@@ -1747,8 +1951,9 @@ class Window(QMainWindow):
         elif result == QDialog.Accepted:
             z.bpm, z.beats = d.bpm.value(), d.beats.value()
         else:
-            return
+            return False
         self._zones_edited(t.zones)
+        return True
 
     # --- preview while editing ---
 

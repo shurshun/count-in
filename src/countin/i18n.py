@@ -35,9 +35,9 @@ EN = {
     "Перетащите сюда трек\n\nmp3, FLAC, ALAC, WAV": "Drop a track here\n\nmp3, FLAC, ALAC, WAV",
     "Отмена": "Cancel",
     "Тяните оранжевый маркер «1» на первую сильную долю. Колесо — масштаб, перетаскивание — сдвиг, "
-    "⌥ — без прилипания к долям.":
+    "⌥ — без прилипания к долям. Пауза: выделите такты с ⇧ или по шкале времени, правый щелчок убирает.":
         'Drag the orange "1" marker onto the first downbeat. Wheel zooms, dragging pans, '
-        "⌥ places it without snapping to beats.",
+        "⌥ places it without snapping to beats. Pause: select bars with ⇧ or along the time ruler, right-click removes.",
     # Cards
     "Темп и первая доля": "Tempo and first downbeat",
     "Темп": "Tempo",
@@ -66,13 +66,17 @@ EN = {
     "Убрать гитару": "Remove guitar",
     "Заполнять паузы хай-хэтом": "Fill pauses with hi-hat",
     "Такты, где без гитары и вокала тихо, получают хай-хэт на каждую долю и отсчёт палочками за такт до паузы. Правый щелчок по такту на волне добавляет или убирает его, края зоны тянутся мышью.": "Bars that go quiet without guitar and vocals get a hi-hat on every beat and a bar of stick count-in before the pause. Right-click a bar on the waveform to add or remove it; drag a zone edge to move it.",
-    "+ Пауза": "+ Pause",
-    "Добавить паузу из двух тактов посередине видимой части волны": "Add a two-bar pause in the middle of the visible waveform",
     "Насколько тише среднего уровня песни должен быть такт, чтобы считаться паузой": "How far below the song's average level a bar must be to count as a pause",
-    "Порог паузы": "Pause threshold",
     "Пауза {a}–{b}": "Pause {a}–{b}",
     "Долей в такте": "Beats per bar",
     "Удалить паузу": "Remove pause",
+    "Порог": "Threshold",
+    "Темп на слух": "Tap tempo",
+    "Применить": "Apply",
+    "Стучите пробелом в такт, клик с вашим темпом пойдёт сам": "Tap Space along with the song; a click at your tempo follows on its own",
+    "Играет клик с настуканным темпом. Пробел, чтобы настучать заново": "The click plays at the tapped tempo. Space to tap again",
+    "Tap…": "Tap…",
+    "Настучать темп пробелом под играющую песню": "Tap the tempo with Space while the song plays",
     "Как в песне": "As detected",
     "Готово": "Done",
     "Отмена": "Cancel",
