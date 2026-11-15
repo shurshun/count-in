@@ -1776,8 +1776,19 @@ class AssetsDialog(QDialog):
 
     def _download(self):
         def run(job):
-            assets.download(lambda d, n: job.report(_("Скачано {d:.0f} из {n:.0f} МБ", d=d / 1e6, n=n / 1e6), d, n),
-                            job.cancelled.is_set)
+            start = time.monotonic()
+
+            def progress(d, n):
+                text = _("Скачано {d:.0f} из {n:.0f} МБ", d=d / 1e6, n=n / 1e6)
+                elapsed = time.monotonic() - start
+                if elapsed > 2 and d:  # the first seconds give no steady speed
+                    speed = d / elapsed
+                    left = (n - d) / speed
+                    text += " · " + _("{v} МБ/с", v=QLocale().toString(speed / 1e6, "f", 1))
+                    text += " · " + _("осталось ~{m}:{s:02d}", m=int(left // 60), s=int(left % 60))
+                job.report(text, d, n)
+
+            assets.download(progress, job.cancelled.is_set)
         self._start(run)
 
     def _folder(self):
