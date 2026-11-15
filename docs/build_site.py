@@ -162,15 +162,15 @@ GUIDE = {
            "title": "Count-In guide — count-in, pauses and backing tracks",
            "description": "How to use Count-In: set the first downbeat and tempo, choose a count-in, navigate the song, fill pauses with a hi-hat and turn parts down for a backing track.",
            "heading": "How to use Count-In", "lead": "Open a song, check the orange “1”, pick a count-in and save. Everything else is optional; this page walks through it.",
-           "window_alt": "Count-In window with a selected pause", "help_title": "Help inside the app",
-           "help_text": "The same text lives in the app: the “?” button in the transport bar, the Help menu, F1 or ⌘?.",
+           "window_alt": "Count-In window with a selected pause", "help_title": "From the app",
+           "help_text": "The “?” button under the waveform, the Help menu, F1 or ⌘? open this page.",
            "other_lang": "ru", "other_url": "/ru/guide/", "other_label": "RU", "theme_label": "Switch theme"},
     "ru": {"out": "ru/guide/index.html", "url": "https://count-in.app/ru/guide/", "home": "/ru/", "sfx": "",
            "title": "Справка Count-In — отсчёт, паузы и минусовки",
            "description": "Как работать с Count-In: первая доля и темп, отсчёт, навигация по песне, хай-хэт в паузах и минусовки без гитары и вокала.",
            "heading": "Как работать с Count-In", "lead": "Откройте песню, проверьте оранжевую «1», выберите отсчёт и сохраните. Остальное по желанию, и всё это описано ниже.",
-           "window_alt": "Окно Count-In с выбранной паузой", "help_title": "Справка в программе",
-           "help_text": "Этот же текст есть в самой программе: кнопка «?» в панели транспорта, меню «Справка», F1 или ⌘?.",
+           "window_alt": "Окно Count-In с выбранной паузой", "help_title": "Из программы",
+           "help_text": "Кнопка «?» под волной, меню «Справка», F1 или ⌘? открывают эту страницу.",
            "other_lang": "en", "other_url": "/guide/", "other_label": "EN", "theme_label": "Сменить тему"},
 }
 
@@ -190,8 +190,7 @@ def build_guide() -> None:
                 f'\n    <figure{" class=\"small\"" if small else ""}><img src="/guide/img/{name}{g["sfx"]}.png" '
                 f'alt="{esc(title)}" loading="lazy"></figure>' for name, small in GUIDE_IMAGES.get(title, []))
             body.append(f'  <section id="s{i}">\n    <h2>{esc(title)}</h2>\n    <ul>\n{items}\n    </ul>{fig}\n  </section>')
-        body.append(f'  <section id="help">\n    <h2>{g["help_title"]}</h2>\n    <ul>\n      <li>{g["help_text"]}</li>\n    </ul>'
-                    f'\n    <figure class="small"><img src="/guide/img/help{g["sfx"]}.png" alt="{g["help_title"]}" loading="lazy"></figure>\n  </section>')
+        body.append(f'  <section id="help">\n    <h2>{g["help_title"]}</h2>\n    <ul>\n      <li>{g["help_text"]}</li>\n    </ul>\n  </section>')
         html = tpl
         for k, v in {**g, "lang": lang, "toc": "\n".join(toc), "sections": "\n".join(body)}.items():
             html = html.replace("{{" + k + "}}", v)

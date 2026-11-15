@@ -157,6 +157,12 @@ QPushButton#candidate { border: none; border-radius: 8px; background: rgba(255,1
 # App icon variants. The built ICO/ICNS stay light; this only changes the window and Dock icon while running.
 ICON_CHOICES = {"light": "Светлая", "dark": "Тёмная"}
 LANG_KEY = "appearance/language"
+SITE = "https://count-in.app/"
+
+
+def site_url(path: str = "") -> str:
+    """A page of the site in the app's language: the Russian pages live under /ru/."""
+    return SITE + ("" if i18n.language() == "en" else "ru/") + path
 ICON_KEY = "appearance/icon"
 ICON_SIZES = (16, 20, 24, 32, 40, 48, 64, 96, 128, 256, 512, 1024)
 
@@ -1938,34 +1944,6 @@ class ZoneDialog(QDialog):
         self.reject()
 
 
-class HelpDialog(QDialog):
-    """Help as a scrollable page of cards, one per section of `help.HELP`."""
-
-    def __init__(self, parent):
-        super().__init__(parent)
-        self.setWindowTitle(_("Справка Count-In"))
-        self.resize(720, 720)
-        page = QWidget()
-        v = QVBoxLayout(page)
-        v.setContentsMargins(26, 22, 26, 26)
-        v.setSpacing(14)
-        v.addWidget(QLabel(_("Справка Count-In"), objectName="helpTitle"))
-        for title, lines in HELP:
-            f, g = card(_(title))
-            for text in lines:
-                r = g.rowCount()
-                g.addWidget(QLabel("•", objectName="field"), r, 0, Qt.AlignTop)
-                g.addWidget(QLabel(_(text), objectName="helpLine", wordWrap=True), r, 1)
-            v.addWidget(f)
-        v.addStretch()
-        area = QScrollArea(objectName="helpArea", widgetResizable=True)
-        area.setHorizontalScrollBarPolicy(Qt.ScrollBarAlwaysOff)
-        area.setWidget(page)
-        outer = QVBoxLayout(self)
-        outer.setContentsMargins(0, 0, 0, 0)
-        outer.addWidget(area)
-
-
 class PrefsDialog(QDialog):
     """Output folder and layout, app icon. Every change is saved at once."""
 
@@ -2209,7 +2187,7 @@ class Window(QMainWindow):
         self.update_a = help_.addAction(_("Проверить обновления…"), self._update_action)
         self.update_a.setMenuRole(QAction.ApplicationSpecificRole)
         help_.addAction(_("Справка Count-In"), QKeySequence.HelpContents, self._help)
-        help_.addAction(_("Страница проекта"), lambda: QDesktopServices.openUrl(QUrl(f"https://github.com/{update.REPO}")))
+        help_.addAction(_("Страница проекта"), lambda: QDesktopServices.openUrl(QUrl(site_url())))
 
     def _header(self) -> QWidget:
         head = QWidget(objectName="header")
@@ -2552,11 +2530,8 @@ class Window(QMainWindow):
         self.wave.show_range(min((c.time for c in self.wave.clicks), default=0.0) - 1.0, self.wave.duration + 1.0)
 
     def _help(self):
-        if self.help_dialog is None:
-            self.help_dialog = HelpDialog(self)
-        self.help_dialog.show()
-        self.help_dialog.raise_()
-        self.help_dialog.activateWindow()
+        """The user guide on the site, in the app's language."""
+        QDesktopServices.openUrl(QUrl(site_url("guide/")))
 
     # --- tempo card ---
 
@@ -2655,7 +2630,6 @@ class Window(QMainWindow):
         self.wave.pill.clicked.connect(self._undock_busy)
         self.wave.tip_lines = [self.wave.busy.phrase, self.prog_phrase]
         self.wave.navChanged.connect(self._nav_changed)
-        self.help_dialog = None
 
         tempo = self._tempo_card()
 

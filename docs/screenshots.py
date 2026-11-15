@@ -155,11 +155,6 @@ def run(song: Path, scheme: str, lang: str, tmp: Path) -> None:
                 w.hide_busy()
                 for name, widget in (("tempo", w.bpm_spin), ("count", w.style_seg), ("backing", w.guitar)):
                     card_of(widget).grab().save(str(GUIDE / f"{name}{sfx}.png"))
-                w._help()
-                app.processEvents()
-                w.help_dialog.grab().save(str(OUT / f"help-light{sfx}.png"))
-                w.help_dialog.grab().save(str(GUIDE / f"help{sfx}.png"))
-                w.help_dialog.close()
             w.close()
             app.quit()
 
