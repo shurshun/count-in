@@ -99,6 +99,9 @@ def main():
             t = time.perf_counter()
             sess = ort.InferenceSession(str(model), opts, providers=[(prov, popts)] + ([] if prov == "CPUExecutionProvider" else ["CPUExecutionProvider"]))
             say(f"   session created in {time.perf_counter() - t:.1f} s, providers in use: {sess.get_providers()}")
+            if prov not in sess.get_providers():
+                say("   FAILED: DirectML did not start on this adapter, onnxruntime fell back to the CPU; see the error above")
+                continue
             sec, out = timed(lambda: sess.run(None, {"stft": spec})[0], runs)
             results[name] = sec
             if ref is None:
