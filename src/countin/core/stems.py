@@ -81,20 +81,28 @@ def separate(pcm: np.ndarray, sr: int, progress=None, only: tuple[str, ...] | No
     weight = torch.zeros(n)
     starts = _chunk_starts(n, chunk, int(chunk / OVERLAP))
 
+    from . import coreml
+
+    ml = coreml.load()
     device = _device()
 
     # Half precision on Apple GPUs: about 20% faster per chunk, stems within -67 dB of full precision.
     dtype = torch.float16 if device == "mps" else torch.float32
-    model.to(device, dtype)
+    if ml is None:
+        model.to(device, dtype)
     with torch.no_grad():
         for i, s in enumerate(starts):
             part = mix[None, :, s : s + chunk]
-            try:
-                y = model(part.to(device, dtype))[0].float().cpu()
-            except NotImplementedError:
-                device, dtype = "cpu", torch.float32  # an op MPS lacks on this macOS
-                model.to(device, dtype)
-                y = model(part)[0]
+            if ml is not None:
+                short = chunk - part.shape[-1]  # the compiled core takes whole chunks only
+                y = coreml.run(ml, model, torch.nn.functional.pad(part, (0, short)))[..., : part.shape[-1]]
+            else:
+                try:
+                    y = model(part.to(device, dtype))[0].float().cpu()
+                except NotImplementedError:
+                    device, dtype = "cpu", torch.float32  # an op MPS lacks on this macOS
+                    model.to(device, dtype)
+                    y = model(part)[0]
             w = window[: y.shape[-1]]
             out[..., s : s + y.shape[-1]] += y[keep] * w
             weight[s : s + y.shape[-1]] += w

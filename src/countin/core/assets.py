@@ -77,7 +77,7 @@ def path(name: str) -> Path:
     """The first complete copy of an asset file or folder ("separator"); the data folder when none exists."""
     names = [n for n in FILES if n == name or n.startswith(name + "/")]
     for d in search_dirs():
-        if names and all(_complete(d, n) for n in names):
+        if all(_complete(d, n) for n in names) if names else (d / name).exists():  # unpinned: any copy
             return d / name
     return data_dir() / name
 

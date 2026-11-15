@@ -393,9 +393,10 @@ def warm_models():
     Both models stay loaded for the life of the app (lru_cache)."""
     def load():
         try:
-            from .core import stems
+            from .core import coreml, stems
 
             stems._model()
+            coreml.load()  # builds the Core ML model on the first run on a Mac
         except Exception:
             log.exception("model warm-up failed")
 

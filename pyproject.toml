@@ -11,6 +11,7 @@ license-files = ["LICENSE"]
 dependencies = [
     "beartype>=0.23.1",
     "beat-this",
+    "coremltools>=9.0 ; sys_platform == 'darwin'",
     "einops>=0.8.2",
     "mido>=1.3.3",
     "numpy>=2.5.4",
