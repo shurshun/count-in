@@ -74,6 +74,7 @@ QPushButton#update { background: #0a84ff; color: white; border: none; border-rad
                      min-width: 20px; max-width: 20px; min-height: 20px; max-height: 20px; padding: 0; }
 QPushButton#update:hover { background: #409cff; }
 #title { font-size: 24px; font-weight: 600; }
+#headerLabel { font-size: 15px; color: @FIELD@; }
 #progOverlay { background: transparent; }
 #progTitle { font-size: 26px; font-weight: 700; }
 #progWhy { font-size: 15px; color: @FIELD@; }
@@ -952,8 +953,8 @@ def icon_label(kind: str, text: str) -> QWidget:
     h.setSpacing(6)
     icon = QLabel()
     icon.setPixmap(part_icon(kind, QColor(127, 127, 127)))
-    h.addWidget(icon)
-    h.addWidget(QLabel(text, objectName="field"))
+    h.addWidget(icon, 0, Qt.AlignVCenter)
+    h.addWidget(QLabel(text, objectName="field"), 0, Qt.AlignVCenter)
     h.addStretch()  # icon and text stay together at the left edge
     return w
 
@@ -1336,15 +1337,15 @@ class Window(QMainWindow):
 
         # Speaker level of the preview; not part of the song or the saved file
         speaker = QLabel(toolTip=_("Громкость прослушивания"))
-        speaker.setPixmap(part_icon("speaker", QColor(127, 127, 127)))
+        speaker.setPixmap(part_icon("speaker", QColor(127, 127, 127), 20))
         self.out_volume = QSlider(Qt.Horizontal, minimum=0, maximum=100, fixedWidth=130,
                                   toolTip=_("Громкость прослушивания"))
         self.out_volume.setValue(int(output_volume() * 100))
         self.out_volume.setFocusPolicy(Qt.NoFocus)
         self.out_volume.valueChanged.connect(self._output_volume)
-        h.addWidget(speaker)
-        h.addWidget(QLabel(_("Громкость вывода"), objectName="field"))
-        h.addWidget(self.out_volume)
+        h.addWidget(speaker, 0, Qt.AlignVCenter)
+        h.addWidget(QLabel(_("Громкость вывода"), objectName="headerLabel"), 0, Qt.AlignVCenter)
+        h.addWidget(self.out_volume, 0, Qt.AlignVCenter)
         h.addSpacing(16)
         self.open_b = QPushButton(_("Открыть…"), objectName="tool", clicked=self._open_dialog)
         self.play_b = QPushButton(_("▶  Прослушать"), objectName="primary", clicked=self._play, toolTip=_("Пробел"))
