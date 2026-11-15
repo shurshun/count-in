@@ -1,7 +1,7 @@
 name: windows-gpu-test
 
-# Test builds of the Windows app with GPU separation: one with OpenVINO (Intel GPUs), one with DirectML (any
-# DirectX 12 GPU). Each zip carries the models in an `assets` folder next to Count-In.exe, so nothing downloads.
+# Test build of the Windows app with GPU separation through DirectML (any DirectX 12 GPU). The zip carries the
+# models, the ONNX core included, in an `assets` folder next to Count-In.exe, so nothing downloads.
 on:
   push:
     branches: [fill-zones]
@@ -9,14 +9,6 @@ on:
 
 jobs:
   build:
-    strategy:
-      fail-fast: false
-      matrix:
-        include:
-          - variant: openvino
-            package: openvino
-          - variant: directml
-            package: onnxruntime-directml
     runs-on: windows-latest
     permissions:
       contents: read
@@ -46,29 +38,26 @@ jobs:
       - run: packaging/fetch_models.sh
       - name: export the separation core to ONNX
         run: uv run --with onnx --with onnxscript python -m countin.core.accel onnx
-      - run: uv pip install ${{ matrix.package }}
       - run: uv run pyinstaller packaging/countin.spec --noconfirm --distpath dist --workpath build/work
 
-      # The runner has no GPU: OpenVINO runs on its CPU, DirectML would crawl on the software adapter, so the
-      # DirectML build is checked with torch.
+      # The runner has no GPU and DirectML would crawl on the software adapter, so the smoke test uses torch.
       - name: smoke test
         env:
           COUNTIN_ASSETS: ${{ github.workspace }}/models
-          COUNTIN_ACCEL: ${{ matrix.variant == 'directml' && 'torch' || '' }}
+          COUNTIN_ACCEL: torch
         run: |
           uv run python -c "import numpy as np, soundfile as sf; sr=44100; x=np.zeros((20*sr,2),np.float32); [x.__setitem__(slice(int(t*sr),int(t*sr)+400), 0.8) for t in np.arange(1,20,0.5)]; sf.write('smoke.wav', x, sr)"
-          dist/Count-In/countin smoke.wav --guitar-db=-12 --format mp3 --out smoke_out.mp3 | tee smoke.log
+          dist/Count-In/countin smoke.wav --guitar-db=-12 --format mp3 --out smoke_out.mp3
           test -s smoke_out.mp3
-          if [ "${{ matrix.variant }}" = openvino ]; then grep -q "with OpenVINO" smoke.log; fi  # no silent torch fallback
 
       - name: pack with the models
         run: |
           mkdir -p dist/Count-In/assets/separator
           cp models/final0.ckpt dist/Count-In/assets/
           cp models/separator/BS-Roformer-SW.ckpt models/separator/BS-Roformer-SW.yaml models/separator/BS-Roformer-SW-core.onnx dist/Count-In/assets/separator/
-          (cd dist && 7z a -tzip -mx=1 "../Count-In-windows-${{ matrix.variant }}.zip" Count-In > /dev/null)
+          (cd dist && 7z a -tzip -mx=1 "../Count-In-windows-directml.zip" Count-In > /dev/null)
 
       - uses: actions/upload-artifact@v7
         with:
-          path: Count-In-windows-${{ matrix.variant }}.zip
+          path: Count-In-windows-directml.zip
           archive: false

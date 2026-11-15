@@ -1,4 +1,4 @@
-"""BS-RoFormer core on a GPU outside torch: Core ML on a Mac, ONNX through OpenVINO or DirectML on Windows.
+"""BS-RoFormer core on a GPU outside torch: Core ML on a Mac, ONNX through DirectML on Windows.
 
 Only the middle of the network (band split to masks) runs there; it is all the compute and has no complex
 numbers. STFT, the complex multiply and iSTFT stay in torch on the CPU.
@@ -7,9 +7,9 @@ numbers. STFT, the complex multiply and iSTFT stay in torch on the CPU.
   does not fit it, Core ML cuts it into dozens of pieces that take minutes to compile and run 20x slower.
   The compiled model gets built from the torch weights on the first separation (about 40 s) into the data
   folder.
-- ONNX (`separator/BS-Roformer-SW-core.onnx`) runs on an Intel GPU through OpenVINO or on any DirectX 12 GPU
-  (NVIDIA, Intel, AMD) through DirectML, whichever of the two packages the build carries. COUNTIN_ACCEL
-  (`coreml`, `openvino`, `openvino-cpu`, `directml`, `torch`) forces one.
+- ONNX (`separator/BS-Roformer-SW-core.onnx`) runs on any DirectX 12 GPU (NVIDIA, Intel, AMD) through
+  DirectML. OpenVINO was tried for Intel GPUs; DirectML stayed after tests on NVIDIA and Intel machines.
+- COUNTIN_ACCEL (`coreml`, `directml`, `torch`) forces a backend.
 
 `python -m countin.core.accel coreml|onnx [dest]` builds a model by hand.
 """
@@ -98,7 +98,7 @@ def _load() -> Backend | None:
     want = os.environ.get("COUNTIN_ACCEL", "")
     if want == "torch":
         return None
-    for name, fn in (("coreml", _coreml), ("openvino", _openvino), ("directml", _directml)):
+    for name, fn in (("coreml", _coreml), ("directml", _directml)):
         if want and not want.startswith(name):
             continue
         try:
@@ -123,24 +123,6 @@ def _coreml() -> Backend | None:
         export_coreml(path)
     ml = ct.models.CompiledMLModel(str(path), compute_units=ct.ComputeUnit.CPU_AND_GPU)
     return Backend("Core ML (GPU)", lambda x: ml.predict({"stft": x})["mask"])
-
-
-def _openvino() -> Backend | None:
-    if not assets.path(ONNX).is_file():
-        return None
-    try:
-        import openvino as ov
-    except ImportError:
-        return None
-    core = ov.Core()
-    gpus = [d for d in core.available_devices if d.startswith("GPU")]
-    device = "CPU" if os.environ.get("COUNTIN_ACCEL") == "openvino-cpu" or not gpus else gpus[0]
-    # f32 even on GPUs: in f16 the band norms divide by zero on silence and the masks come out NaN
-    compiled = core.compile_model(str(assets.path(ONNX)), device, {"INFERENCE_PRECISION_HINT": "f32"})
-    req = compiled.create_infer_request()
-    out = compiled.outputs[0]
-    full = core.get_property(device, "FULL_DEVICE_NAME").strip()
-    return Backend(f"OpenVINO {device} ({full})", lambda x: req.infer({"stft": x})[out].copy())
 
 
 def _directml() -> Backend | None:
@@ -187,7 +169,7 @@ def _traced_input():
 
 
 def export_onnx(dest: Path) -> None:
-    """Exports the core as one fp32 ONNX file (opset 18) for OpenVINO and DirectML."""
+    """Exports the core as one fp32 ONNX file (opset 18) for DirectML."""
     import torch
 
     _model, spec, core = _traced_input()

@@ -457,6 +457,14 @@ def separate_job(job: Job, t: Track, pcm: np.ndarray, sr: int):
     return t, (0, _stems(job, pcm, sr, _("Разделение на дорожки")))
 
 
+def peaks_per_ms(pcm: np.ndarray, sr: int) -> np.ndarray:
+    """Peak of every millisecond. Bins start at exact millisecond boundaries: whole-sample bins of sr // 1000
+    run short at 44.1 kHz and draw a hit 0.4 s late by the third minute."""
+    m = np.abs(pcm).max(axis=1)
+    starts = (np.arange(int(len(m) * 1000 // sr)) * sr // 1000).astype(np.int64)
+    return np.maximum.reduceat(m, starts) if len(starts) else m[:0]
+
+
 def keep(slider_value: int) -> float:
     """Linear gain a level slider leaves on its stem."""
     return 0.0 if slider_value == MUTE else 10 ** (slider_value / 20)
@@ -888,10 +896,7 @@ class Wave(QWidget):
         return self.palette().text().color()
 
     def set_audio(self, pcm: np.ndarray, sr: int):
-        m = np.abs(pcm).max(axis=1)
-        b = sr // 1000
-        n = len(m) // b
-        env = m[: n * b].reshape(n, b).max(axis=1)
+        env = peaks_per_ms(pcm, sr)
         self.peak = max(float(env.max()), 1e-9)
         self.env = env / self.peak
         self.duration = len(pcm) / sr
@@ -2426,7 +2431,7 @@ class Window(QMainWindow):
             row(g, icon_label(icon, _(label)), MuteButton(s, _(tip)), s, self.part_l[name])
         self.guitar, self.vocals = self.parts["guitar"], self.parts["vocals"]
         self.fill = QCheckBox(_("Заполнять паузы хай-хэтом"), checked=pref_bool(FILL_KEY, True))
-        self.fill.setToolTip(_("Такты, где без убранных дорожек тихо, получают хай-хэт на каждую долю и отсчёт палочками за такт до паузы. "
+        self.fill.setToolTip(_("Такты, где без убранных дорожек тихо, получают хай-хэт на каждую долю. "
                                "Правый щелчок по паузе убирает её, рядом с паузой добавляет такт, края паузы тянутся мышью."))
         self.zone_l = QLabel(objectName="field")
         h = QHBoxLayout()

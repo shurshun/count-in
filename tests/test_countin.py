@@ -418,7 +418,7 @@ def test_mute_button_toggles_and_restores_level():
     assert b.isChecked()
 
 
-def test_zone_count_in_takes_the_next_bar_meter_and_tempo():
+def test_pause_bars_and_hi_hat_only_inside_the_song():
     from countin.core import zones as zn
 
     # Two 4/4 bars at 0.5 s, then a 3/4 bar at 0.6 s, then 4/4 again
@@ -431,20 +431,16 @@ def test_zone_count_in_takes_the_next_bar_meter_and_tempo():
     stray = zn.bars_from(np.array(beats), np.array([0, 0.5, 2, 4, 5.8]), 8.0)
     assert [(b.start, len(b.beats)) for b in stray[:2]] == [(0.0, 4), (2.0, 4)]
 
+    # a pause mid-song: only the hi-hat on the bar's own beats, no stick count-in in front of it
     clicks = zn.zone_clicks(bars, zn.zones_from({2}), downbeat=0.0)
-    times = [round(c.time, 3) for c in clicks]
-    # count-in: three clicks 0.6 s apart ending one beat before bar 3, then the bar's own beats
-    assert times == [2.2, 2.8, 3.4, 4.0, 4.6, 5.2]
-    assert [c.accent for c in clicks] == [True, False, False, True, False, False]
-    assert [c.voice for c in clicks] == ["stick"] * 3 + ["hihat"] * 3
+    assert [round(c.time, 3) for c in clicks] == [4.0, 4.6, 5.2]
+    assert [c.accent for c in clicks] == [True, False, False]
+    assert {c.voice for c in clicks} == {"hihat"}
 
-    # a zone on the first bar gets no extra count-in: the main count-in leads into it
-    assert [round(c.time, 3) for c in zn.zone_clicks(bars, zn.zones_from({0}), downbeat=0.0)] == [0, 0.5, 1, 1.5]
-
-    # an override plays a steady grid: bars 1-2 (2.0-5.8 s) at 120 BPM in 3/4, count-in in that meter too
+    # an override plays a steady grid: bars 1-2 (2.0-5.8 s) at 120 BPM in 3/4
     z = zn.Zone(1, 2, bpm=120.0, beats=3)
     times = [round(c.time, 3) for c in zn.zone_clicks(bars, [z], downbeat=0.0)]
-    assert times[:3] == [0.5, 1.0, 1.5] and times[3:6] == [2.0, 2.5, 3.0]
+    assert times[:3] == [2.0, 2.5, 3.0]
     assert zn.describe(bars, z)[2:] == (120.0, 3)
 
 
@@ -515,12 +511,21 @@ def test_pauses_keep_manual_edits_and_join_without_extra_count_in():
     first = zn.zone_clicks(bars, [zn.Zone(0, 0)], downbeat=0.016)
     assert [c.voice for c in first] == ["hihat"] * 4
 
-    # a pause right after another one runs on without a stick count-in in between
+    # two pauses in a row run on as one hi-hat line
     joined = zn.zone_clicks(bars, [zn.Zone(1, 1), zn.Zone(2, 2)], downbeat=0.0)
-    assert [c.voice for c in joined].count("stick") == 4
+    assert [c.voice for c in joined] == ["hihat"] * 8
 
     # an override describes itself as set; the automatic search keeps it
     edited = zn.Zone(3, 3, beats=6)
     assert zn.describe(bars, edited)[2:] == (120.0, 6)
     merged = zn.merge([edited], [zn.Zone(2, 4), zn.Zone(6, 6)])
     assert [(z.first, z.last) for z in merged] == [(3, 3), (6, 6)]
+
+
+def test_waveform_peaks_stay_on_time_at_44_1_khz():
+    from countin.gui import peaks_per_ms
+
+    sr = 44100
+    pcm = np.zeros((sr * 170, 2), np.float32)
+    pcm[int(169.0 * sr)] = 1.0
+    assert int(np.argmax(peaks_per_ms(pcm, sr))) == 169000

@@ -1,8 +1,7 @@
 """Pauses: bars that go quiet once parts are turned down get a hi-hat on every beat.
 
-The bars come from the detected beats and downbeats of the whole song, so the clicks follow tempo drift
-and meter changes. A zone that starts after music gets one bar of count-in in front of it, with the beat
-count and tempo of the zone's first bar.
+The bars come from the detected beats and downbeats of the whole song, so the hi-hat follows tempo drift
+and meter changes.
 """
 
 from dataclasses import dataclass
@@ -155,23 +154,13 @@ def describe(bars: list[Bar], z: Zone) -> tuple[float, float, float, int]:
 
 
 def zone_clicks(bars: list[Bar], zones: list[Zone], downbeat: float) -> list[Click]:
-    """A hi-hat on every beat of the zone bars, plus a bar of stick count-in before each zone.
-
-    The count-in has as many clicks as the zone's first bar has beats, at that bar's beat period, and ends
-    one beat before it. A zone in the bar of the song's first downbeat needs none (the main count-in leads into
-    it), and neither does one right after another pause (the hi-hat already runs). The downbeat is the snapped
-    "1", a few ms off the detected bar start, so bars and beats compare with half a beat of slack.
-    """
+    """A hi-hat on every beat of the zone bars. Inside the song nothing else plays: the stick count-in belongs
+    to the song's start only. The downbeat is the snapped "1", a few ms off the detected bar start, so beats
+    compare with half a beat of slack."""
     clicks = []
-    zones = sorted(zones, key=lambda q: q.first)
-    for i, z in enumerate(zones):
+    for z in sorted(zones, key=lambda q: q.first):
         zb = zone_bars(bars, z)
-        bar = zb[0]
-        slack = bar.period / 2
-        follows = i > 0 and zones[i - 1].last == z.first - 1
-        if bar.start > downbeat + slack and not follows:
-            n, p = len(bar.beats), bar.period
-            clicks += [Click(bar.start - (n - k) * p, k == 0) for k in range(n)]
+        slack = zb[0].period / 2
         for b in zb:
             clicks += [Click(t, k == 0, voice="hihat") for k, t in enumerate(b.beats) if t >= downbeat - slack]
     return clicks
