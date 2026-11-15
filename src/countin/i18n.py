@@ -84,6 +84,12 @@ EN = {
     "{name}: поиск пауз": "{name}: finding pauses",
     "Поиск пауз": "Finding pauses",
     "Убрать вокал": "Remove vocals",
+    "Бас": "Bass",
+    "Барабаны": "Drums",
+    "Пианино": "Piano",
+    "Убрать бас": "Remove bass",
+    "Убрать барабаны": "Remove drums",
+    "Убрать пианино": "Remove piano",
     # Status and progress
     "Показать в Finder": "Show in Finder",
     "Показать в папке": "Show in Explorer",

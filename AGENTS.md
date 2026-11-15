@@ -26,7 +26,7 @@ Count-In inserts a drum count-in before a song's first downbeat and can turn gui
 3. **Fit the grid.** `fit_grid` gives each beat a slot index from the median interval, then fits a least-squares line over 16 slots. Slot indexing survives half-time intros; the line averages out the 20 ms frame quantization.
 4. **Snap.** `snap_onset` moves the downbeat to the sample-exact attack within ±25 ms. Of several attacks it takes the one nearest the grid.
 5. **Bar phase and confidence.** Later downbeats vote on which beat starts the bar. Disagreement yields `alt_downbeat` and a note. `beat_period` rescales the period when the detector counts eighths in 6/8 or half time in 4/4.
-6. **Separate (optional).** `stems.separate` runs BS-RoFormer SW in 9.3 s chunks with a Hamming overlap-add, overlap 2. It returns six stems; only guitar and vocals are used.
+6. **Separate (optional).** `stems.separate` runs BS-RoFormer SW in 9.3 s chunks with a Hamming overlap-add, overlap 2. It returns six stems; the app keeps guitar, vocals, bass, drums and piano (`gui.PARTS`, one slider each with an icon from `part_icon`), and drops "other".
 7. **Attenuate.** `stems.attenuate` subtracts `(1 - gain) * stem` from the original. Subtraction keeps the other instruments untouched instead of re-summing stems with their artifacts.
 8. **Render.** `render.render` adds the click samples. Every click rounds to a sample from its own float time, so error never accumulates. Silence gets prepended when the song starts too early to hold the count-in.
 9. **Encode.** `io.encode` writes MP3 320k (LAME tag), FLAC, ALAC or WAV and copies tags and cover art from the source.

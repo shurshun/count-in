@@ -31,6 +31,14 @@ log = logging.getLogger("countin")
 AUDIO_EXT = {".mp3", ".flac", ".m4a", ".wav", ".aif", ".aiff", ".ogg"}
 PREVIEW_AFTER = 10.0  # seconds of song after the downbeat
 MUTE = -41  # level slider bottom means "remove"
+# Parts the backing-track card can turn down: (stem name in the model, label, icon, mute tooltip)
+PARTS = (
+    ("guitar", "Гитара", "guitar", "Убрать гитару"),
+    ("vocals", "Вокал", "mic", "Убрать вокал"),
+    ("bass", "Бас", "bass", "Убрать бас"),
+    ("drums", "Барабаны", "drums", "Убрать барабаны"),
+    ("piano", "Пианино", "piano", "Убрать пианино"),
+)
 FORMAT_NAMES = {None: "Как у исходника", "mp3": "MP3 320 kbps", "flac": "FLAC", "alac": "ALAC (.m4a)", "wav": "WAV"}
 ORANGE = QColor(255, 159, 10)
 GREEN = QColor(48, 209, 88)
@@ -263,7 +271,7 @@ def _stems(job: Job, pcm, sr, label: str) -> dict[str, np.ndarray]:
     from .core import stems
 
     job.report(_("{name}: загрузка модели", name=label))
-    return stems.separate(pcm, sr, lambda d, n: job.report(label, d, n), only=("guitar", "vocals"))
+    return stems.separate(pcm, sr, lambda d, n: job.report(label, d, n), only=tuple(p[0] for p in PARTS))
 
 
 def _covers(cached, i0: int, i1: int) -> bool:
@@ -801,7 +809,33 @@ def part_icon(kind: str, color: QColor, size: int = 16) -> QPixmap:
     p.setPen(Qt.NoPen)
     p.setBrush(color)
     s = size / 16
-    if kind == "guitar":
+    if kind == "bass":
+        p.save()
+        p.translate(8 * s, 8 * s)
+        p.rotate(45)
+        p.drawRoundedRect(QRectF(-0.7 * s, -8.4 * s, 1.4 * s, 10 * s), 0.5 * s, 0.5 * s)  # long neck
+        p.drawRoundedRect(QRectF(-1.4 * s, -8.8 * s, 2.8 * s, 2.2 * s), 0.7 * s, 0.7 * s)  # head
+        p.drawEllipse(QPointF(0, 3.2 * s), 2.6 * s, 2.4 * s)
+        p.drawEllipse(QPointF(0, 5.4 * s), 3.2 * s, 2.6 * s)
+        p.restore()
+    elif kind == "drums":
+        p.drawEllipse(QRectF(2 * s, 5 * s, 12 * s, 4 * s))  # head
+        p.drawRect(QRectF(2 * s, 7 * s, 12 * s, 5 * s))  # shell
+        p.drawEllipse(QRectF(2 * s, 10 * s, 12 * s, 4 * s))
+        p.setPen(QPen(color, 1.3 * s, Qt.SolidLine, Qt.RoundCap))
+        p.drawLine(QPointF(4 * s, 1.5 * s), QPointF(8 * s, 6 * s))  # sticks
+        p.drawLine(QPointF(12 * s, 1.5 * s), QPointF(8 * s, 6 * s))
+    elif kind == "piano":
+        p.setBrush(Qt.NoBrush)
+        p.setPen(QPen(color, 1.2 * s))
+        p.drawRoundedRect(QRectF(1.5 * s, 3 * s, 13 * s, 10 * s), 1.2 * s, 1.2 * s)
+        for x in (5.8, 10.2):
+            p.drawLine(QPointF(x * s, 9 * s), QPointF(x * s, 13 * s))
+        p.setPen(Qt.NoPen)
+        p.setBrush(color)
+        for x in (4.4, 8.8, 13.2):
+            p.drawRect(QRectF((x - 1.1) * s, 3 * s, 2.2 * s, 6 * s))  # black keys
+    elif kind == "guitar":
         p.save()
         p.translate(8 * s, 8 * s)
         p.rotate(45)
@@ -833,6 +867,7 @@ def icon_label(kind: str, text: str) -> QWidget:
     icon.setPixmap(part_icon(kind, QColor(127, 127, 127)))
     h.addWidget(icon)
     h.addWidget(QLabel(text, objectName="field"))
+    h.addStretch()  # icon and text stay together at the left edge
     return w
 
 
@@ -1302,12 +1337,13 @@ class Window(QMainWindow):
         self.pattern: Path | None = None
 
         mix, g = card(_("Бэктрек"))
-        self.guitar = QSlider(Qt.Horizontal, minimum=MUTE, maximum=0, value=0, minimumWidth=140)
-        self.guitar_l = QLabel(minimumWidth=90)
-        row(g, icon_label("guitar", _("Гитара")), MuteButton(self.guitar, _("Убрать гитару")), self.guitar, self.guitar_l)
-        self.vocals = QSlider(Qt.Horizontal, minimum=MUTE, maximum=0, value=0, minimumWidth=140)
-        self.vocals_l = QLabel(minimumWidth=90)
-        row(g, icon_label("mic", _("Вокал")), MuteButton(self.vocals, _("Убрать вокал")), self.vocals, self.vocals_l)
+        self.parts: dict[str, QSlider] = {}
+        self.part_l: dict[str, QLabel] = {}
+        for name, label, icon, tip in PARTS:
+            s = self.parts[name] = QSlider(Qt.Horizontal, minimum=MUTE, maximum=0, value=0, minimumWidth=140)
+            self.part_l[name] = QLabel(minimumWidth=90)
+            row(g, icon_label(icon, _(label)), MuteButton(s, _(tip)), s, self.part_l[name])
+        self.guitar, self.vocals = self.parts["guitar"], self.parts["vocals"]
         self.fill = QCheckBox(_("Заполнять паузы хай-хэтом"), checked=pref_bool(FILL_KEY, True))
         self.fill.setToolTip(_("Такты, где без гитары и вокала тихо, получают хай-хэт на каждую долю и отсчёт палочками за такт до паузы. "
                                "Правый щелчок по такту на волне добавляет или убирает его, края зоны тянутся мышью."))
@@ -1325,9 +1361,9 @@ class Window(QMainWindow):
             self.fmt.addItem(_(name), key)
         row(g, _("Выходной формат"), self.fmt)
 
-        for w in (self.volume, self.guitar, self.vocals):
+        for w in (self.volume, *self.parts.values()):
             w.valueChanged.connect(self._labels)
-        for w in (self.guitar, self.vocals):
+        for w in self.parts.values():
             w.valueChanged.connect(self._gains)
         self.trim.toggled.connect(self._refresh)
         self.fill.toggled.connect(self._fill_toggled)
@@ -1337,7 +1373,7 @@ class Window(QMainWindow):
 
         # Pauses get searched again shortly after the levels or the threshold stop moving.
         self.zone_timer = QTimer(self, singleShot=True, interval=500, timeout=self._levels_settled)
-        for w in (self.guitar, self.vocals, self.threshold):
+        for w in (*self.parts.values(), self.threshold):
             w.valueChanged.connect(self.zone_timer.start)
         self.threshold.valueChanged.connect(self._labels)
         self.threshold.valueChanged.connect(self._refresh)
@@ -1670,7 +1706,7 @@ class Window(QMainWindow):
         self._refresh()
 
     def _gains(self):
-        self.player.gains = {"guitar": keep(self.guitar.value()), "vocals": keep(self.vocals.value())}
+        self.player.gains = {name: keep(s.value()) for name, s in self.parts.items()}
 
         # A preview started with both parts as they are has no stems to turn down: rebuild it with them.
         if self.play_start is not None and not self.player.stems and any(g < 1 for g in self.player.gains.values()):
@@ -1679,13 +1715,13 @@ class Window(QMainWindow):
     def _labels(self):
         self.volume_l.setText(_("{v:+d} дБ", v=self.volume.value()))
         self.threshold_l.setText(_("{v:+d} дБ", v=self.threshold.value()))
-        for s, l in ((self.guitar, self.guitar_l), (self.vocals, self.vocals_l)):
+        for s, l in ((self.parts[n], self.part_l[n]) for n in self.parts):
             v = s.value()
             l.setText(_("как есть") if v == 0 else _("убрать") if v == MUTE else _("{v} дБ", v=v))
 
     def settings(self) -> Settings:
         levels = {}
-        for name, s in (("guitar", self.guitar), ("vocals", self.vocals)):
+        for name, s in self.parts.items():
             if s.value() < 0:
                 levels[name] = float("-inf") if s.value() == MUTE else float(s.value())
         out_root, group = output_prefs()
