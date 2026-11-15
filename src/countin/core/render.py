@@ -2,6 +2,7 @@
 
 import math
 from dataclasses import dataclass
+from functools import lru_cache
 from pathlib import Path
 
 import numpy as np
@@ -28,6 +29,7 @@ class Click:
     time: float  # seconds, relative to the original song start
     accent: bool  # first click of a bar
     gain: float = 1.0
+    voice: str = "stick"  # stick for count-ins, hihat for the beats that fill pauses
 
 
 def click_grid(first_downbeat: float, period: float, bars: int, meter: str) -> list[Click]:
@@ -96,6 +98,31 @@ def load_samples(sr: int, folder: Path | None = None) -> tuple[np.ndarray, np.nd
     return out[0], out[1]
 
 
+# Six detuned square waves plus noise through a high band-pass: the analog drum-machine hi-hat recipe.
+# Synthesized, so no sample license is involved.
+HIHAT_FREQS = (205.3, 304.4, 369.6, 522.7, 540.0, 800.0)
+
+
+@lru_cache(maxsize=4)
+def hihat_samples(sr: int) -> tuple[np.ndarray, np.ndarray]:
+    """(accent, plain) closed hi-hat hits; the downbeat one is a little longer and louder."""
+    rng = np.random.default_rng(0)
+
+    def hit(decay: float, peak: float) -> np.ndarray:
+        n = int(sr * decay * 6)
+        t = np.arange(n) / sr
+        x = sum(np.sign(np.sin(2 * np.pi * f * t)) for f in HIHAT_FREQS) / len(HIHAT_FREQS)
+        x = x + 0.8 * rng.standard_normal(n)
+        spec = np.fft.rfft(x)
+        freqs = np.fft.rfftfreq(n, 1 / sr)
+        spec[(freqs < 7000) | (freqs > 16000)] = 0
+        x = np.fft.irfft(spec, n) * np.exp(-t / decay)
+        x[: int(0.001 * sr)] *= np.linspace(0, 1, int(0.001 * sr))  # 1 ms attack, no click from the onset step
+        return (x / np.abs(x).max() * peak).astype(np.float32)
+
+    return hit(0.06, 0.55), hit(0.035, 0.42)
+
+
 def leading_silence(pcm: np.ndarray, sr: int) -> float:
     level = 10 ** (SILENCE_DB / 20)
     loud = np.flatnonzero(np.abs(pcm).max(axis=1) > level)
@@ -138,8 +165,10 @@ def render(pcm: np.ndarray, sr: int, clicks: list[Click], first_downbeat: float,
     # ponytail: counter only; add a limiter if loud intros clip in practice.
     g = 10 ** (volume_db / 20)
     clipped = 0
+    hat = hihat_samples(sr) if any(c.voice == "hihat" for c in clicks) else None
     for c, s in zip(clicks, starts):
-        x = (hi if c.accent else lo) * (g * c.gain)
+        pair = hat if c.voice == "hihat" else (hi, lo)
+        x = (pair[0] if c.accent else pair[1]) * (g * c.gain)
         end = min(len(out), s + len(x))
         before = np.abs(out[s:end]) > 1.0
         out[s:end] += x[: end - s, None]

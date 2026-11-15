@@ -530,8 +530,8 @@ class Wave(QWidget):
             p.drawLine(QPointF(self.x_of(t), 0), QPointF(self.x_of(t), wh))
 
         p.setPen(Qt.NoPen)
-        p.setBrush(accent)
         for c in self.clicks:
+            p.setBrush(GREEN if c.voice == "hihat" else accent)
             hgt = wh * (0.42 if c.accent else 0.28) * min(c.gain, 1.6)
             p.drawRoundedRect(QRectF(self.x_of(c.time) - 2, 6, 4, hgt), 2, 2)
 
@@ -1021,8 +1021,8 @@ class Window(QMainWindow):
         self.vocals = QSlider(Qt.Horizontal, minimum=MUTE, maximum=0, value=0, minimumWidth=140)
         self.vocals_l = QLabel(minimumWidth=90)
         row(g, _("Вокал"), MuteButton(self.vocals, _("Убрать вокал")), self.vocals, self.vocals_l)
-        self.fill = QCheckBox(_("Заполнять паузы кликами"), checked=pref_bool(FILL_KEY, True))
-        self.fill.setToolTip(_("Такты, где без гитары и вокала тихо, получают клик на каждую долю и отсчёт за такт до паузы. "
+        self.fill = QCheckBox(_("Заполнять паузы хай-хэтом"), checked=pref_bool(FILL_KEY, True))
+        self.fill.setToolTip(_("Такты, где без гитары и вокала тихо, получают хай-хэт на каждую долю и отсчёт палочками за такт до паузы. "
                                "Правый щелчок по такту на волне добавляет или убирает его, края зоны тянутся мышью."))
         self.find_b = QPushButton(_("Найти паузы"), objectName="small", clicked=self._find_zones)
         self.find_b.setFocusPolicy(Qt.NoFocus)

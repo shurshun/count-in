@@ -429,6 +429,7 @@ def test_zone_count_in_takes_the_next_bar_meter_and_tempo():
     # count-in: three clicks 0.6 s apart ending one beat before bar 3, then the bar's own beats
     assert times == [2.2, 2.8, 3.4, 4.0, 4.6, 5.2]
     assert [c.accent for c in clicks] == [True, False, False, True, False, False]
+    assert [c.voice for c in clicks] == ["stick"] * 3 + ["hihat"] * 3
 
     # a zone on the first bar gets no extra count-in: the main count-in leads into it
     assert [round(c.time, 3) for c in zn.zone_clicks(bars, {0}, downbeat=0.0)] == [0, 0.5, 1, 1.5]

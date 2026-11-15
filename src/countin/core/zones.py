@@ -1,4 +1,4 @@
-"""Fill zones: bars that go quiet once guitar or vocals are removed get clicks on every beat.
+"""Fill zones: bars that go quiet once guitar or vocals are removed get a hi-hat on every beat.
 
 The bars come from the detected beats and downbeats of the whole song, so the clicks follow tempo drift
 and meter changes. A zone that starts after music gets one bar of count-in in front of it, with the beat
@@ -76,7 +76,7 @@ def ranges(indices: set[int]) -> list[tuple[int, int]]:
 
 
 def zone_clicks(bars: list[Bar], zone: set[int], downbeat: float) -> list[Click]:
-    """Clicks on every beat of the zone bars, plus a bar of count-in before each zone.
+    """A hi-hat on every beat of the zone bars, plus a bar of stick count-in before each zone.
 
     The count-in has as many clicks as the zone's first bar has beats, at that bar's beat period, and ends
     one beat before it. A zone that starts at the song's first downbeat needs none: the main count-in leads
@@ -89,5 +89,5 @@ def zone_clicks(bars: list[Bar], zone: set[int], downbeat: float) -> list[Click]
             n, p = len(bar.beats), bar.period
             clicks += [Click(bar.start - (n - k) * p, k == 0) for k in range(n)]
         for b in bars[first : last + 1]:
-            clicks += [Click(t, k == 0) for k, t in enumerate(b.beats) if t >= downbeat - 1e-3]
+            clicks += [Click(t, k == 0, voice="hihat") for k, t in enumerate(b.beats) if t >= downbeat - 1e-3]
     return clicks
