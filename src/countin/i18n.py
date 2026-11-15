@@ -85,6 +85,7 @@ EN = {
     "Скачать": "Download",
     "Не получилось: {e}": "That didn't work: {e}",
     "Скачано {d:.0f} из {n:.0f} МБ": "Downloaded {d:.0f} of {n:.0f} MB",
+    "{v} МБ/с": "{v} MB/s",
     "Скопировано {d:.0f} из {n:.0f} МБ": "Copied {d:.0f} of {n:.0f} MB",
     "Папка с моделями": "Folder with the models",
     "В этой папке нет моделей Count-In": "No Count-In models in this folder",
