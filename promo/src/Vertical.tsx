@@ -1,7 +1,7 @@
 import { AbsoluteFill, Easing, Img, interpolate, staticFile } from "remotion";
 import { C, EndCard, FONT, ONE, Soundtrack, T, clamp, f } from "./shared";
 import { FOCUS } from "./zoom";
-import { Intro } from "./Promo";
+import { Intro } from "./intro";
 import { Flash, Footer, Header, pop, useBeat, useLine } from "./verticalParts";
 
 // 9:16 cut for Reels and Shorts. The whole window stays in view, a ring marks the control
@@ -33,7 +33,7 @@ export const Vertical = () => {
   return (
     <AbsoluteFill style={{ background: C.accent, fontFamily: FONT }}>
       <Soundtrack />
-      {intro && <Intro syllables={copy.syllables} orange />}
+      {intro && <Intro syllables={copy.syllables} />}
       {intro ? null : frame < f(T.end) ? (
         <>
           {[1, 2, 3].map((n) => {

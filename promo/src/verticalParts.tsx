@@ -1,21 +1,19 @@
 import React from "react";
 import { AbsoluteFill, Img, interpolate, spring, staticFile, useCurrentFrame } from "remotion";
-import { starts } from "./Promo";
+import { starts } from "./intro";
 import { BEAT, C, FPS, ONE, T, UrlPill, clamp, f } from "./shared";
-import { COPY, Line } from "./text";
+import { useCopy } from "./text";
 
 // Parts of the 9:16 cut. Safe zones: top 250, bottom 450, right 150 px.
-
-export const FIRST: Line = { text: "A count-in for every song", accent: "every song" };
 
 /** The line on screen at the current frame. */
 export const useLine = () => {
   const frame = useCurrentFrame();
-  const copy = COPY.en;
+  const copy = useCopy();
   const at = starts(copy.lines);
   let i = 0;
   while (i + 1 < at.length && frame >= f(at[i + 1])) i++;
-  return { frame, copy, at, i, line: i === 0 ? FIRST : copy.lines[i] };
+  return { frame, copy, at, i, line: i === 0 ? copy.first : copy.lines[i] };
 };
 
 export const pop = (frame: number, at: number, delay = 0, damping = 12) =>
@@ -46,13 +44,16 @@ const APPLE = "M12.152 6.896c-.948 0-2.415-1.078-3.96-1.04-2.04.027-3.91 1.183-4
 const WINDOWS = "M2 2h9.5v9.5H2zM12.5 2H22v9.5h-9.5zM2 12.5h9.5V22H2zM12.5 12.5H22V22h-9.5z";
 
 /** Platforms, the price and the address. */
-export const Footer = ({ color = C.text, top = 1560 }: { color?: string; top?: number }) => (
+export const Footer = ({ color = C.text, top = 1560 }: { color?: string; top?: number }) => {
+  const copy = useCopy();
+  return (
   <div style={{ position: "absolute", top, left: 0, right: 0, display: "flex", flexDirection: "column", alignItems: "center", gap: 10, fontSize: 40, fontWeight: 700, color }}>
     <div style={{ display: "flex", alignItems: "center", gap: 18 }}>
       {[APPLE, WINDOWS].map((d) => <svg key={d} width="40" height="40" viewBox="0 0 24 24"><path d={d} fill={color} /></svg>)}
-      <span>Available for macOS and Windows</span>
+      <span>{copy.available}</span>
     </div>
-    <div>For free</div>
+    <div>{copy.free}</div>
     <UrlPill size={38} style={{ marginTop: 12 }} />
   </div>
-);
+  );
+};
