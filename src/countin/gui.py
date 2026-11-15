@@ -80,6 +80,9 @@ QPushButton#update:hover { background: #409cff; }
 QPushButton#iconButton { border: 1px solid @BORDER@; border-radius: 7px; background: rgba(127,127,127,0.12); padding: 0; }
 QPushButton#iconButton:hover { background: rgba(127,127,127,0.24); }
 #progOverlay { background: transparent; }
+QFrame#sepCard { background: @SEP_CARD@; border: 1px solid @BORDER@; border-radius: 12px; }
+#sepTitle { font-size: 15px; font-weight: 700; }
+#sepWait { color: #ff9f0a; font-weight: 600; }
 #progTitle { font-size: 26px; font-weight: 700; }
 #progWhy, #progEta { font-size: 15px; color: @FIELD@; }
 #progPct { font-size: 34px; font-weight: 700; }
@@ -529,6 +532,7 @@ class Wave(QWidget):
         self.threshold_full = False  # band over the whole track while the slider moves
         self.labels: list[tuple[QRectF, int]] = []
         self.overlay: QWidget | None = None  # progress card shown over the dimmed waveform during a job
+        self.card: QWidget | None = None  # background separation progress at the top right
         self.cursor_t = None
         self.drag = None
         self._cache = (None, None)
@@ -551,6 +555,10 @@ class Wave(QWidget):
         """The progress fills the waveform; on a short one the explanation and the phrase step aside."""
         if self.overlay is not None:
             self.overlay.setGeometry(self.rect())
+        if self.card is not None:
+            self.card.adjustSize()
+            self.card.move(self.width() - self.card.width() - 28, 14)  # clear of the threshold strip
+            self.card.raise_()
             roomy = self.height() >= 340
             for name in ("progWhy", "progPhrase"):
                 for label in self.overlay.findChildren(QLabel, name):
@@ -1623,6 +1631,24 @@ class Window(QMainWindow):
         self._stage = None
         return panel
 
+    def _sep_card(self) -> QWidget:
+        """Background separation shown in a translucent card at the top right of the waveform, which stays
+        usable underneath."""
+        card = QFrame(objectName="sepCard", fixedWidth=330)
+        v = QVBoxLayout(card)
+        v.setContentsMargins(16, 12, 16, 14)
+        v.setSpacing(6)
+        v.addWidget(QLabel(_("Разделяю на дорожки"), objectName="sepTitle"))
+        self.sep_bar = QProgressBar(textVisible=False, fixedHeight=6, maximum=1000)
+        v.addWidget(self.sep_bar)
+        self.sep_l = QLabel(objectName="field")
+        v.addWidget(self.sep_l)
+        self.sep_wait = QLabel(objectName="sepWait", wordWrap=True)
+        self.sep_wait.hide()
+        v.addWidget(self.sep_wait)
+        card.hide()
+        return card
+
     def _next_phrase(self):
         self.prog_phrase.setText("♪  " + _(random.choice(PHRASES)))
 
@@ -1635,6 +1661,8 @@ class Window(QMainWindow):
         self.wave.t0Changed.connect(self._marker_moved)
         self.wave.overlay = self._progress_panel()
         self.wave.overlay.setParent(self.wave)
+        self.wave.card = self._sep_card()
+        self.wave.card.setParent(self.wave)
         self.wave.overlay.hide()
 
         hint = QLabel(_("Тяните оранжевый маркер «1» на первую сильную долю. Колесо — масштаб, перетаскивание — сдвиг, "
@@ -1769,12 +1797,7 @@ class Window(QMainWindow):
         self.update_b = QPushButton("↓", objectName="update", clicked=self._update_action)
         self.update_b.setFocusPolicy(Qt.NoFocus)
         self.update_b.setCursor(Qt.PointingHandCursor)
-        self.sep_bar = QProgressBar(textVisible=False, fixedHeight=6, fixedWidth=120, maximum=1000)
-        self.sep_l = QLabel(objectName="field")
-        self.sep_bar.hide()
         sb.addWidget(self.file_l)
-        sb.addWidget(self.sep_bar)
-        sb.addWidget(self.sep_l)
         sb.addWidget(self.status, 1)
         sb.addPermanentWidget(self.reveal_b)
 
@@ -2421,9 +2444,12 @@ class Window(QMainWindow):
         self.sep_job.signals.progress.connect(self._sep_progress)
         self.sep_job.signals.done.connect(self._separated)
         self.sep_job.signals.failed.connect(self._sep_failed)
-        self.sep_bar.setValue(0)
-        self.sep_bar.show()
-        self.sep_l.setText(_("Разделение на дорожки"))
+        self.sep_bar.setRange(0, 0)
+        self.sep_l.setText(_("Готовлю модель…"))
+        self.sep_wait.hide()
+        self.sep_started = None
+        self.wave.card.show()
+        self.wave._place_overlay()
         self.sep_pool.start(self.sep_job)
 
     def _cancel_separation(self):
@@ -2435,24 +2461,32 @@ class Window(QMainWindow):
                     sig.disconnect()
                 except (RuntimeError, TypeError):
                     pass
-        self.sep_bar.hide()
-        self.sep_l.setText("")
+        self.wave.card.hide()
 
     def _sep_progress(self, _text: str, done: int, total: int):
-        if total:
-            self.sep_bar.setValue(int(done / total * 1000))
-            self.sep_l.setText(_("Разделение на дорожки: {p:.0%}", p=done / total))
+        if not total:
+            return
+        # Time left from the chunks after the first; the first one carries model loading.
+        if self.sep_started is None:
+            self.sep_started = (time.monotonic(), done)
+        t0, d0 = self.sep_started
+        left = (total - done) * (time.monotonic() - t0) / (done - d0) if done > d0 else None
+        self.sep_bar.setRange(0, 1000)
+        self.sep_bar.setValue(int(done / total * 1000))
+        self.sep_l.setText(f"{done / total:.0%} · " + (_("осталось ~{m}:{s:02d}", m=int(left // 60), s=int(left % 60))
+                                                       if left is not None else _("считаю время…")))
 
     def _separated(self, result):
         t, full = result
         self.sep_job = None
-        self.sep_bar.hide()
-        self.sep_l.setText("")
+        self.wave.card.hide()
         if t is not self.current:
             return
         self.stem_cache = full
         self._update_backing()
         todo, self.after_sep = self.after_sep, []
+        if todo:
+            self.status.setText("")
         for fn in todo:
             fn()
         self._auto_zones()
@@ -2460,8 +2494,7 @@ class Window(QMainWindow):
 
     def _sep_failed(self, msg: str):
         self.sep_job, self.after_sep = None, []
-        self.sep_bar.hide()
-        self.sep_l.setText("")
+        self.wave.card.hide()
         self.status.setText(msg)
 
     def _wait_for_stems(self, fn, needed: bool = True) -> bool:
@@ -2471,7 +2504,9 @@ class Window(QMainWindow):
             return False
         if fn not in self.after_sep:
             self.after_sep.append(fn)
-        self.status.setText(_("Начнётся, когда закончится разделение"))
+        self.sep_wait.setText(_("Начнётся сразу, как только дорожки будут готовы"))
+        self.sep_wait.show()
+        self.wave._place_overlay()
         return True
 
     def _full_stems(self):
@@ -2659,9 +2694,9 @@ def accent_color(app: QApplication) -> QColor:
 def style_sheet(app: QApplication) -> str:
     """STYLE with colors for the system light or dark appearance."""
     dark = is_dark(app)
-    colors = ({"@WINDOW@": "#1e1e20", "@SIDEBAR@": "#262628", "@CARD@": "#2c2c2e", "@BORDER@": "#3a3a3c",
+    colors = ({"@WINDOW@": "#1e1e20", "@SIDEBAR@": "#262628", "@CARD@": "#2c2c2e", "@SEP_CARD@": "rgba(44,44,46,0.9)", "@BORDER@": "#3a3a3c",
                "@FIELD@": "#a1a1a6"} if dark else
-              {"@WINDOW@": "#f5f5f7", "@SIDEBAR@": "#ececee", "@CARD@": "#ffffff", "@BORDER@": "#d8d8dc",
+              {"@WINDOW@": "#f5f5f7", "@SIDEBAR@": "#ececee", "@CARD@": "#ffffff", "@SEP_CARD@": "rgba(255,255,255,0.9)", "@BORDER@": "#d8d8dc",
                "@FIELD@": "#6e6e73"})
 
     colors["@ACCENT@"] = accent_color(app).name()
