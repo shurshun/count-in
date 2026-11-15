@@ -121,7 +121,6 @@ QFrame#busyCard { background: @SEP_CARD@; border: 1px solid @BORDER@; border-rad
 #busyWhy { font-size: 14px; color: @FIELD@; }
 #busyEta { font-size: 14px; font-weight: 600; }
 QFrame#tipCard { background: @TIP_CARD@; border: 1px solid @BORDER@; border-radius: 14px; }
-#tipHead { font-size: 11px; font-weight: 700; color: @ACCENT@; }
 #tipText { font-size: 14px; }
 #helpTitle { font-size: 26px; font-weight: 700; }
 #helpLine { font-size: 14px; }
@@ -717,25 +716,55 @@ class BusyPill(QFrame):
         self.clicked.emit()
 
 
+def tip_badge(kind: str, size: int = 28) -> QPixmap:
+    """An orange round badge: a light bulb for a tip about the app, a note for a music line."""
+    dpr = 2.0
+    pix = QPixmap(int(size * dpr), int(size * dpr))
+    pix.setDevicePixelRatio(dpr)
+    pix.fill(Qt.transparent)
+    p = QPainter(pix)
+    p.setRenderHint(QPainter.Antialiasing)
+    p.setPen(Qt.NoPen)
+    p.setBrush(ORANGE)
+    p.drawEllipse(QRectF(0, 0, size, size))
+    white = QColor(255, 255, 255)
+    c = size / 2
+    if kind == "tip":
+        p.setBrush(white)
+        p.drawEllipse(QPointF(c, c - size * 0.08), size * 0.21, size * 0.21)  # the bulb
+        p.drawRoundedRect(QRectF(c - size * 0.11, c + size * 0.06, size * 0.22, size * 0.13), 1.5, 1.5)  # its neck
+        p.drawRoundedRect(QRectF(c - size * 0.08, c + size * 0.22, size * 0.16, size * 0.06), 1.5, 1.5)  # the cap
+    else:
+        p.setPen(white)
+        f = QFont()
+        f.setPixelSize(int(size * 0.62))
+        f.setBold(True)
+        p.setFont(f)
+        p.drawText(QRectF(0, -size * 0.02, size, size), Qt.AlignCenter, "♪")
+    p.end()
+    return pix
+
+
 class TipCard(QFrame):
     """A tip about the app, or now and then a music line, shown over the waveform next to the progress
-    capsule. Clicks pass through it."""
+    capsule. An orange badge tells them apart. Clicks pass through it."""
 
     def __init__(self):
         super().__init__(objectName="tipCard")
         self.setAttribute(Qt.WA_TransparentForMouseEvents)
-        v = QVBoxLayout(self)
-        v.setContentsMargins(14, 9, 14, 11)
-        v.setSpacing(2)
-        self.head = QLabel(_("СОВЕТ"), objectName="tipHead")
+        h = QHBoxLayout(self)
+        h.setContentsMargins(12, 10, 14, 10)
+        h.setSpacing(10)
+        self.badge = QLabel(fixedSize=QSize(28, 28))
         self.text = QLabel(objectName="tipText", wordWrap=True)
-        v.addWidget(self.head)
-        v.addWidget(self.text)
+        h.addWidget(self.badge, 0, Qt.AlignTop)
+        h.addWidget(self.text, 1)
+        self.badges = {k: tip_badge(k) for k in ("tip", "music")}
         self.hide()
 
     def set(self, text: str, tip: bool):
-        self.head.setVisible(tip)
-        self.text.setText(text)
+        self.badge.setPixmap(self.badges["tip" if tip else "music"])
+        self.text.setText(text.removeprefix("♪").strip())
 
 
 class Overview(QWidget):

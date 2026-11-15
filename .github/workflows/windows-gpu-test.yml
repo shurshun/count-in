@@ -36,8 +36,6 @@ jobs:
           path: models
           key: models-${{ hashFiles('packaging/fetch_models.sh') }}
       - run: packaging/fetch_models.sh
-      - name: export the separation core to ONNX
-        run: uv run --with onnx --with onnxscript python -m countin.core.accel onnx
       - run: uv run pyinstaller packaging/countin.spec --noconfirm --distpath dist --workpath build/work
 
       # The runner has no GPU and DirectML would crawl on the software adapter, so the smoke test uses torch.

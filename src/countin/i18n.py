@@ -235,7 +235,6 @@ EN = {
     "Начнётся сразу, как только дорожки будут готовы": "Starts as soon as the parts are ready",
 
     # Tips and help (help.py)
-    'СОВЕТ': 'TIP',
     'Справка Count-In': 'Count-In Help',
     'Тяните оранжевый маркер «1» на первую сильную долю': 'Drag the orange “1” marker onto the first downbeat',
     'Колесо мыши меняет масштаб волны, перетаскивание сдвигает её': 'The mouse wheel zooms the waveform, dragging pans it',

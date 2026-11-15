@@ -29,3 +29,10 @@ fetch models/separator/BS-Roformer-SW.ckpt $M/BS-Roformer-SW.ckpt \
   24e7d35ee9c64415673d3fd33e06a67cac2c103c5df6267ba1576459c775916e
 fetch models/separator/BS-Roformer-SW.yaml $M/BS-Roformer-SW.yaml \
   b558996f1e25eb48798bd6502505a5de94c4f966d6edfb1a0420f06cc40b501a
+
+# Windows separates through DirectML with the ONNX export of the RoFormer core, kept only in this project's release
+case "$(uname -s)" in
+  MINGW*|MSYS*|CYGWIN*)
+    fetch models/separator/BS-Roformer-SW-core.onnx $A/BS-Roformer-SW-core.onnx \
+      09593a8ef0027cd1f281c6a3cf6241a474249c573a665606102de35611b7bccb ;;
+esac

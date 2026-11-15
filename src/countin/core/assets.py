@@ -7,7 +7,7 @@ Search order for each file:
 3. the user data folder, where downloads and copied folders go;
 4. `models/` in the project root, for development.
 
-Missing files get downloaded from this project's `assets-v1` release (a prerelease, so the update check never
+Missing files get downloaded from this project's `assets-v1` release (Windows also takes the ONNX core there) (a prerelease, so the update check never
 sees it), falling back to the original publishers.
 """
 
@@ -32,6 +32,13 @@ FILES = {
         4653, "b558996f1e25eb48798bd6502505a5de94c4f966d6edfb1a0420f06cc40b501a",
         "https://github.com/nomadkaraoke/python-audio-separator/releases/download/model-configs/BS-Roformer-SW.yaml"),
 }
+
+# Windows separates on the GPU through DirectML with this ONNX export of the RoFormer core (`accel.export_onnx`);
+# a Mac builds its Core ML model from the weights above and needs no download.
+if sys.platform == "win32":
+    FILES["separator/BS-Roformer-SW-core.onnx"] = (
+        712562453, "09593a8ef0027cd1f281c6a3cf6241a474249c573a665606102de35611b7bccb",
+        RELEASE + "BS-Roformer-SW-core.onnx")
 TOTAL = sum(size for size, _sha, _url in FILES.values())
 
 
