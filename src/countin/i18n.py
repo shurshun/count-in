@@ -71,7 +71,7 @@ EN = {
     "Пауза {a}–{b}": "Pause {a}–{b}",
     "Долей в такте": "Beats per bar",
     "Удалить паузу": "Remove pause",
-    "Порог паузы": "Pause threshold",
+    "Порог тишины": "Silence threshold",
     "Сохранить эти настройки как настройки по умолчанию": "Save these settings as default",
     "Вернуть настройки по умолчанию": "Restore default settings",
     "Настройки по умолчанию восстановлены": "Default settings restored",

@@ -77,8 +77,8 @@ QPushButton#update { background: #0a84ff; color: white; border: none; border-rad
 QPushButton#update:hover { background: #409cff; }
 #title { font-size: 24px; font-weight: 600; }
 #headerLabel { font-size: 15px; color: @FIELD@; }
-QPushButton#iconButton { border: 1px solid transparent; border-radius: 7px; background: transparent; padding: 0; }
-QPushButton#iconButton:hover { border-color: @BORDER@; background: rgba(127,127,127,0.10); }
+QPushButton#iconButton { border: 1px solid @BORDER@; border-radius: 7px; background: rgba(127,127,127,0.12); padding: 0; }
+QPushButton#iconButton:hover { background: rgba(127,127,127,0.24); }
 #progOverlay { background: transparent; }
 #progTitle { font-size: 26px; font-weight: 700; }
 #progWhy, #progEta { font-size: 15px; color: @FIELD@; }
@@ -958,13 +958,27 @@ def part_icon(kind: str, color: QColor, size: int = 16) -> QPixmap:
         p.drawRoundedRect(QRectF(4 * s, 8.5 * s, 8 * s, 4 * s), 0.8 * s, 0.8 * s)  # label
         p.setCompositionMode(QPainter.CompositionMode_SourceOver)
         p.drawRect(QRectF(8.6 * s, 2.6 * s, 1.6 * s, 2.6 * s))  # shutter slot
-    elif kind == "reset":  # arrow turning back
+    elif kind == "reset":  # undo: an arc running counter-clockwise, its arrowhead at the upper left pointing left
         p.setBrush(Qt.NoBrush)
         p.setPen(QPen(color, 1.6 * s, Qt.SolidLine, Qt.RoundCap))
-        p.drawArc(QRectF(2.5 * s, 2.5 * s, 11 * s, 11 * s), 100 * 16, 270 * 16)
+        p.drawArc(QRectF(3 * s, 3 * s, 10 * s, 10 * s), 135 * 16, -300 * 16)  # from upper left, clockwise round
         p.setPen(Qt.NoPen)
         p.setBrush(color)
-        p.drawPolygon(QPolygonF([QPointF(1.0 * s, 4.2 * s), QPointF(6.4 * s, 2.0 * s), QPointF(5.6 * s, 7.4 * s)]))
+        p.drawPolygon(QPolygonF([QPointF(1.6 * s, 2.6 * s), QPointF(6.6 * s, 3.4 * s), QPointF(3.0 * s, 7.6 * s)]))
+    elif kind == "threshold":  # bars of a level meter cut by a dashed line
+        for x, hgt in ((2, 6), (5.5, 11), (9, 4), (12.5, 8)):
+            p.drawRoundedRect(QRectF(x * s, (15 - hgt) * s, 2.2 * s, hgt * s), 0.6 * s, 0.6 * s)
+        p.setPen(QPen(color, 1.2 * s, Qt.DashLine))
+        p.drawLine(QPointF(0.5 * s, 7.5 * s), QPointF(15.5 * s, 7.5 * s))
+    elif kind == "file":  # document with a folded corner and a note
+        p.setBrush(Qt.NoBrush)
+        p.setPen(QPen(color, 1.2 * s, Qt.SolidLine, Qt.RoundCap, Qt.RoundJoin))
+        p.drawPolygon(QPolygonF([QPointF(3.5 * s, 1.5 * s), QPointF(9.5 * s, 1.5 * s), QPointF(12.5 * s, 4.5 * s),
+                                 QPointF(12.5 * s, 14.5 * s), QPointF(3.5 * s, 14.5 * s)]))
+        p.setPen(Qt.NoPen)
+        p.setBrush(color)
+        p.drawEllipse(QPointF(6.8 * s, 11.2 * s), 1.4 * s, 1.1 * s)  # note head
+        p.drawRect(QRectF(7.6 * s, 6 * s, 0.9 * s, 5.2 * s))  # stem
     elif kind == "speaker":
         p.drawPolygon(QPolygonF([QPointF(1.5 * s, 6 * s), QPointF(4.5 * s, 6 * s), QPointF(8.5 * s, 2.5 * s),
                                  QPointF(8.5 * s, 13.5 * s), QPointF(4.5 * s, 10 * s), QPointF(1.5 * s, 10 * s)]))
@@ -1662,13 +1676,13 @@ class Window(QMainWindow):
         self.threshold.setToolTip(_("Насколько тише среднего уровня песни должен быть такт, чтобы считаться паузой. "
                                     "На волне этот уровень показан пунктиром."))
         self.threshold_l = QLabel(minimumWidth=80)
-        row(g, _("Порог паузы"), self.threshold, self.threshold_l)
+        row(g, icon_label("threshold", _("Порог тишины")), self.threshold, self.threshold_l)
         self.trim = QCheckBox(_("Обрезать тишину в начале"))
         g.addWidget(self.trim, g.rowCount(), 0, 1, 2, Qt.AlignLeft | Qt.AlignVCenter)
         self.fmt = QComboBox()
         for key, name in FORMAT_NAMES.items():
             self.fmt.addItem(_(name), key)
-        row(g, _("Выходной формат"), self.fmt)
+        row(g, icon_label("file", _("Выходной формат")), self.fmt)
 
         for w in (self.volume, *self.parts.values()):
             w.valueChanged.connect(self._labels)
