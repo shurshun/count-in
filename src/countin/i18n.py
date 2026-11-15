@@ -309,6 +309,11 @@ EN = {
     "Порог тишины подобран по разделённому треку: {v:+d} дБ": "Silence threshold fitted to the separated track: {v:+d} dB",
     "Нарастание к концу паузы": "Build-up at the end of a pause",
     "Последний такт паузы ведёт к вступлению: вторая половина такта звучит восьмыми, последние три удара громче, как в отсчёте «Нарастание».": "The last bar of a pause leads into the entry: its second half in eighths, the last three hits louder, like the build-up count-in.",
+    "{name}: замедление": "{name}: slowing down",
+    "Скорость": "Speed",
+    "Медленнее на 5%, тон не меняется": "5% slower, same pitch",
+    "Быстрее на 5%": "5% faster",
+    "Скорость прослушивания и сохранения. Тон не меняется, отсчёт и хай-хэт встают на замедленную сетку.": "Speed for listening and saving. The pitch stays; the count-in and the hi-hat land on the slowed grid.",
 }
 
 

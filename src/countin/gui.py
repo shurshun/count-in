@@ -222,7 +222,8 @@ class Settings:
     out_root: Path | None = None  # None: next to the source
     group: tuple[bool, bool, bool] | None = None  # (artist, year, album) folders under out_root
     fill: bool = True  # hi-hat in the pauses, found automatically
-    fill_build: bool = False  # the last bar of each pause runs into the entry in eighths
+    fill_build: bool = True  # the last bar of each pause runs into the entry in eighths
+    speed: float = 1.0  # playback and export speed, pitch kept (0.8 = 20% slower)
     threshold: float = zn.QUIET_DB  # dB below the song average that counts as a pause
 
 
@@ -419,9 +420,10 @@ def _covers(cached, i0: int, i1: int) -> bool:
 def preview_job(job: Job, track: Track, s: Settings, pcm: np.ndarray, sr: int, cached, separate: bool,
                 at: float | None = None):
     """Count-in plus PREVIEW_AFTER seconds, or PREVIEW_FROM seconds from song time `at` (play from here), with
-    stems kept apart so the player can mix them live.
+    stems kept apart so the player can mix them live. Only that excerpt gets rendered, at s.speed.
 
-    Returns (song with clicks, {stem: aligned array}, sr, original-song time of the first sample, new stem cache).
+    Returns (song with clicks, {stem: aligned array}, sr, original-song time of the first sample, new stem cache,
+    clipped samples). Output time runs at s.speed: song time = start + output time * speed.
     """
     clicks = clicks_for(track, s)
     dur = len(pcm) / sr
@@ -440,20 +442,21 @@ def preview_job(job: Job, track: Track, s: Settings, pcm: np.ndarray, sr: int, c
         new_cache = (i0, part)
 
     job.report(_("Сборка отрывка"))
-    r = rd.render(pcm, sr, clicks, track.t0, s.pre_roll, s.volume_db, rd.load_samples(sr))
-    shift = int(round(r.offset * sr))
-    o0 = max(0, int((first - 0.3) * sr) + shift)
-    base = r.pcm[o0 : i1 + shift]
+    lo_t = i0 / sr
+    win = [rd.Click(c.time - lo_t, c.accent, c.gain, c.voice) for c in clicks if first - 0.35 <= c.time < end]
+    r = rd.render(pcm[i0:i1], sr, win, 0.0, "keep", s.volume_db, rd.load_samples(sr), s.speed)
+    base = r.pcm
 
-    # Stems go to the same output positions as the song samples they came from.
+    # Stems go to the same output positions as the song samples they came from, slowed the same way.
     aligned = {}
+    a = int(round(r.offset * sr))
     for k, v in (part or {}).items():
+        v = rd.stretch(v, sr, s.speed)
         z = np.zeros_like(base)
-        a = i0 + shift - o0
         lo, hi = max(a, 0), min(a + len(v), len(base))
         z[lo:hi] = v[lo - a : hi - a]
         aligned[k] = z
-    return track, base, aligned, sr, o0 / sr - r.offset, new_cache, r.clipped
+    return track, base, aligned, sr, lo_t - r.offset * s.speed, new_cache, r.clipped
 
 
 def target_path(song: Path, s: Settings, info: io.AudioInfo) -> Path:
@@ -461,7 +464,7 @@ def target_path(song: Path, s: Settings, info: io.AudioInfo) -> Path:
     folder = s.out_root
     if folder and s.group:
         folder = io.organized_dir(folder, info.tags, *s.group)
-    return io.output_path(song, s.fmt or info.format, s.levels, folder)
+    return io.output_path(song, s.fmt or info.format, s.levels, folder, s.speed)
 
 
 def save_job(job: Job, t: Track, s: Settings, cached):
@@ -478,7 +481,9 @@ def save_job(job: Job, t: Track, s: Settings, cached):
             t.zones, t.zones_key = find_zones(t, pcm, info.sr, st, s), zones_key(s)
         pcm = stems.attenuate(pcm, st, s.levels)
     job.report(_("{name}: запись", name=t.path.name))
-    r = rd.render(pcm, info.sr, clicks_for(t, s), t.t0, s.pre_roll, s.volume_db, rd.load_samples(info.sr))
+    if s.speed != 1.0:
+        job.report(_("{name}: замедление", name=t.path.name))
+    r = rd.render(pcm, info.sr, clicks_for(t, s), t.t0, s.pre_roll, s.volume_db, rd.load_samples(info.sr), s.speed)
     out = target_path(t.path, s, info)
     out.parent.mkdir(parents=True, exist_ok=True)
     io.encode(r.pcm, info, out, tags_from=t.path)
@@ -2126,6 +2131,8 @@ class Window(QMainWindow):
         self.after_sep: list = []  # actions that need the whole-song stems, run when they arrive
         self.player = Player()
         self.play_start = None
+        self.play_speed = 1.0  # speed of the preview now playing: song time = start + position * speed
+        self.speed = 100  # playback and export speed in percent
         self.resume_at = None  # song time a rebuilt preview carries on from
         self.zones_pending = False  # a pause search waits for the running job
         self.models_warm = False  # the separation model starts loading with the first track
@@ -2411,6 +2418,22 @@ class Window(QMainWindow):
                                  self._add_pause, "round"))
         help_b = QPushButton("?", objectName="tbtn", clicked=self._help, toolTip=_("Справка Count-In"))
         help_b.setFocusPolicy(Qt.NoFocus)
+
+        # Speed: − percent +, slower with the pitch kept; steps of 5% from 50% to 100%
+        h.addSpacing(10)
+        h.addWidget(vsep())
+        h.addSpacing(10)
+        h.addWidget(QLabel(_("Скорость"), objectName="groupTitle"))
+        h.addSpacing(4)
+        h.addWidget(glyph_button("minus", _("Медленнее на 5%, тон не меняется"), lambda: self._set_speed(self.speed - 5), "round"))
+        schip = QFrame(objectName="lcd")
+        sh = QHBoxLayout(schip)
+        sh.setContentsMargins(10, 3, 10, 3)
+        self.speed_l = QLabel("100%", objectName="chipText", alignment=Qt.AlignCenter, minimumWidth=48)
+        self.speed_l.setToolTip(_("Скорость прослушивания и сохранения. Тон не меняется, отсчёт и хай-хэт встают на замедленную сетку."))
+        sh.addWidget(self.speed_l)
+        h.addWidget(schip)
+        h.addWidget(glyph_button("plus", _("Быстрее на 5%"), lambda: self._set_speed(self.speed + 5), "round"))
         h.addStretch()
         h.addWidget(vsep())
         h.addSpacing(6)
@@ -2423,6 +2446,15 @@ class Window(QMainWindow):
         h.addSpacing(6)
         h.addWidget(help_b)
         return bar
+
+    def _set_speed(self, pct: int):
+        """Playback and export speed in percent, 50..100; a playing preview carries on at the new speed."""
+        pct = int(np.clip(pct, 50, 100))
+        if pct == self.speed:
+            return
+        self.speed = pct
+        self.speed_l.setText(f"{pct}%")
+        self._restart_preview()
 
     def _nav_changed(self):
         """Shows the play position and the current pause in the transport bar."""
@@ -2640,7 +2672,7 @@ class Window(QMainWindow):
             h.addWidget(w)
         h.addStretch()
         g.addLayout(h, g.rowCount(), 0, 1, 2)
-        self.fill_build = QCheckBox(_("Нарастание к концу паузы"), checked=pref_bool(FILL_BUILD_KEY, False))
+        self.fill_build = QCheckBox(_("Нарастание к концу паузы"), checked=pref_bool(FILL_BUILD_KEY, True))
         self.fill_build.setToolTip(_("Последний такт паузы ведёт к вступлению: вторая половина такта звучит восьмыми, "
                                      "последние три удара громче, как в отсчёте «Нарастание»."))
         self.fill_build.toggled.connect(lambda on: QSettings().setValue(FILL_BUILD_KEY, on))
@@ -3074,7 +3106,7 @@ class Window(QMainWindow):
             pattern=self.pattern, volume_db=float(self.volume.value()),
             levels=levels, pre_roll="trim" if self.trim.isChecked() else "keep", fmt=self.fmt.currentData(),
             out_root=out_root, group=group, fill=self.fill.isChecked(), fill_build=self.fill_build.isChecked(),
-            threshold=float(self.threshold.value()),
+            threshold=float(self.threshold.value()), speed=self.speed / 100,
         )
 
     def _refresh(self, *_args):
@@ -3253,7 +3285,9 @@ class Window(QMainWindow):
         self._gains()
         resume, self.resume_at = self.resume_at, None
         try:
-            self.player.play(base, stems, sr, int((resume - start) * sr) if resume is not None else 0)
+            speed = self.settings().speed
+            self.player.play(base, stems, sr, int((resume - start) / speed * sr) if resume is not None else 0)
+            self.play_speed = speed
         except Exception as e:  # no output device, unsupported channel count
             log.exception("audio output failed")
             self.status.setText(_("Не удалось воспроизвести: {e}", e=e))
@@ -3267,7 +3301,7 @@ class Window(QMainWindow):
             self._stop()
             return
         w = self.wave
-        w.cursor_t = self.play_start + self.player.position()
+        w.cursor_t = self.play_start + self.player.position() * self.play_speed
 
         # The view pages along with the playhead, as in a DAW, unless the user is moving it by hand
         span = w.v1 - w.v0
@@ -3631,7 +3665,7 @@ class Window(QMainWindow):
         """Rebuilds the playing preview after an edit and carries on from the same song position."""
         if self.play_start is None or self.job:
             return
-        self.resume_at = self.play_start + self.player.position()
+        self.resume_at = self.play_start + self.player.position() * self.play_speed
         self._stop()
         s = self.settings()
         self._run(preview_job, self.current, s, self.pcm, self.sr, self.stem_cache, separate or bool(s.levels),

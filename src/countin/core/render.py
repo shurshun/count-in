@@ -144,32 +144,49 @@ def leading_silence(pcm: np.ndarray, sr: int) -> float:
 @dataclass
 class Rendered:
     pcm: np.ndarray
-    offset: float  # original-song time t maps to output time t + offset
+    offset: float  # original-song time t maps to output time t / speed + offset
     click_samples: list[int]  # click onsets in the output
     clipped: int  # samples that hit full scale
 
 
+def stretch(x: np.ndarray, sr: int, speed: float) -> np.ndarray:
+    """(n, channels) audio played at speed (0.8 = 20% slower) with its pitch kept, through Signalsmith
+    Stretch (MIT). Transients stay on time within about a millisecond. The result has round(n / speed)
+    samples."""
+    if speed == 1.0 or not len(x):
+        return x
+    import python_stretch as ps
+
+    st = ps.Signalsmith.Stretch()
+    st.preset(x.shape[1], sr)
+    st.setTimeFactor(speed)
+    y = np.asarray(st.process(np.ascontiguousarray(x.T, dtype=np.float32))).T
+    n = int(round(len(x) / speed))
+    return np.ascontiguousarray(y[:n] if len(y) >= n else np.pad(y, ((0, n - len(y)), (0, 0))), dtype=np.float32)
+
+
 def render(pcm: np.ndarray, sr: int, clicks: list[Click], first_downbeat: float,
            pre_roll: str = "keep", volume_db: float = 0.0,
-           samples: tuple[np.ndarray, np.ndarray] | None = None) -> Rendered:
+           samples: tuple[np.ndarray, np.ndarray] | None = None, speed: float = 1.0) -> Rendered:
     """Mix clicks into the song. Audio before the downbeat stays and gets the clicks on top.
 
     trim cuts leading silence first, never past the downbeat.
     Silence gets prepended when the song starts too late to hold the count-in.
+    With speed below 1 the song gets slower with its pitch kept (stretch) and the clicks land on the slowed
+    grid as they are, so they stay crisp.
     """
     if first_downbeat >= len(pcm) / sr:
         raise ValueError(f"downbeat {first_downbeat:.3f} s is past the end of the song")
     hi, lo = samples or load_samples(sr)
 
     cut = min(int(leading_silence(pcm, sr) * sr), int(first_downbeat * sr)) if pre_roll == "trim" else 0
-    earliest = min(c.time for c in clicks)
+    earliest = min((c.time for c in clicks), default=cut / sr)
 
     # Each click rounds from its own float time, so error never accumulates.
-    pad = max(0, -math.floor(earliest * sr - cut))
-    shift = pad - cut
-    starts = [int(round(c.time * sr)) + shift for c in clicks]
+    pad = max(0, -math.floor((earliest * sr - cut) / speed))
+    starts = [int(round((c.time * sr - cut) / speed)) + pad for c in clicks]
 
-    song = pcm[cut:]
+    song = stretch(pcm[cut:], sr, speed)
     out = np.zeros((pad + len(song), pcm.shape[1]), dtype=np.float32)
     out[pad:] = song
 
@@ -185,4 +202,4 @@ def render(pcm: np.ndarray, sr: int, clicks: list[Click], first_downbeat: float,
         before = np.abs(out[s:end]) > 1.0
         out[s:end] += x[: end - s, None]
         clipped += int(np.sum((np.abs(out[s:end]) > 1.0) & ~before))
-    return Rendered(out, shift / sr, starts, clipped)
+    return Rendered(out, (pad - cut / speed) / sr, starts, clipped)

@@ -641,3 +641,15 @@ def test_pause_search_keeps_the_lowest_level_each_part_had():
     assert gui.search_levels(t, s) == {"guitar": float("-inf")}
     s.levels = {"vocals": -12.0}
     assert gui.search_levels(t, s) == {"guitar": float("-inf"), "vocals": -12.0}
+
+
+def test_render_slows_the_song_and_keeps_clicks_on_the_slowed_grid():
+    sr = 48000
+    pcm = np.zeros((sr * 4, 2), np.float32)
+    pcm[sr * 2 : sr * 2 + 200] = 0.9  # the "1" at 2 s
+    clicks = [rd.Click(1.0, True), rd.Click(1.5, False)]
+    r = rd.render(pcm, sr, clicks, 2.0, speed=0.8)
+    assert len(r.pcm) == pytest.approx(len(pcm) / 0.8, abs=2)
+    assert [s / sr for s in r.click_samples] == pytest.approx([1.25, 1.875])
+    hit = np.argmax(np.abs(r.pcm[int(2.3 * sr) : int(2.7 * sr), 0]) > 0.3) / sr + 2.3
+    assert hit == pytest.approx(2.0 / 0.8 + r.offset, abs=0.003)  # the song's "1" moved to 2.5 s with them
