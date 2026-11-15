@@ -40,10 +40,10 @@ The builds are unsigned, so the system warns on first launch.
 The app follows the system appearance and has a [dark theme](docs/screenshots/main-dark-en.png) too.
 
 1. Drop a track onto the window or open it with ⌘O. The app analyzes it and starts separating the parts in the background right away; a card over the waveform shows the progress and tips.
-2. Check the orange "1" marker on the waveform. If the detector got it wrong, drag the marker to the right beat or use the arrows in the Tempo card; the round arrow brings back what the detector found. The wheel zooms, dragging pans, the mini-map under the waveform shows the whole song.
+2. Check the orange "1" marker on the waveform. If the detector got it wrong, drag the marker to the right beat or use the arrows in the Tempo card; the round arrow brings back what the detector found. The wheel zooms, dragging pans, the overview under the waveform shows the whole song.
 3. Pick the count-in pattern, length and meter. Blue marks on the waveform show where the clicks will sound.
-4. For a backing track, lower the part sliders in the Backing track card. With "Fill pauses with hi-hat" on, quiet stretches get a hi-hat; the silence threshold fits itself to the song, and the − and + buttons in the transport bar remove or add a pause.
-5. Press Play or Space. A click on the waveform or the mini-map sets the playhead, ← and → jump between pauses, and the speed control slows the song down. Levels change while it plays.
+4. For a backing track, lower the part sliders in the Backing track card. With "Fill pauses with hi-hat" on, quiet stretches get a hi-hat; the silence threshold fits itself to the song, and the − and + buttons in the bar under the waveform remove or add a pause.
+5. Press Play or Space. A click on the waveform or the overview sets the playhead, ← and → jump between pauses, and the speed control slows the song down. Levels change while it plays.
 6. Press Save or ⌘S. By default the file goes next to the original, and Finder or Explorer opens with it selected; turn that off in Settings.
 
 In Settings (⌘,) you can pick one output folder and have files sorted into Artist / Year - Album subfolders from the source tags; each level is a checkbox.
@@ -184,10 +184,10 @@ Count-In находит темп и первую сильную долю пес�
 Приложение следует оформлению системы, есть и [тёмная тема](docs/screenshots/main-dark.png).
 
 1. Перетащите трек в окно или откройте его через ⌘O. Приложение анализирует его и сразу начинает в фоне разделять на дорожки; карточка поверх волны показывает прогресс и советы.
-2. Проверьте оранжевый маркер «1» на волне. Если детектор ошибся, перетащите маркер на нужную долю или сдвиньте стрелками в карточке «Темп»; круглая стрелка возвращает найденное детектором. Колесо меняет масштаб, перетаскивание сдвигает волну, мини-карта под волной показывает всю песню.
+2. Проверьте оранжевый маркер «1» на волне. Если детектор ошибся, перетащите маркер на нужную долю или сдвиньте стрелками в карточке «Темп»; круглая стрелка возвращает найденное детектором. Колесо меняет масштаб, перетаскивание сдвигает волну, обзор трека под волной показывает всю песню.
 3. Выберите рисунок, длину и размер отсчёта. Синие отметки на волне показывают, где прозвучат клики.
-4. Для бэктрека опустите ползунки в карточке «Бэктрек». С галочкой «Заполнять паузы хай-хэтом» тихие места получают хай-хэт; порог тишины подбирается сам, кнопки − и + в панели транспорта убирают и добавляют паузы.
-5. Нажмите Play или пробел. Щелчок по волне или мини-карте ставит курсор, ← и → переходят по паузам, блок «Скорость» замедляет песню. Уровни меняются на ходу.
+4. Для бэктрека опустите ползунки в карточке «Бэктрек». С галочкой «Заполнять паузы хай-хэтом» тихие места получают хай-хэт; порог тишины подбирается сам, кнопки − и + под волной убирают и добавляют паузы.
+5. Нажмите Play или пробел. Щелчок по волне или обзору трека ставит курсор, ← и → переходят по паузам, блок «Скорость» замедляет песню. Уровни меняются на ходу.
 6. Нажмите «Сохранить» или ⌘S. По умолчанию файл ложится рядом с исходником, а Finder или Проводник открывается с ним; это отключается в настройках.
 
 В настройках (⌘,) можно один раз выбрать папку для всех файлов и раскладывать их по подпапкам «Исполнитель / Год - Альбом» по тегам исходника, каждый уровень включается галочкой.
