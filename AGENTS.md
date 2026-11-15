@@ -10,6 +10,7 @@ Count-In inserts a drum count-in before a song's first downbeat and can turn gui
 | `src/countin/core/analyze.py` | beat and downbeat detection, grid fit, attack snap, confidence |
 | `src/countin/core/render.py` | click grids (even, build-up, MIDI), sample-accurate mixing |
 | `src/countin/core/stems.py` | BS-RoFormer SW separation and stem attenuation |
+| `src/countin/core/zones.py` | whole-song bars, quiet-bar detection, fill-zone clicks |
 | `src/countin/core/roformer/` | vendored BS-RoFormer model code (MIT, see its LICENSE) |
 | `src/countin/gui.py` | the app: window, waveform, jobs, live preview player |
 | `src/countin/update.py` | GitHub release check |
@@ -21,7 +22,7 @@ Count-In inserts a drum count-in before a song's first downbeat and can turn gui
 ## Pipeline
 
 1. **Decode.** `io.decode` pipes float32 PCM out of ffmpeg at the native rate. Clicks get placed on beats found in this same stream, so the source's encoder delay never matters.
-2. **Detect.** `analyze.detect` runs beat_this (`final0.ckpt`, 50 fps) on the first 90 s. Peaks get a parabolic sub-frame refinement.
+2. **Detect.** `analyze.detect` runs beat_this (`final0.ckpt`, 50 fps) on the whole song, about two seconds for three minutes. Peaks get a parabolic sub-frame refinement.
 3. **Fit the grid.** `fit_grid` gives each beat a slot index from the median interval, then fits a least-squares line over 16 slots. Slot indexing survives half-time intros; the line averages out the 20 ms frame quantization.
 4. **Snap.** `snap_onset` moves the downbeat to the sample-exact attack within ±25 ms. Of several attacks it takes the one nearest the grid.
 5. **Bar phase and confidence.** Later downbeats vote on which beat starts the bar. Disagreement yields `alt_downbeat` and a note. `beat_period` rescales the period when the detector counts eighths in 6/8 or half time in 4/4.
@@ -61,6 +62,8 @@ Count-In inserts a drum count-in before a song's first downbeat and can turn gui
 - **Files from Finder.** `App.event` handles `QFileOpenEvent` for files dropped on the Dock icon.
 - **Space.** An application event filter plays or stops on Space unless the key goes to a text field or spin box, or a modal dialog is open.
 - **Preferences.** `PrefsDialog` saves to `QSettings` at once: `output/dir` (empty means next to the source), `output/group` and the `output/artist|year|album` levels, `output/reveal` (open the folder after saving, on by default), `appearance/icon`, `appearance/language`. `io.organized_dir` builds the folder from source tags; `io.safe_name` keeps names valid on Windows.
+- **Fill zones.** `zones.bars_from` builds bars from the whole-song beats and downbeats, so zone clicks follow tempo drift and meter changes (the demo track drifts from 121 to 125 BPM and has one 2/4 bar). `find_zone` takes the turned-down stems out of the mix and marks bars `QUIET_DB` (-18 dB) below the song's average level; a quiet run that reaches the last bar is the ending and stays out. Zones get found by "Find pauses" (separates the whole song, cached for the save) or on save when none were searched yet. `zones.zone_clicks` clicks every beat of a zone and puts one bar of count-in before it with the zone's first-bar beat count and period; a zone at the song's first downbeat follows the main count-in instead. On the waveform a right-click toggles the bar under the cursor and zone edges drag along bar lines. The "Fill pauses with clicks" checkbox (`fill/enabled`) turns the zone clicks off without losing the zones.
+- **Window.** The app opens maximized.
 - **Status bar.** File format from `io.describe`, save status, the version (`v0.5.0`) and, when a newer release exists, a round blue download badge left of it.
 - **Update check TLS.** `update.check` trusts the OS certificate store through `truststore`. The bundled Python's OpenSSL looks for certificates in a python.org-only folder, so without truststore HTTPS fails on most machines. CI runs `countin --check-update` from the bundle to catch that.
 - **Self-update.** `update.can_self_update` needs the asset's `sha256` digest from the API and a frozen bundle in a writable folder outside App Translocation; otherwise the badge opens the download page. `update.download` streams the zip into `.count-in-update/` next to the bundle, hashes it on the way and unpacks it (`ditto` on macOS keeps symlinks and permissions). `update.install_on_exit` starts a detached `sh`/`cmd` helper that waits for the app's PID, renames the bundle to `.old`, moves the new one in, restores the old one on failure and relaunches. "Restart to Update" relaunches; quitting with a staged update installs without relaunching. `test_update_helper_swaps_the_bundle_after_the_app_exits` runs the real helper on both CI platforms.

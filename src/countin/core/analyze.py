@@ -1,4 +1,4 @@
-"""Beat and downbeat detection with beat_this, plus a sub-frame grid fit for the song start."""
+"""Beat and downbeat detection with beat_this over the whole song, plus a sub-frame grid fit for the song start."""
 
 from dataclasses import dataclass, field
 from functools import lru_cache
@@ -8,7 +8,6 @@ import numpy as np
 from .io import resource
 
 FPS = 50  # beat_this frame rate, 20 ms per frame
-ANALYZE_SECONDS = 90.0
 GRID_BEATS = 16
 
 
@@ -58,10 +57,13 @@ def _refine(times: np.ndarray, logits: np.ndarray) -> np.ndarray:
 
 
 def detect(pcm: np.ndarray, sr: int) -> tuple[np.ndarray, np.ndarray, np.ndarray]:
-    """Refined beats, refined downbeats, beat probabilities per frame."""
+    """Refined beats, refined downbeats, beat probabilities per frame, over the whole song.
+
+    The whole song costs about two seconds for three minutes; fill zones need the bars to the end.
+    """
     from beat_this.model.postprocessor import Postprocessor
 
-    mono = pcm[: int(ANALYZE_SECONDS * sr)].mean(axis=1)
+    mono = pcm.mean(axis=1)
     beat_logits, down_logits = _model()(mono, sr)
     beats, downs = Postprocessor(type="minimal", fps=FPS)(beat_logits, down_logits)
     bl = beat_logits.cpu().numpy()

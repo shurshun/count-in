@@ -413,3 +413,36 @@ def test_mute_button_toggles_and_restores_level():
     assert s.value() == -6 and not b.isChecked()
     s.setValue(MUTE)
     assert b.isChecked()
+
+
+def test_zone_count_in_takes_the_next_bar_meter_and_tempo():
+    from countin.core import zones as zn
+
+    # Two 4/4 bars at 0.5 s, then a 3/4 bar at 0.6 s, then 4/4 again
+    beats = [0, 0.5, 1, 1.5, 2, 2.5, 3, 3.5, 4, 4.6, 5.2, 5.8, 6.3, 6.8, 7.3]
+    downs = [0, 2, 4, 5.8]
+    bars = zn.bars_from(np.array(beats), np.array(downs), 8.0)
+    assert [len(b.beats) for b in bars] == [4, 4, 3, 4]
+
+    clicks = zn.zone_clicks(bars, {2}, downbeat=0.0)
+    times = [round(c.time, 3) for c in clicks]
+    # count-in: three clicks 0.6 s apart ending one beat before bar 3, then the bar's own beats
+    assert times == [2.2, 2.8, 3.4, 4.0, 4.6, 5.2]
+    assert [c.accent for c in clicks] == [True, False, False, True, False, False]
+
+    # a zone on the first bar gets no extra count-in: the main count-in leads into it
+    assert [round(c.time, 3) for c in zn.zone_clicks(bars, {0}, downbeat=0.0)] == [0, 0.5, 1, 1.5]
+
+
+def test_quiet_bars_and_runs():
+    from countin.core import zones as zn
+
+    sr = 1000
+    x = np.full((4000, 2), 0.3, np.float32)
+    x[1000:3000] = 0.001  # bars 1 and 2 nearly silent
+    x[3500:] = 0.001  # a quiet ending is not a pause
+    bars = [zn.Bar(float(i), float(i + 1), [float(i)]) for i in range(4)] + [zn.Bar(3.5, 4.0, [3.5])]
+    bars[3] = zn.Bar(3.0, 3.5, [3.0])
+    quiet = zn.quiet_bars(x, sr, bars, zn.level_db(x))
+    assert quiet == {1, 2}
+    assert zn.ranges(quiet | {0, 5}) == [(0, 2), (5, 5)]
