@@ -202,6 +202,7 @@ class Track:
     bars: list[zn.Bar] = field(default_factory=list)  # whole-song bars from the detected downbeats
     zones: list[zn.Zone] | None = None  # pauses that get the hi-hat; None until searched
     zones_key: tuple | None = None  # (levels, threshold) the search ran with
+    bar_db: list | None = None  # level of each bar against the song (zones.bar_levels); sets the hi-hat level
     covered: set = field(default_factory=set)  # bars under the pauses as last shown
     dismissed: set = field(default_factory=set)  # bars whose pause the user removed; a search never brings them back
 
@@ -230,7 +231,7 @@ def clicks_for(t: Track, s: Settings) -> list[rd.Click]:
         grid = rd.buildup_grid if s.style == "buildup" else rd.click_grid
         clicks = grid(t.t0, period, s.bars, s.meter)
     if s.fill and t.zones:
-        clicks += zn.zone_clicks(t.bars, t.zones, t.t0)
+        clicks += zn.zone_clicks(t.bars, t.zones, t.t0, t.bar_db)
     return clicks
 
 
@@ -362,6 +363,7 @@ def analyze_job(job: Job, track: Track):
         track.duration = len(pcm) / sr
         track.analysis = an.analyze(pcm, sr)
         track.bars = zn.bars_from(track.analysis.beats, track.analysis.downbeats, track.duration)
+        track.bar_db = zn.bar_levels(pcm, sr, track.bars)
         env = peaks_per_ms(pcm, sr)
     except Exception as e:
         log.exception("analysis of %s failed", track.path)

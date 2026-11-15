@@ -82,6 +82,28 @@ def level_db(x: np.ndarray) -> float:
     return float(20 * np.log10(np.sqrt(np.mean(np.square(x, dtype=np.float64))) + 1e-12))
 
 
+def bar_levels(pcm: np.ndarray, sr: int, bars: list[Bar]) -> list[float]:
+    """Level of every bar in dB against the whole song's level."""
+    ref = level_db(pcm)
+    return [level_db(pcm[int(b.start * sr) : int(b.end * sr)]) - ref if b.end > b.start else -120.0 for b in bars]
+
+
+# The hi-hat follows the band around the pause, within these limits: a quiet ballad verse gets a soft hi-hat,
+# a full chorus no more than a touch above the count-in level.
+HIHAT_DB_RANGE = (-15.0, 3.0)
+AROUND = 2  # bars on each side of a pause that set its level
+
+
+def zone_gain(bar_db: list[float], z: "Zone") -> float:
+    """Linear gain of a pause's hi-hat: the power average of up to AROUND bars on each side, clamped to
+    HIHAT_DB_RANGE. A pause with no music around keeps the plain level."""
+    near = bar_db[max(0, z.first - AROUND) : z.first] + bar_db[z.last + 1 : z.last + 1 + AROUND]
+    if not near:
+        return 1.0
+    db = 10 * np.log10(np.mean([10 ** (d / 10) for d in near]))
+    return float(10 ** (np.clip(db, *HIHAT_DB_RANGE) / 20))
+
+
 def ranges(indices: set[int]) -> list[tuple[int, int]]:
     """Consecutive runs of bar indices as (first, last)."""
     out: list[tuple[int, int]] = []
@@ -167,16 +189,18 @@ def describe(bars: list[Bar], z: Zone) -> tuple[float, float, float, int]:
     return bars[z.first].start, bars[z.last].end, 60.0 / float(np.median(periods)), max(set(counts), key=counts.count)
 
 
-def zone_clicks(bars: list[Bar], zones: list[Zone], downbeat: float) -> list[Click]:
-    """A hi-hat on every beat of the zone bars. Inside the song nothing else plays: the stick count-in belongs
-    to the song's start only. The downbeat is the snapped "1", a few ms off the detected bar start, so beats
-    compare with half a beat of slack."""
+def zone_clicks(bars: list[Bar], zones: list[Zone], downbeat: float, bar_db: list[float] | None = None) -> list[Click]:
+    """A hi-hat on every beat of the zone bars, as loud as the music around the pause when bar_db (bar_levels)
+    is given. Inside the song nothing else plays: the stick count-in belongs to the song's start only. The
+    downbeat is the snapped "1", a few ms off the detected bar start, so beats compare with half a beat of
+    slack."""
     clicks = []
     for z in sorted(zones, key=lambda q: q.first):
         zb = zone_bars(bars, z)
         slack = zb[0].period / 2
+        gain = zone_gain(bar_db, z) if bar_db else 1.0
         for b in zb:
-            clicks += [Click(t, k == 0, voice="hihat") for k, t in enumerate(b.beats) if t >= downbeat - slack]
+            clicks += [Click(t, k == 0, gain, voice="hihat") for k, t in enumerate(b.beats) if t >= downbeat - slack]
     return clicks
 
 

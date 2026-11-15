@@ -579,3 +579,17 @@ def test_stem_cache_round_trip_and_pruning(tmp_path, monkeypatch):
     assert stemcache.load(k, tuple(st), 999) is None  # another length is another song
     stemcache.prune(limit=0)
     assert stemcache.load(k, tuple(st), 1000) is None
+
+
+def test_hi_hat_follows_the_music_level_around_a_pause():
+    from countin.core import zones as zn
+
+    beats = np.arange(0, 16, 0.5)
+    bars = zn.bars_from(beats, beats[::4], 16.0)  # eight bars of 2 s
+    quiet_verse = [-12.0, -12.0, -60.0, -60.0, -12.0, -12.0, 0.0, 0.0]
+    gains = [c.gain for c in zn.zone_clicks(bars, [zn.Zone(2, 3)], 0.0, quiet_verse)]
+    assert gains == pytest.approx([10 ** (-12 / 20)] * 8)  # as soft as the verse around it
+
+    loud = [6.0] * 8
+    assert zn.zone_gain(loud, zn.Zone(2, 3)) == pytest.approx(10 ** (3 / 20))  # capped above the count-in level
+    assert {c.gain for c in zn.zone_clicks(bars, [zn.Zone(2, 3)], 0.0)} == {1.0}  # without levels: plain
