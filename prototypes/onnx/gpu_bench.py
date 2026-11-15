@@ -1,6 +1,7 @@
-"""count-in-gpu-bench.exe: times the BS-RoFormer core on the CPU and on the GPU (DirectML) with debug output.
+"""count-in-gpu-bench.exe: times the BS-RoFormer core on the CPU, on every GPU through DirectML (NVIDIA, Intel,
+AMD) and on Intel GPUs through OpenVINO, with debug output.
 
-Everything ships inside the exe (onnxruntime-directml, numpy, the ONNX model). The full log also goes to
+Everything ships inside the exe (onnxruntime-directml, openvino, numpy, the ONNX model). The full log also goes to
 count-in-gpu-bench.txt next to the exe, so it can be sent back as a file.
 
     count-in-gpu-bench.exe [--verbose] [--device N] [--runs N]
@@ -66,6 +67,36 @@ def timed(fn, runs):
     return min(times), out
 
 
+def openvino_runs(model, spec, runs, results, ref):
+    """Intel GPUs (integrated Iris Xe / Arc, discrete Arc) and the CPU through OpenVINO, in fp16 on the GPU."""
+    import numpy as np
+
+    try:
+        import openvino as ov
+    except Exception:
+        say("== OpenVINO: not available", traceback.format_exc())
+        return
+    core = ov.Core()
+    devices = core.available_devices
+    say("== OpenVINO", ov.__version__, "| devices:", ", ".join(f"{d} ({core.get_property(d, 'FULL_DEVICE_NAME')})" for d in devices))
+    for d in [d for d in devices if d.startswith("GPU")] + ["CPU"]:
+        name = f"OpenVINO {d}"
+        say(f"== {name}")
+        try:
+            t = time.perf_counter()
+            compiled = core.compile_model(str(model), d, {"INFERENCE_PRECISION_HINT": "f16"} if d.startswith("GPU") else {})
+            say(f"   compiled in {time.perf_counter() - t:.1f} s")
+            req = compiled.create_infer_request()
+            sec, out = timed(lambda: req.infer({"stft": spec})[compiled.outputs[0]].copy(), runs)
+            results[name] = sec
+            if ref is not None:
+                err = np.sqrt(np.mean((out - ref) ** 2)) / np.sqrt(np.mean(ref ** 2))
+                say(f"   difference from CPU result: {20 * np.log10(err + 1e-30):.0f} dB (below -40 dB is fine for fp16)")
+        except Exception:
+            say("   FAILED:")
+            say(traceback.format_exc())
+
+
 def main():
     system_info()
     import numpy as np
@@ -83,7 +114,11 @@ def main():
     rng = np.random.default_rng(0)
     spec = (rng.standard_normal((1, 2050, 801, 2)) * 0.5).astype(np.float32)
     results, ref = {}, None
-    for prov, name in [("CPUExecutionProvider", "CPU"), ("DmlExecutionProvider", f"GPU (DirectML, device {device})")]:
+    adapters = [device] if "--device" in sys.argv else range(4)
+    for prov, name in [("CPUExecutionProvider", "CPU (onnxruntime)")] + [
+            ("DmlExecutionProvider", f"DirectML, adapter {d}") for d in adapters]:
+        if prov == "DmlExecutionProvider":
+            device = int(name.rsplit(" ", 1)[1])
         say(f"== {name}")
         if prov not in ort.get_available_providers():
             say("   provider not available")
@@ -100,7 +135,7 @@ def main():
             sess = ort.InferenceSession(str(model), opts, providers=[(prov, popts)] + ([] if prov == "CPUExecutionProvider" else ["CPUExecutionProvider"]))
             say(f"   session created in {time.perf_counter() - t:.1f} s, providers in use: {sess.get_providers()}")
             if prov not in sess.get_providers():
-                say("   FAILED: DirectML did not start on this adapter, onnxruntime fell back to the CPU; see the error above")
+                say("   no such adapter, or DirectML did not start on it (onnxruntime fell back to the CPU)")
                 continue
             sec, out = timed(lambda: sess.run(None, {"stft": spec})[0], runs)
             results[name] = sec
@@ -113,12 +148,15 @@ def main():
             say("   FAILED:")
             say(traceback.format_exc())
 
+    openvino_runs(model, spec, runs, results, ref)
+
     say("== Summary (one 9.3 s chunk; a 4-minute song is about 52 chunks)")
     for name, sec in results.items():
         say(f"   {name:28s} {sec:6.2f} s per chunk  ~{sec * CHUNKS_PER_4_MIN / 60:5.1f} min per 4-min song")
-    if len(results) == 2:
-        cpu, gpu = results.values()
-        say(f"   GPU is {cpu / gpu:.1f}x the speed of the CPU here")
+    cpu = results.get("CPU (onnxruntime)")
+    if cpu and len(results) > 1:
+        best = min((v, k) for k, v in results.items())
+        say(f"   fastest: {best[1]}, {cpu / best[0]:.1f}x the speed of onnxruntime on the CPU")
     say("Log saved to:", LOG)
 
 

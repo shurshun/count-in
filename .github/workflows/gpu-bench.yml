@@ -1,6 +1,7 @@
 name: gpu-bench
 
-# Dev build: one Windows exe that times the separation model on the CPU and on the GPU (DirectML).
+# Dev build: one Windows exe that times the separation model on the CPU, on every GPU through DirectML and on
+# Intel GPUs through OpenVINO.
 # Runs on pushes to the prototype branch (a workflow_dispatch workflow must live on main first).
 on:
   push:
@@ -34,8 +35,8 @@ jobs:
 
       - name: build one exe
         run: |
-          uv run --with onnxruntime-directml --with pyinstaller pyinstaller --onefile --console --noconfirm \
-            --name count-in-gpu-bench --collect-binaries onnxruntime \
+          uv run --with onnxruntime-directml --with openvino --with pyinstaller pyinstaller --onefile --console --noconfirm \
+            --name count-in-gpu-bench --collect-binaries onnxruntime --collect-all openvino \
             --add-data "models/roformer-core.onnx;." prototypes/onnx/gpu_bench.py
 
       # The runner has no GPU: this only proves the exe starts and the CPU path works
