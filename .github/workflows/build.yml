@@ -1,11 +1,11 @@
 name: build
 
-# PRs check every code change; tags publish a release. Docs-only changes skip the build.
+# PRs check every code change; tags publish a release. Docs, the site and the promo video skip the build.
 on:
   push:
     tags: ["v*"]
   pull_request:
-    paths-ignore: ["**.md", "docs/**"]
+    paths-ignore: ["**.md", "docs/**", "promo/**"]
   workflow_dispatch:
 
 jobs:
@@ -23,7 +23,7 @@ jobs:
           fetch-depth: 0
       - id: diff
         run: |
-          other=$(git diff -U0 "origin/$GITHUB_BASE_REF...HEAD" -- . ':!*.md' ':!docs/' \
+          other=$(git diff -U0 "origin/$GITHUB_BASE_REF...HEAD" -- . ':!*.md' ':!docs/' ':!promo/' \
             | grep -E '^[-+]' | grep -vE '^(\+\+\+|---) ' | grep -vE '^[-+]version = "[^"]+"$' || true)
           echo "build=$([ -n "$other" ] && echo true || echo false)" >> "$GITHUB_OUTPUT"
 
