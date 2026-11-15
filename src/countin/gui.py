@@ -5,6 +5,7 @@ import os
 import subprocess
 import sys
 import threading
+import random
 import time
 from dataclasses import dataclass, field
 from pathlib import Path
@@ -39,6 +40,28 @@ PARTS = (
     ("drums", "Барабаны", "drums", "Убрать барабаны"),
     ("piano", "Пианино", "piano", "Убрать пианино"),
 )
+# Why each job runs, shown under its progress title
+JOB_WHY = {
+    "zones_job": "Раскладываю песню на дорожки, чтобы найти паузы без убранных инструментов. Это делается один раз на трек.",
+    "preview_job": "Готовлю отрывок: отсчёт и первые секунды песни с вашими настройками.",
+    "save_job": "Сохраняю трек с отсчётом и выбранным уровнем дорожек.",
+}
+
+# Lines that turn up while a job runs
+PHRASES = (
+    "Барабанщик уже считает: раз, два, три, четыре…",
+    "Гитарист подкручивает колки",
+    "Басист где-то рядом, его просто не слышно",
+    "Звукорежиссёр просит ещё немного вокала в мониторе",
+    "Метроном не устаёт, в отличие от барабанщика",
+    "Первая доля — самая важная, мы её не пропустим",
+    "Кто-то за кулисами ищет медиатор",
+    "Хай-хэт уже на подставке",
+    "В репетиционной пахнет кофе и проводами",
+    "Вокалист распевается: ми-ми-ми",
+    "Каждая нейросеть мечтает стать барабанщиком",
+    "Темп держим, даже когда очень хочется ускориться",
+)
 FORMAT_NAMES = {None: "Как у исходника", "mp3": "MP3 320 kbps", "flac": "FLAC", "alac": "ALAC (.m4a)", "wav": "WAV"}
 ORANGE = QColor(255, 159, 10)
 GREEN = QColor(48, 209, 88)
@@ -51,6 +74,11 @@ QPushButton#update { background: #0a84ff; color: white; border: none; border-rad
                      min-width: 20px; max-width: 20px; min-height: 20px; max-height: 20px; padding: 0; }
 QPushButton#update:hover { background: #409cff; }
 #title { font-size: 24px; font-weight: 600; }
+#progOverlay { background: transparent; }
+#progTitle { font-size: 26px; font-weight: 700; }
+#progWhy { font-size: 15px; color: @FIELD@; }
+#progPct { font-size: 34px; font-weight: 700; }
+#progPhrase { font-size: 15px; font-style: italic; color: @FIELD@; }
 #subtitle { color: @FIELD@; }
 #warning { color: #ff9f0a; }
 #drop { border: 2px dashed @BORDER@; border-radius: 18px; color: @FIELD@; font-size: 18px; }
@@ -245,7 +273,10 @@ class Job(QRunnable):
         try:
             self.signals.done.emit(self.fn(self, *self.args))
         except Cancelled:
-            self.signals.cancelled.emit()
+            try:
+                self.signals.cancelled.emit()
+            except RuntimeError:  # the window is gone, nobody listens
+                pass
         except Exception as e:  # shown to the user, the app keeps running
             log.exception("job %s failed", getattr(self.fn, "__name__", self.fn))
             self.signals.failed.emit(f"{type(e).__name__}: {e}")
@@ -270,7 +301,8 @@ def analyze_job(job: Job, track: Track):
 def _stems(job: Job, pcm, sr, label: str) -> dict[str, np.ndarray]:
     from .core import stems
 
-    job.report(_("{name}: загрузка модели", name=label))
+    if not stems._model.cache_info().currsize:
+        job.report(_("{name}: загрузка модели", name=label))
     return stems.separate(pcm, sr, lambda d, n: job.report(label, d, n), only=tuple(p[0] for p in PARTS))
 
 
@@ -340,6 +372,20 @@ def save_job(job: Job, t: Track, s: Settings, cached):
     out.parent.mkdir(parents=True, exist_ok=True)
     io.encode(r.pcm, info, out, tags_from=t.path)
     return t, out, full, r.clipped
+
+
+def warm_models():
+    """Loads the separation model once in the background, so the first separation does not wait for it.
+    Both models stay loaded for the life of the app (lru_cache)."""
+    def load():
+        try:
+            from .core import stems
+
+            stems._model()
+        except Exception:
+            log.exception("model warm-up failed")
+
+    threading.Thread(target=load, name="warm-models", daemon=True).start()
 
 
 def zones_job(job: Job, t: Track, s: Settings, pcm: np.ndarray, sr: int, cached):
@@ -481,8 +527,7 @@ class Wave(QWidget):
 
     def _place_overlay(self):
         if self.overlay is not None:
-            self.overlay.adjustSize()
-            self.overlay.move((self.width() - self.overlay.width()) // 2, (self.height() - self.overlay.height()) // 2)
+            self.overlay.setGeometry(self.rect())
 
     def resizeEvent(self, e):
         self._place_overlay()
@@ -626,7 +671,9 @@ class Wave(QWidget):
             p.drawText(box, Qt.AlignCenter, text)
             self.labels.append((box, i))
         if self.overlay is not None and self.overlay.isVisible():
-            p.fillRect(QRectF(0, 0, w, h), QColor(127, 127, 127, 110))
+            veil = QColor(self.palette().window().color())
+            veil.setAlpha(225)
+            p.fillRect(QRectF(0, 0, w, h), veil)
         if self.cursor_t is not None:
             p.setPen(QPen(GREEN, 2))
             p.drawLine(QPointF(self.x_of(self.cursor_t), 0), QPointF(self.x_of(self.cursor_t), wh))
@@ -1220,6 +1267,7 @@ class Window(QMainWindow):
         self.play_start = None
         self.resume_at = None  # song time a rebuilt preview carries on from
         self.zones_pending = False  # a pause search waits for the running job
+        self.models_warm = False  # the separation model starts loading with the first track
         self.play_timer = QTimer(self, interval=30, timeout=self._tick)
         self.last_saved: Path | None = None
         self.release = None
@@ -1255,6 +1303,7 @@ class Window(QMainWindow):
         file = mb.addMenu(_("Файл"))
         self.open_a = file.addAction(_("Открыть…"), QKeySequence.Open, self._open_dialog)
         self.save_a = file.addAction(_("Сохранить"), QKeySequence.Save, self._save)
+        self.close_a = file.addAction(_("Закрыть трек"), QKeySequence.Close, self._close_track)
         self.reveal_a = file.addAction(_("Показать сохранённый файл"), self._reveal)
         file.addSeparator()
         file.addAction(_("Сохранить настройки как по умолчанию"), self._save_defaults)
@@ -1294,12 +1343,14 @@ class Window(QMainWindow):
         self.out_volume.setFocusPolicy(Qt.NoFocus)
         self.out_volume.valueChanged.connect(self._output_volume)
         h.addWidget(speaker)
+        h.addWidget(QLabel(_("Громкость вывода"), objectName="field"))
         h.addWidget(self.out_volume)
         h.addSpacing(16)
         self.open_b = QPushButton(_("Открыть…"), objectName="tool", clicked=self._open_dialog)
         self.play_b = QPushButton(_("▶  Прослушать"), objectName="primary", clicked=self._play, toolTip=_("Пробел"))
         self.save_b = QPushButton(_("Сохранить"), objectName="tool", clicked=self._save, toolTip="⌘S")
-        for b in (self.open_b, self.play_b, self.save_b):
+        self.close_b = QPushButton(_("Закрыть"), objectName="tool", clicked=self._close_track, toolTip="⌘W")
+        for b in (self.open_b, self.close_b, self.play_b, self.save_b):
             b.setFocusPolicy(Qt.NoFocus)
             h.addWidget(b)
         return head
@@ -1323,23 +1374,39 @@ class Window(QMainWindow):
         self.setCentralWidget(body)
 
     def _progress_panel(self) -> QWidget:
-        """Progress card that floats over the dimmed waveform, so nothing in the window moves during a job."""
-        panel = QFrame(objectName="card")
-        panel.setFixedWidth(560)
-        g = QGridLayout(panel)
-        g.setContentsMargins(16, 10, 16, 12)
-        self.prog_label = QLabel(objectName="cardTitle")
-        self.prog_eta = QLabel(objectName="field")
-        self.progress = QProgressBar(textVisible=False, maximumHeight=8)
+        """Progress over the whole waveform on a translucent backdrop: what runs, why, how long, and a music
+        line now and then. Nothing in the window moves during a job."""
+        panel = QWidget(objectName="progOverlay")
+        v = QVBoxLayout(panel)
+        v.setAlignment(Qt.AlignCenter)
+        v.setSpacing(10)
+        self.prog_label = QLabel(objectName="progTitle", alignment=Qt.AlignCenter)
+        self.prog_why = QLabel(objectName="progWhy", alignment=Qt.AlignCenter, wordWrap=True)
+        self.prog_why.setFixedWidth(720)  # a fixed width lets the wrapped text get its full height
+        self.progress = QProgressBar(textVisible=False, fixedHeight=8, fixedWidth=520)
+        self.prog_pct = QLabel(objectName="progPct", alignment=Qt.AlignCenter)
+        self.prog_eta = QLabel(objectName="progWhy", alignment=Qt.AlignCenter)
+        self.prog_phrase = QLabel(objectName="progPhrase", alignment=Qt.AlignCenter, wordWrap=True)
+        self.prog_phrase.setFixedWidth(720)
         self.cancel_b = QPushButton(_("Отмена"), objectName="tool", clicked=self._cancel)
-        g.addWidget(self.prog_label, 0, 0)
-        g.addWidget(self.prog_eta, 0, 1, Qt.AlignRight)
-        g.addWidget(self.progress, 1, 0, 1, 2)
-        g.addWidget(self.cancel_b, 0, 2, 2, 1)
-        g.setColumnStretch(0, 1)
+        self.cancel_b.setFocusPolicy(Qt.NoFocus)
+        for w in (self.prog_label, self.prog_why):
+            v.addWidget(w, 0, Qt.AlignHCenter)
+        v.addSpacing(10)
+        v.addWidget(self.progress, 0, Qt.AlignHCenter)
+        v.addWidget(self.prog_pct, 0, Qt.AlignHCenter)
+        v.addWidget(self.prog_eta, 0, Qt.AlignHCenter)
+        v.addSpacing(10)
+        v.addWidget(self.prog_phrase, 0, Qt.AlignHCenter)
+        v.addSpacing(6)
+        v.addWidget(self.cancel_b, 0, Qt.AlignHCenter)
+        self.phrase_timer = QTimer(self, interval=6000, timeout=self._next_phrase)
         self.prog_panel = panel
         self._stage = None
         return panel
+
+    def _next_phrase(self):
+        self.prog_phrase.setText("♪  " + _(random.choice(PHRASES)))
 
     def _editor(self) -> QWidget:
         self.detector = QLabel(objectName="subtitle")
@@ -1428,6 +1495,10 @@ class Window(QMainWindow):
         for key, name in FORMAT_NAMES.items():
             self.fmt.addItem(_(name), key)
         row(g, _("Выходной формат"), self.fmt)
+        defaults_b = QPushButton(_("Сохранить настройки как по умолчанию"), objectName="small", clicked=self._save_defaults,
+                                 toolTip=_("Отсчёт, дорожки, паузы и формат будут такими для каждого нового трека"))
+        defaults_b.setFocusPolicy(Qt.NoFocus)
+        g.addWidget(defaults_b, g.rowCount(), 0, 1, 2, Qt.AlignLeft)
 
         for w in (self.volume, *self.parts.values()):
             w.valueChanged.connect(self._labels)
@@ -1486,10 +1557,6 @@ class Window(QMainWindow):
         sb.addWidget(self.file_l)
         sb.addWidget(self.status, 1)
         sb.addPermanentWidget(self.reveal_b)
-        defaults_b = QPushButton(_("Сохранить как по умолчанию"), objectName="small", clicked=self._save_defaults,
-                                 toolTip=_("Отсчёт, дорожки, паузы и формат будут такими для каждого нового трека"))
-        defaults_b.setFocusPolicy(Qt.NoFocus)
-        sb.addPermanentWidget(defaults_b)
 
         # Badge and version share one widget, so the status bar's item spacing stays out from between them.
         ver = QWidget()
@@ -1642,6 +1709,9 @@ class Window(QMainWindow):
         self._stop()
         if self.analysis_job:
             self.analysis_job.cancelled.set()
+        if not self.models_warm:
+            self.models_warm = True
+            warm_models()
         t = self.current = Track(path)
         self.pcm, self.info, self.stem_cache, self.last_saved = None, None, None, None
         self.reveal_b.hide()
@@ -1834,6 +1904,8 @@ class Window(QMainWindow):
         self.threshold_box.setVisible(self.fill.isChecked())
         self.save_a.setEnabled(ready and not busy)
         self.open_b.setEnabled(not busy)
+        self.close_b.setEnabled(self.current is not None)
+        self.close_a.setEnabled(self.current is not None)
         self.open_a.setEnabled(not busy)
         self.reveal_a.setEnabled(self.last_saved is not None)
         self.prog_panel.setVisible(busy)
@@ -1849,15 +1921,23 @@ class Window(QMainWindow):
         self.job.signals.cancelled.connect(self._cancelled)
         self.progress.setRange(0, 0)
         self._stage = None
+        self.prog_why.setText(_(JOB_WHY.get(fn.__name__, "")))
+        self.prog_pct.setText("")
+        self.prog_eta.setText("")
+        self._next_phrase()
+        self.phrase_timer.start()
         self.job_pool.start(self.job)
         self._enable()
 
     def _progress(self, text: str, done: int, total: int):
         if text != self._stage:
             self._stage, self._stage_start, self._stage_done = text, time.monotonic(), done
-        self.prog_label.setText(text)
+        if self.current:
+            text = text.replace(self.current.path.name + ": ", "")  # the title already names the file
+        self.prog_label.setText(text[:1].upper() + text[1:])
         if not total:
             self.progress.setRange(0, 0)
+            self.prog_pct.setText("")
             self.prog_eta.setText("")
             return
         self.progress.setRange(0, 1000)
@@ -1869,10 +1949,12 @@ class Window(QMainWindow):
         left = (total - done) / rate if done > self._stage_done else None
         rest = (_("осталось ~{m}:{s:02d}", m=int(left // 60), s=int(left % 60)) if left is not None
                 else _("считаю время…"))
-        self.prog_eta.setText(f"{frac:.0%} · {rest}")
+        self.prog_pct.setText(f"{frac:.0%}")
+        self.prog_eta.setText(rest)
 
     def _finish(self):
         self.job = None
+        self.phrase_timer.stop()
         self._enable()
         if self.zones_pending:
             self.zones_pending = False
@@ -1886,6 +1968,28 @@ class Window(QMainWindow):
     def _cancelled(self):
         self._finish()
         self.status.setText(_("Отменено"))
+
+    def _close_track(self):
+        """Back to the drop page; the app keeps running and the models stay loaded."""
+        if self.current is None:
+            return
+        self._stop()
+        for j in (self.job, self.analysis_job):
+            if j:
+                j.cancelled.set()
+        self.current, self.pcm, self.info, self.stem_cache, self.last_saved = None, None, None, None, None
+        self.wave.env, self.wave.t0, self.wave.beats, self.wave.downs, self.wave.clicks = None, None, [], [], []
+        self.wave.bars, self.wave.zones = [], []
+        self.title.setText("Count-In")
+        self.subtitle.setText("")
+        self.detector.setText("")
+        self.warning.setText("")
+        self.file_l.setText("")
+        self.status.setText("")
+        self.zone_l.setText("")
+        self.reveal_b.hide()
+        self.stack.setCurrentIndex(0)
+        self._enable()
 
     def _cancel(self):
         if self.job:
