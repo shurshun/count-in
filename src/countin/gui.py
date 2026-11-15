@@ -11,7 +11,7 @@ from pathlib import Path
 
 import numpy as np
 from PySide6.QtCore import QEvent, QObject, QSettings, QStandardPaths, QUrl, QPointF, QRectF, QRunnable, QSize, Qt, QThreadPool, QTimer, Signal
-from PySide6.QtGui import QAction, QDesktopServices, QIcon, QKeySequence, QColor, QPainter, QPainterPath, QPen, QPalette, QPixmap, QPolygonF
+from PySide6.QtGui import QAction, QDesktopServices, QIcon, QImage, QKeySequence, QColor, QPainter, QPainterPath, QPen, QPalette, QPixmap, QPolygonF
 from PySide6.QtWidgets import (
     QAbstractSpinBox, QApplication, QButtonGroup, QCheckBox, QComboBox, QDialog, QDoubleSpinBox, QFileDialog, QFrame,
     QGridLayout, QHBoxLayout, QLabel, QLineEdit, QMainWindow, QMessageBox, QProgressBar, QPushButton, QRadioButton,
@@ -44,7 +44,7 @@ ORANGE = QColor(255, 159, 10)
 GREEN = QColor(48, 209, 88)
 
 STYLE = """
-QMainWindow, QStackedWidget > QWidget, #progWrap, #header { background: @WINDOW@; }
+QMainWindow, QStackedWidget > QWidget, #header { background: @WINDOW@; }
 QStatusBar { background: @SIDEBAR@; border-top: 1px solid @BORDER@; }
 QStatusBar QLabel { padding: 0 8px; }
 QPushButton#update { background: #0a84ff; color: white; border: none; border-radius: 10px; font-weight: 700;
@@ -362,6 +362,7 @@ class Player:
         self.pos = 0
         self.done = False
         self.gains: dict[str, float] = {}
+        self.volume = 1.0  # speaker level only; the saved file never sees it
 
     def play(self, base: np.ndarray, stems: dict[str, np.ndarray], sr: int, start: int = 0):
         import sounddevice as sd
@@ -382,6 +383,7 @@ class Player:
             g = self.gains.get(k, 1.0)
             if g != 1.0:
                 x -= (1.0 - g) * st[a:b]
+        x *= self.volume
         np.clip(x, -1.0, 1.0, out=x)
         out[: b - a] = x
         out[b - a :] = 0
@@ -458,6 +460,7 @@ class Wave(QWidget):
         self.sel = None  # bars (first, last) while a span is being dragged
         self.peak, self.ref_db, self.threshold_db = 1.0, None, None  # for the pause threshold line
         self.labels: list[tuple[QRectF, int]] = []
+        self.overlay: QWidget | None = None  # progress card shown over the dimmed waveform during a job
         self.cursor_t = None
         self.drag = None
         self._cache = (None, None)
@@ -476,6 +479,15 @@ class Wave(QWidget):
         self.v0, self.v1 = a, b
         self.update()
 
+    def _place_overlay(self):
+        if self.overlay is not None:
+            self.overlay.adjustSize()
+            self.overlay.move((self.width() - self.overlay.width()) // 2, (self.height() - self.overlay.height()) // 2)
+
+    def resizeEvent(self, e):
+        self._place_overlay()
+        super().resizeEvent(e)
+
     def x_of(self, t: float) -> float:
         return (t - self.v0) / (self.v1 - self.v0) * self.width()
 
@@ -489,28 +501,33 @@ class Wave(QWidget):
         key = (w, h, dpr, self.v0, self.v1, id(self.env), self.palette().text().color().rgb())
         if self._cache[0] == key:
             return self._cache[1]
-        pix = QPixmap(int(w * dpr), int(h * dpr))
-        pix.setDevicePixelRatio(dpr)
-        pix.fill(Qt.transparent)
+        W, H = max(int(w * dpr), 1), max(int(h * dpr), 1)
+        img = np.zeros((H, W), np.uint32)
         if self.env is not None and w > 1:
-            ts = self.v0 + np.arange(w + 1) / w * (self.v1 - self.v0)
+            # One peak per device pixel column, painted straight into the image: building a polygon point by
+            # point in Python took 70 ms per zoom step on a six-minute song, this takes a few.
+            ts = self.v0 + np.arange(W + 1) / W * (self.v1 - self.v0)
             env = np.r_[self.env, 0.0]
             idx = np.clip((ts * 1000).astype(int), 0, len(env) - 1)
+            idx = np.maximum.accumulate(idx)
             peaks = np.maximum.reduceat(env, idx)[:-1]
             peaks[(ts[:-1] < 0) | (ts[:-1] > self.duration)] = 0
-            mid = h / 2
-            top = [QPointF(x, mid - a * mid * 0.92) for x, a in enumerate(peaks)]
-            bottom = [QPointF(x, mid + a * mid * 0.92) for x, a in reversed(list(enumerate(peaks)))]
+            mid = H / 2
+            half = np.maximum(peaks * mid * 0.92, 0.5)
+            half[peaks == 0] = 0
+            rows = np.abs(np.arange(H) + 0.5 - mid)[:, None]
             c = QColor(self.palette().text().color())
-            c.setAlphaF(0.55)
-            p = QPainter(pix)
-            p.setRenderHint(QPainter.Antialiasing)
-            p.setPen(Qt.NoPen)
-            p.setBrush(c)
-            p.drawPolygon(QPolygonF(top + bottom))
-            p.end()
+            rgba = np.array([c.red(), c.green(), c.blue(), 140], np.uint8).view(np.uint32)[0]
+            img = np.where(rows <= half[None, :], rgba, np.uint32(0)).astype(np.uint32)
+        q = QImage(np.ascontiguousarray(img).data, W, H, 4 * W, QImage.Format_RGBA8888).copy()
+        pix = QPixmap.fromImage(q)
+        pix.setDevicePixelRatio(dpr)
         self._cache = (key, pix)
         return pix
+
+    def _visible(self, times) -> list[float]:
+        a = np.asarray(times)
+        return a[np.searchsorted(a, self.v0) : np.searchsorted(a, self.v1, side="right")].tolist()
 
     def _ruler_step(self) -> float:
         per_px = (self.v1 - self.v0) / max(self.width(), 1)
@@ -547,15 +564,18 @@ class Wave(QWidget):
 
         p.drawPixmap(0, 0, self._wave_pixmap())
 
+        # Only what is on screen: a whole six-minute song has a thousand beat lines
         p.setPen(QPen(QColor(127, 127, 127, 70), 1))
-        for t in self.beats:
+        for t in self._visible(self.beats):
             p.drawLine(QPointF(self.x_of(t), 0), QPointF(self.x_of(t), wh))
         p.setPen(QPen(QColor(127, 127, 127, 160), 1, Qt.DashLine))
-        for t in self.downs:
+        for t in self._visible(self.downs):
             p.drawLine(QPointF(self.x_of(t), 0), QPointF(self.x_of(t), wh))
 
         p.setPen(Qt.NoPen)
         for c in self.clicks:
+            if not self.v0 - 1 <= c.time <= self.v1 + 1:
+                continue
             p.setBrush(GREEN if c.voice == "hihat" else accent)
             hgt = wh * (0.42 if c.accent else 0.28) * min(c.gain, 1.6)
             p.drawRoundedRect(QRectF(self.x_of(c.time) - 2, 6, 4, hgt), 2, 2)
@@ -605,6 +625,8 @@ class Wave(QWidget):
             p.setPen(QColor(255, 255, 255))
             p.drawText(box, Qt.AlignCenter, text)
             self.labels.append((box, i))
+        if self.overlay is not None and self.overlay.isVisible():
+            p.fillRect(QRectF(0, 0, w, h), QColor(127, 127, 127, 110))
         if self.cursor_t is not None:
             p.setPen(QPen(GREEN, 2))
             p.drawLine(QPointF(self.x_of(self.cursor_t), 0), QPointF(self.x_of(self.cursor_t), wh))
@@ -735,8 +757,19 @@ class Wave(QWidget):
         self.drag = None
 
     def wheelEvent(self, e):
+        """Zoom in proportion to the scroll, so a trackpad zooms smoothly and a wheel notch by about 20%;
+        sideways trackpad scrolling pans."""
+        span = self.v1 - self.v0
+        dx = e.pixelDelta().x() or e.angleDelta().x() / 4
+        if abs(dx) > abs(e.pixelDelta().y() or e.angleDelta().y() / 4):
+            d = -dx / max(self.width(), 1) * span
+            self.show_range(self.v0 + d, self.v1 + d)
+            return
+        dy = e.pixelDelta().y() * 4 if not e.pixelDelta().isNull() else e.angleDelta().y()
+        if not dy:
+            return
         t = self.t_of(e.position().x())
-        k = 0.8 if e.angleDelta().y() > 0 else 1.25
+        k = 0.9985 ** dy
         span = float(np.clip((self.v1 - self.v0) * k, 0.3, max(self.duration + 10, 10)))
         r = (t - self.v0) / (self.v1 - self.v0)
         self.show_range(t - r * span, t + (1 - r) * span)
@@ -809,7 +842,14 @@ def part_icon(kind: str, color: QColor, size: int = 16) -> QPixmap:
     p.setPen(Qt.NoPen)
     p.setBrush(color)
     s = size / 16
-    if kind == "bass":
+    if kind == "speaker":
+        p.drawPolygon(QPolygonF([QPointF(1.5 * s, 6 * s), QPointF(4.5 * s, 6 * s), QPointF(8.5 * s, 2.5 * s),
+                                 QPointF(8.5 * s, 13.5 * s), QPointF(4.5 * s, 10 * s), QPointF(1.5 * s, 10 * s)]))
+        p.setBrush(Qt.NoBrush)
+        p.setPen(QPen(color, 1.3 * s, Qt.SolidLine, Qt.RoundCap))
+        for r in (3.5, 6):
+            p.drawArc(QRectF(8.5 * s - r * s, 8 * s - r * s, 2 * r * s, 2 * r * s), -50 * 16, 100 * 16)
+    elif kind == "bass":
         p.save()
         p.translate(8 * s, 8 * s)
         p.rotate(45)
@@ -888,8 +928,15 @@ def row(grid: QGridLayout, label, *widgets) -> None:
 OUT_DIR, OUT_GROUP = "output/dir", "output/group"
 OUT_REVEAL = "output/reveal"
 FILL_KEY = "fill/enabled"
+OUTPUT_VOLUME_KEY = "playback/volume"
+DEFAULTS = "defaults/"  # prefix for the settings saved with "Save as default"
 THRESHOLD_KEY = "fill/threshold"
 OUT_LEVELS = {"output/artist": "Исполнитель", "output/year": "Год", "output/album": "Альбом"}
+
+
+def output_volume() -> float:
+    """Speaker level for previews, 0..1, remembered between runs."""
+    return int(QSettings().value(OUTPUT_VOLUME_KEY, 80)) / 100
 
 
 def pref_bool(key: str, default: bool) -> bool:
@@ -917,6 +964,7 @@ class TapDialog(QDialog):
         self.taps: list[float] = []  # song times of the taps
         self.clicking = False
         self.player = Player()
+        self.player.volume = output_volume()
         self.offset = 0.0  # song time of the first sample the player got
         self.wall0 = time.monotonic()
 
@@ -1183,8 +1231,10 @@ class Window(QMainWindow):
         self._build_menu()
         self._build_body()
         self._build_status()
+        self._load_defaults()
         self._labels()
         self._enable()
+        self.player.volume = output_volume()
 
         # Space plays from anywhere except text fields, so focus on a slider or checkbox does not swallow it.
         QApplication.instance().installEventFilter(self)
@@ -1207,6 +1257,7 @@ class Window(QMainWindow):
         self.save_a = file.addAction(_("Сохранить"), QKeySequence.Save, self._save)
         self.reveal_a = file.addAction(_("Показать сохранённый файл"), self._reveal)
         file.addSeparator()
+        file.addAction(_("Сохранить настройки как по умолчанию"), self._save_defaults)
         prefs = file.addAction(_("Настройки…"), QKeySequence.Preferences, self._prefs)
         prefs.setMenuRole(QAction.PreferencesRole)
 
@@ -1233,6 +1284,18 @@ class Window(QMainWindow):
         text.addWidget(self.title)
         text.addWidget(self.subtitle)
         h.addLayout(text, 1)
+
+        # Speaker level of the preview; not part of the song or the saved file
+        speaker = QLabel(toolTip=_("Громкость прослушивания"))
+        speaker.setPixmap(part_icon("speaker", QColor(127, 127, 127)))
+        self.out_volume = QSlider(Qt.Horizontal, minimum=0, maximum=100, fixedWidth=130,
+                                  toolTip=_("Громкость прослушивания"))
+        self.out_volume.setValue(int(output_volume() * 100))
+        self.out_volume.setFocusPolicy(Qt.NoFocus)
+        self.out_volume.valueChanged.connect(self._output_volume)
+        h.addWidget(speaker)
+        h.addWidget(self.out_volume)
+        h.addSpacing(16)
         self.open_b = QPushButton(_("Открыть…"), objectName="tool", clicked=self._open_dialog)
         self.play_b = QPushButton(_("▶  Прослушать"), objectName="primary", clicked=self._play, toolTip=_("Пробел"))
         self.save_b = QPushButton(_("Сохранить"), objectName="tool", clicked=self._save, toolTip="⌘S")
@@ -1257,11 +1320,12 @@ class Window(QMainWindow):
         v.setSpacing(0)
         v.addWidget(self._header())
         v.addWidget(self.stack, 1)
-        v.addWidget(self._progress_panel())
         self.setCentralWidget(body)
 
     def _progress_panel(self) -> QWidget:
+        """Progress card that floats over the dimmed waveform, so nothing in the window moves during a job."""
         panel = QFrame(objectName="card")
+        panel.setFixedWidth(560)
         g = QGridLayout(panel)
         g.setContentsMargins(16, 10, 16, 12)
         self.prog_label = QLabel(objectName="cardTitle")
@@ -1273,19 +1337,20 @@ class Window(QMainWindow):
         g.addWidget(self.progress, 1, 0, 1, 2)
         g.addWidget(self.cancel_b, 0, 2, 2, 1)
         g.setColumnStretch(0, 1)
-        wrap = QWidget(objectName="progWrap")
-        v = QVBoxLayout(wrap)
-        v.setContentsMargins(22, 0, 22, 12)
-        v.addWidget(panel)
-        self.prog_panel = wrap
+        self.prog_panel = panel
         self._stage = None
-        return wrap
+        return panel
 
     def _editor(self) -> QWidget:
         self.detector = QLabel(objectName="subtitle")
-        self.warning = QLabel(objectName="warning", wordWrap=True)
+        # One reserved line, so notes appearing or going away never move the waveform
+        self.warning = QLabel(objectName="warning")
+        self.warning.setFixedHeight(self.warning.fontMetrics().height() + 4)
         self.wave = Wave()
         self.wave.t0Changed.connect(self._marker_moved)
+        self.wave.overlay = self._progress_panel()
+        self.wave.overlay.setParent(self.wave)
+        self.wave.overlay.hide()
 
         # Pause threshold beside the waveform; the wave draws it as a line, so the level is visible
         self.threshold = QSlider(Qt.Vertical, minimum=-36, maximum=-6)
@@ -1318,6 +1383,9 @@ class Window(QMainWindow):
         row(g, _("Доля «1»"), self.t0_spin, prev_b, next_b)
         self.alt_b = QPushButton(_("Взять кандидата детектора"), objectName="small", clicked=self._use_alt)
         g.addWidget(self.alt_b, g.rowCount(), 1)
+        sp = self.alt_b.sizePolicy()
+        sp.setRetainSizeWhenHidden(True)  # the card keeps its height when the button comes and goes
+        self.alt_b.setSizePolicy(sp)
         for b in (x2, half, tap, prev_b, next_b, self.alt_b):
             b.setFocusPolicy(Qt.NoFocus)
 
@@ -1418,6 +1486,10 @@ class Window(QMainWindow):
         sb.addWidget(self.file_l)
         sb.addWidget(self.status, 1)
         sb.addPermanentWidget(self.reveal_b)
+        defaults_b = QPushButton(_("Сохранить как по умолчанию"), objectName="small", clicked=self._save_defaults,
+                                 toolTip=_("Отсчёт, дорожки, паузы и формат будут такими для каждого нового трека"))
+        defaults_b.setFocusPolicy(Qt.NoFocus)
+        sb.addPermanentWidget(defaults_b)
 
         # Badge and version share one widget, so the status bar's item spacing stays out from between them.
         ver = QWidget()
@@ -1580,7 +1652,7 @@ class Window(QMainWindow):
         self.zone_l.setText("")
         self.wave._cache = (None, None)
         self.wave.update()
-        self.warning.hide()
+        self.warning.setText("")
         self.title.setText(path.stem)
         self.subtitle.setText("")
         self.detector.setText(_("Анализ…"))
@@ -1609,7 +1681,7 @@ class Window(QMainWindow):
         if t.error:
             self.detector.setText("")
             self.warning.setText(t.error)
-            self.warning.show()
+
             self._enable()
             return
         t.bpm = 60.0 / an.beat_period(t.analysis, rd.METERS[self.meter_seg.value()][0])[0]
@@ -1624,7 +1696,8 @@ class Window(QMainWindow):
         if a.confidence < 0.4:
             notes.insert(0, _("детектор не уверен, проверьте маркер «1» на слух"))
         self.warning.setText("; ".join(notes))
-        self.warning.setVisible(bool(notes))
+        self.warning.setToolTip("; ".join(notes))
+
         self.alt_b.setVisible(a.alt_downbeat is not None)
         self._show_track_values()
         bar = 60.0 / t.bpm * rd.METERS[self.meter_seg.value()][0]
@@ -1764,6 +1837,8 @@ class Window(QMainWindow):
         self.open_a.setEnabled(not busy)
         self.reveal_a.setEnabled(self.last_saved is not None)
         self.prog_panel.setVisible(busy)
+        self.wave._place_overlay()
+        self.wave.update()
 
     def _run(self, fn, *args, on_done):
         self.reveal_b.hide()
@@ -1892,6 +1967,40 @@ class Window(QMainWindow):
         self._enable()
         if pref_bool(OUT_REVEAL, True):
             reveal(out)
+
+    # --- volume and defaults ---
+
+    def _output_volume(self, v: int):
+        QSettings().setValue(OUTPUT_VOLUME_KEY, v)
+        self.player.volume = v / 100
+
+    def _save_defaults(self):
+        """The current count-in, part levels, pause and output settings become the start for every track."""
+        st = QSettings()
+        st.setValue(DEFAULTS + "style", self.style_seg.value() if self.style_seg.value() != "midi" else "buildup")
+        st.setValue(DEFAULTS + "bars", self.bars_seg.value())
+        st.setValue(DEFAULTS + "meter", self.meter_seg.value())
+        st.setValue(DEFAULTS + "volume", self.volume.value())
+        for name, s in self.parts.items():
+            st.setValue(DEFAULTS + "part/" + name, s.value())
+        st.setValue(DEFAULTS + "trim", self.trim.isChecked())
+        st.setValue(DEFAULTS + "format", self.fmt.currentIndex())
+        st.setValue(FILL_KEY, self.fill.isChecked())
+        st.setValue(THRESHOLD_KEY, self.threshold.value())
+        self.status.setText(_("Настройки сохранены как настройки по умолчанию"))
+
+    def _load_defaults(self):
+        st = QSettings()
+        if st.value(DEFAULTS + "style") is None:
+            return
+        self.style_seg.set_value(st.value(DEFAULTS + "style"))
+        self.bars_seg.set_value(int(st.value(DEFAULTS + "bars")))
+        self.meter_seg.set_value(st.value(DEFAULTS + "meter"))
+        self.volume.setValue(int(st.value(DEFAULTS + "volume", 0)))
+        for name, s in self.parts.items():
+            s.setValue(int(st.value(DEFAULTS + "part/" + name, 0)))
+        self.trim.setChecked(st.value(DEFAULTS + "trim", False) in (True, "true"))
+        self.fmt.setCurrentIndex(int(st.value(DEFAULTS + "format", 0)))
 
     # --- pauses ---
 
