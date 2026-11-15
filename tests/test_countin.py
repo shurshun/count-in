@@ -461,6 +461,29 @@ def test_quiet_bars_and_runs():
     assert zn.ranges(quiet | {0, 5}) == [(0, 2), (5, 5)]
 
 
+def test_pause_runs_up_to_a_pickup_and_evens_out_a_lost_beat():
+    from countin.core import zones as zn
+
+    # A guitar-only intro: the detector gives bars of 6, 5 and 4 beats, then the band enters on the last
+    # beat of bar 3 (a pickup) and plays 4/4 bars of 1.45 s from 6.37 s.
+    sr = 1000
+    x = np.full((12000, 2), 0.001, np.float32)
+    x[6250:] = 0.3
+    beats = [[0.44, 0.81, 0.99, 1.18, 1.56, 1.93], [2.06, 2.3, 2.42, 2.67, 3.05], [3.43, 3.8, 4.16, 4.54],
+             [4.91, 5.28, 5.65, 6.02], [6.37, 6.73, 7.1, 7.46], [7.82, 8.18, 8.55, 8.91], [9.27, 9.63, 10.0, 10.36]]
+    ends = [2.06, 3.43, 4.91, 6.37, 7.82, 9.27, 10.72]
+    bars = [zn.Bar(b[0], e, b) for b, e in zip(beats, ends)]
+    quiet = zn.quiet_bars(x, sr, bars, zn.level_db(x[6250:]))
+    assert quiet == {0, 1, 2, 3}  # bar 3 counts: the pickup sits on its last beat
+
+    (z,) = zn.zones_from(quiet)
+    zb = zn.zone_bars(bars, z)
+    assert [len(b.beats) for b in zb] == [4, 4, 4, 4]
+    assert zb[0].start == 0.44 and zb[-1].end == 6.37
+    _a, _b, bpm, n = zn.describe(bars, z)
+    assert n == 4 and 160 < bpm < 164
+
+
 def test_assets_search_order_and_copy(tmp_path, monkeypatch):
     from countin.core import assets
 

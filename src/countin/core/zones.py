@@ -58,11 +58,14 @@ def bars_from(beats: np.ndarray, downbeats: np.ndarray, duration: float) -> list
 def quiet_bars(pcm: np.ndarray, sr: int, bars: list[Bar], reference_db: float, threshold_db: float = QUIET_DB) -> set[int]:
     """Indices of bars whose level sits threshold_db or more below reference_db (dBFS of the full mix).
 
+    The level runs up to the bar's last beat: a band that comes back with a pickup on that beat still leaves
+    the bar quiet, so the hi-hat plays up to the entry instead of stopping a bar early.
     A quiet run that reaches the last bar is the song's ending, not a pause, so it is left out.
     """
     out = set()
     for i, bar in enumerate(bars):
-        x = pcm[int(bar.start * sr) : int(bar.end * sr)]
+        end = bar.beats[-1] if len(bar.beats) > 1 else bar.end
+        x = pcm[int(bar.start * sr) : int(end * sr)]
         if len(x) and level_db(x) - reference_db < threshold_db:
             out.add(i)
     for a, b in ranges(out):
@@ -106,10 +109,32 @@ def zones_from(indices: set[int]) -> list[Zone]:
     return [Zone(a, b) for a, b in ranges(indices)]
 
 
+def _irregular(bars: list[Bar]) -> bool:
+    """Bars of different beat counts or lengths 8% off the median: the detector lost the beat, as it does in a
+    guitar-only intro."""
+    lengths = [b.end - b.start for b in bars]
+    med = float(np.median(lengths))
+    return len({len(b.beats) for b in bars}) > 1 or any(abs(x - med) > 0.08 * med for x in lengths)
+
+
+def _even(start: float, end: float, bar_len: float, n: int) -> list[Bar]:
+    """Whole bars of n even beats from start to end, as close to bar_len as the span allows."""
+    k = max(1, round((end - start) / bar_len))
+    step = (end - start) / k
+    return [Bar(start + i * step, start + (i + 1) * step, list(start + i * step + step / n * np.arange(n)))
+            for i in range(k)]
+
+
 def zone_bars(bars: list[Bar], z: Zone) -> list[Bar]:
-    """The bars a zone plays: the detected ones, or a steady grid from the zone start when it has an override."""
+    """The bars a zone plays: the detected ones; an even grid between the zone edges when the detected ones are
+    irregular, in the meter and tempo of the bar the band comes back in; or a steady grid from the zone start
+    when the zone has an override."""
     if z.bpm is None and z.beats is None:
-        return bars[z.first : z.last + 1]
+        own = bars[z.first : z.last + 1]
+        if not _irregular(own):
+            return own
+        ref = bars[z.last + 1] if z.last + 1 < len(bars) else own[-1]
+        return _even(own[0].start, own[-1].end, ref.end - ref.start, len(ref.beats))
     start, end = bars[z.first].start, bars[z.last].end
     own = bars[z.first]
     p = 60.0 / z.bpm if z.bpm else own.period
