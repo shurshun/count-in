@@ -133,6 +133,7 @@ QPushButton#tbtn { border: none; border-radius: 8px; background: transparent; mi
 QPushButton#tbtn:hover { background: rgba(127,127,127,0.18); }
 QPushButton#tplay { border: none; border-radius: 17px; background: @ACCENT@; padding: 0;
                     min-width: 34px; max-width: 34px; min-height: 34px; max-height: 34px; }
+QPushButton#tplay:disabled { background: rgba(127,127,127,0.35); }
 QFrame#lcd { background: rgba(127,127,127,0.11); border-radius: 9px; }
 #lcdTime { font-size: 19px; font-weight: 600; }
 #lcdSub { font-size: 12px; color: @FIELD@; }
@@ -590,6 +591,8 @@ def glyph(kind: str, color: QColor, size: int = 18) -> QIcon:
 def glyph_button(kind: str, tip: str, slot, name: str = "tbtn", color: QColor | None = None, size: int = 18) -> QPushButton:
     b = QPushButton(objectName=name, clicked=slot, toolTip=tip)
     b.setIcon(glyph(kind, color or QApplication.palette().text().color(), size))
+    if color is None:
+        b.setProperty("glyph", kind)  # redrawn in the new text colour when the appearance changes
     b.setIconSize(QSize(size, size))
     b.setFocusPolicy(Qt.NoFocus)
     b.setCursor(Qt.PointingHandCursor)
@@ -869,7 +872,9 @@ class Wave(QWidget):
         self.overview: QWidget | None = None  # mini-map of the whole song, repainted with the waveform
         self.busy: QWidget | None = None  # centred progress card
         self.pill: QWidget | None = None  # the same progress folded into a capsule at the bottom
-        self.tips: QWidget | None = None  # tips card next to the capsule
+        self.tips: QWidget | None = None  # tips card at the bottom left while the app is busy
+        self.tips_on = False
+        self.tip_lines: list[QLabel] = []  # the centred cards' own tip lines, used when the card has no room
         self.play_t: float | None = None  # where playback starts; None means from the count-in
         self.current_zone: int | None = None
         self.hover_edge = None  # (pause index, side) under the pointer
@@ -909,12 +914,20 @@ class Wave(QWidget):
             self.pill.adjustSize()
             self.pill.move((self.width() - self.pill.width()) // 2, wh - self.pill.height() - 10)
             self.pill.raise_()
-        if self.tips is not None and self.pill is not None:
-            room = self.pill.x() - 14 - 16
+        if self.tips is not None:
+            # The tips card takes the room left of the centred card or of the capsule. Next to the capsule a
+            # narrow waveform moves it under the pause headers; next to a centred card it gives way to that
+            # card's own tip line.
+            centred = self.busy.isVisible() or self.overlay.isVisible()
+            room = ((self.width() - self.busy.width()) // 2 if centred else self.pill.x()) - 30
+            fits = room >= 240 or not centred
             self.tips.setFixedWidth(min(max(room, 240), 380))
             self.tips.adjustSize()
             self.tips.move(14, wh - self.tips.height() - 10 if room >= 240 else 30)
+            self.tips.setVisible(self.tips_on and fits)
             self.tips.raise_()
+            for label in self.tip_lines:
+                label.setVisible(not fits)
 
     def resizeEvent(self, e):
         self._place_overlay()
@@ -1971,9 +1984,13 @@ class Window(QMainWindow):
             if not isinstance(obj, (QLineEdit, QAbstractSpinBox)):
                 self._play()
                 return True
+        front = QApplication.activeWindow()
         if (e.type() == QEvent.KeyPress and e.key() in (Qt.Key_Left, Qt.Key_Right, Qt.Key_Home)
                 and not e.modifiers() and QApplication.activeModalWidget() is None
-                and not isinstance(obj, (QLineEdit, QAbstractSpinBox, QSlider, QComboBox))):
+                and QApplication.activePopupWidget() is None
+                and (front in (self, None) or not front.isVisible())  # not while Help is in front
+                and not any(isinstance(x, (QLineEdit, QAbstractSpinBox, QSlider, QComboBox))
+                            for x in (obj, QApplication.focusWidget()))):
             # Arrows walk the pauses, Home goes back to the count-in.
             self._to_start() if e.key() == Qt.Key_Home else self._jump_pause(-1 if e.key() == Qt.Key_Left else 1)
             return True
@@ -2120,11 +2137,18 @@ class Window(QMainWindow):
         self._show_tips()
 
     def _show_tips(self):
-        """The tips card goes with the capsule; the centred cards carry the tip themselves."""
+        """The tips card shows while anything runs: analysis, background separation or a blocking job."""
         w = self.wave
-        w.tips.setVisible(w.pill.isVisible() and self.job is None)
+        w.tips_on = w.busy.isVisible() or w.pill.isVisible() or self.job is not None
         w._place_overlay()
         w.update()
+
+    def changeEvent(self, e):
+        if e.type() == QEvent.PaletteChange:  # light or dark appearance: redraw the glyphs in the new text colour
+            for b in self.findChildren(QPushButton):
+                if b.property("glyph"):
+                    b.setIcon(glyph(b.property("glyph"), self.palette().text().color(), b.iconSize().width()))
+        super().changeEvent(e)
 
     def hide_busy(self):
         w = self.wave
@@ -2147,13 +2171,12 @@ class Window(QMainWindow):
         self._show_tips()
 
     def _undock_busy(self):
-        """The capsule opens back into the card; it folds again unless an action waits for the stems."""
+        """The capsule opens back into the card for a few seconds."""
         self.busy_docked = False
         self.wave.pill.hide()
         self.wave.busy.show()
         self._show_tips()
-        if not self.after_sep:
-            self.dock_timer.start()
+        self.dock_timer.start()
 
     # --- transport and navigation ---
 
@@ -2207,7 +2230,10 @@ class Window(QMainWindow):
         bar = w._bar_at(t)
         self.lcd_time.setText(fmt_time(t)[:-1])
         self.lcd_bar.setText(_("такт {n}", n=bar + 1) if bar is not None else _("отсчёт"))
-        self.play_b.setIcon(glyph("stop" if self.play_start is not None else "play", QColor(255, 255, 255)))
+        icon = "stop" if self.play_start is not None else "play"
+        if icon != self.play_b.property("icon"):  # this runs on every playback tick
+            self.play_b.setProperty("icon", icon)
+            self.play_b.setIcon(glyph(icon, QColor(255, 255, 255)))
         self.pause_l.setText(_("Пауза {i} из {n}", i=w.current_zone + 1, n=len(w.zones)) if w.current_zone is not None
                              else _("пауз: {n}", n=len(w.zones)))
         w.overview.update()
@@ -2355,6 +2381,7 @@ class Window(QMainWindow):
         for w in (self.wave.busy, self.wave.pill, self.wave.tips):
             w.setParent(self.wave)
         self.wave.pill.clicked.connect(self._undock_busy)
+        self.wave.tip_lines = [self.wave.busy.phrase, self.prog_phrase]
         self.wave.navChanged.connect(self._nav_changed)
         self.help_dialog = None
 
@@ -3181,7 +3208,7 @@ class Window(QMainWindow):
             return False
         if fn not in self.after_sep:
             self.after_sep.append(fn)
-        # The waiting action shows in the centred card, which unfolds and stays open.
+        # The waiting action shows in the centred card, which unfolds for a few seconds.
         self.wave.busy.wait.setText(_("Начнётся сразу, как только дорожки будут готовы"))
         self.wave.busy.wait.show()
         self._undock_busy()
