@@ -12,3 +12,7 @@ bin/
 # Local test tracks; only the count-in clicks belong to the repo
 samples/*
 !samples/stick_*.wav
+
+# Promo video project: dependencies and scratch renders
+promo/node_modules/
+promo/out/

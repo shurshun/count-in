@@ -39,6 +39,8 @@ nav a.link:hover, nav a.lang:hover, nav button:hover { color: var(--text); borde
   text-decoration: none; background: var(--btn); color: var(--btn-text); font-weight: 600; font-size: 16px; line-height: 1.2;
 }
 .dl svg { width: 22px; height: 22px; flex: none; fill: currentColor; }
+h3.os { display: flex; align-items: center; gap: 10px; }
+h3.os svg { width: 20px; height: 20px; flex: none; fill: currentColor; }
 .dl small { display: block; font-weight: 400; opacity: .65; font-size: 12.5px; }
 .dl.alt { background: var(--card); color: var(--text); border: 1px solid var(--border); }
 .dl:hover { opacity: .88; }
@@ -46,7 +48,7 @@ nav a.link:hover, nav a.lang:hover, nav button:hover { color: var(--text); borde
 
 /* App screenshot in a window frame */
 .window { border-radius: 12px; overflow: hidden; border: 1px solid var(--border); box-shadow: var(--shadow); background: var(--card); }
-.window img { display: block; width: 100%; height: auto; }
+.window img, .window video { display: block; width: 100%; height: auto; }
 
 /* Player */
 .player { background: var(--card); border: 1px solid var(--border); border-radius: 16px; padding: 18px 20px 16px; box-shadow: var(--shadow); }

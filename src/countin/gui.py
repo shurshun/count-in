@@ -580,6 +580,47 @@ def card(title: str) -> tuple[QFrame, QGridLayout]:
     return f, g
 
 
+class MuteButton(QPushButton):
+    """Speaker toggle beside a level slider. On moves the slider to MUTE, off brings the last level back."""
+
+    def __init__(self, slider: QSlider, tip: str):
+        super().__init__(objectName="small", checkable=True, toolTip=tip, focusPolicy=Qt.NoFocus)
+        self.setFixedSize(30, 22)
+        self.slider, self.level = slider, slider.value() if slider.value() != MUTE else 0
+        self.toggled.connect(self._toggle)
+        slider.valueChanged.connect(self._sync)
+
+    def _toggle(self, on: bool):
+        if on and self.slider.value() != MUTE:
+            self.slider.setValue(MUTE)
+        elif not on and self.slider.value() == MUTE:
+            self.slider.setValue(self.level)
+
+    def _sync(self, v: int):
+        if v != MUTE:
+            self.level = v
+        self.setChecked(v == MUTE)
+
+    def paintEvent(self, e):
+        super().paintEvent(e)
+        p = QPainter(self)
+        p.setRenderHint(QPainter.Antialiasing)
+        c = ORANGE if self.isChecked() else self.palette().color(QPalette.WindowText)
+        x, y = self.width() / 2 - 7, self.height() / 2
+        p.setPen(Qt.NoPen)
+        p.setBrush(c)
+        p.drawPolygon(QPolygonF([QPointF(x, y - 3), QPointF(x + 3, y - 3), QPointF(x + 7, y - 6.5),
+                                 QPointF(x + 7, y + 6.5), QPointF(x + 3, y + 3), QPointF(x, y + 3)]))
+        p.setPen(QPen(c, 1.6, Qt.SolidLine, Qt.RoundCap))
+        p.setBrush(Qt.NoBrush)
+        if self.isChecked():
+            p.drawLine(QPointF(x + 10, y - 3), QPointF(x + 15, y + 3))
+            p.drawLine(QPointF(x + 15, y - 3), QPointF(x + 10, y + 3))
+        else:
+            for r in (4, 7):
+                p.drawArc(QRectF(x + 7 - r, y - r, 2 * r, 2 * r), -50 * 16, 100 * 16)
+
+
 def row(grid: QGridLayout, label: str, *widgets) -> None:
     r = grid.rowCount()
     grid.addWidget(QLabel(label, objectName="field"), r, 0)
@@ -898,16 +939,16 @@ class Window(QMainWindow):
         mix, g = card(_("Бэктрек"))
         self.guitar = QSlider(Qt.Horizontal, minimum=MUTE, maximum=0, value=0, minimumWidth=140)
         self.guitar_l = QLabel(minimumWidth=90)
-        row(g, _("Гитара"), self.guitar, self.guitar_l)
+        row(g, _("Гитара"), MuteButton(self.guitar, _("Убрать гитару")), self.guitar, self.guitar_l)
         self.vocals = QSlider(Qt.Horizontal, minimum=MUTE, maximum=0, value=0, minimumWidth=140)
         self.vocals_l = QLabel(minimumWidth=90)
-        row(g, _("Вокал"), self.vocals, self.vocals_l)
+        row(g, _("Вокал"), MuteButton(self.vocals, _("Убрать вокал")), self.vocals, self.vocals_l)
         self.trim = QCheckBox(_("Обрезать тишину в начале"))
-        g.addWidget(self.trim, g.rowCount(), 1)
+        g.addWidget(self.trim, g.rowCount(), 0, 1, 2, Qt.AlignLeft | Qt.AlignVCenter)
         self.fmt = QComboBox()
         for key, name in FORMAT_NAMES.items():
             self.fmt.addItem(_(name), key)
-        row(g, _("Формат"), self.fmt)
+        row(g, _("Выходной формат"), self.fmt)
 
         for w in (self.volume, self.guitar, self.vocals):
             w.valueChanged.connect(self._labels)
