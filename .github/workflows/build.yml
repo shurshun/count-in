@@ -26,12 +26,57 @@ jobs:
           other=$(git diff -U0 "origin/$GITHUB_BASE_REF...HEAD" -- . ':!*.md' ':!docs/' ':!promo/' \
             | grep -E '^[-+]' | grep -vE '^(\+\+\+|---) ' | grep -vE '^[-+]version = "[^"]+"$' || true)
           echo "build=$([ -n "$other" ] && echo true || echo false)" >> "$GITHUB_OUTPUT"
+          echo "tree=$(git rev-parse 'HEAD^{tree}')" >> "$GITHUB_OUTPUT"
+          git rev-parse 'HEAD^{tree}' > tree.txt
+
+      # The tag build finds this PR run by the tree it built and publishes its bundles (job reuse).
+      - uses: actions/upload-artifact@v7
+        with:
+          name: tree-${{ steps.diff.outputs.tree }}
+          path: tree.txt
+
+  # A tag whose files match a passed PR build reuses that build's bundles instead of building them again.
+  reuse:
+    if: startsWith(github.ref, 'refs/tags/v')
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      actions: read
+    outputs:
+      run: ${{ steps.find.outputs.run }}
+    steps:
+      - uses: actions/checkout@v7
+
+      # A tag must match the version the update check compares against.
+      - name: tag matches pyproject version
+        run: |
+          v=$(sed -n 's/^version = "\(.*\)"/\1/p' pyproject.toml)
+          [ "v$v" = "$GITHUB_REF_NAME" ] || { echo "tag $GITHUB_REF_NAME, pyproject $v" >&2; exit 1; }
+
+      # Runs of this repository only, so a fork's PR build never reaches a release.
+      - id: find
+        env:
+          GH_TOKEN: ${{ github.token }}
+          REPO_ID: ${{ github.repository_id }}
+        run: |
+          tree=$(git rev-parse 'HEAD^{tree}')
+          for run in $(gh api "repos/$GITHUB_REPOSITORY/actions/artifacts?name=tree-$tree" \
+              -q ".artifacts[] | select(.expired | not) | select(.workflow_run.head_repository_id == $REPO_ID) | .workflow_run.id"); do
+            ok=$(gh api "repos/$GITHUB_REPOSITORY/actions/runs/$run" -q .conclusion)
+            zips=$(gh api "repos/$GITHUB_REPOSITORY/actions/runs/$run/artifacts" \
+              -q '[.artifacts[] | select(.expired | not) | select(.name | endswith(".zip"))] | length')
+            if [ "$ok" = success ] && [ "$zips" = 2 ]; then
+              echo "reusing the bundles of run $run"
+              echo "run=$run" >> "$GITHUB_OUTPUT"
+              break
+            fi
+          done
 
   build:
-    needs: changes
+    needs: [changes, reuse]
 
-    # Tags and manual runs skip the check and always build; a failed check builds too.
-    if: ${{ !cancelled() && (needs.changes.result != 'success' || needs.changes.outputs.build == 'true') }}
+    # Tags without a PR build to reuse and manual runs always build; a failed check builds too.
+    if: ${{ !cancelled() && needs.reuse.outputs.run == '' && (needs.changes.result != 'success' || needs.changes.outputs.build == 'true') }}
     strategy:
       fail-fast: false
       matrix:
@@ -93,9 +138,18 @@ jobs:
           key: models-${{ hashFiles('packaging/fetch_models.sh') }}
       - run: packaging/fetch_models.sh
 
+      # The Core ML model the smoke test exports on a miss (about a minute). The key covers everything that shapes
+      # the export, so a change to it exports again inside the bundle.
+      - name: Core ML cache (macOS)
+        if: runner.os == 'macOS'
+        uses: actions/cache@v6
+        with:
+          path: ~/Library/Application Support/Count-In/assets/separator/BS-Roformer-SW-core.mlmodelc
+          key: coreml-${{ hashFiles('uv.lock', 'packaging/countin.spec', 'src/countin/core/accel.py', 'src/countin/core/stems.py', 'src/countin/core/roformer/**') }}
+
       - run: uv run pyinstaller packaging/countin.spec --noconfirm --distpath dist --workpath build/work
 
-      # Smoke test of the shipped bundle: 20 s of clicks at 120 BPM through detection, separation and mp3 export.
+      # Smoke test of the shipped bundle: 12 s of clicks at 120 BPM through detection, separation and mp3 export.
       # The bundle carries no models; the smoke tests take them from the fetched models/ folder.
       # Windows runners have no GPU and DirectML would crawl on the software adapter, so their smoke test separates
       # with torch; macOS builds and runs the Core ML model.
@@ -104,7 +158,7 @@ jobs:
           COUNTIN_ASSETS: ${{ github.workspace }}/models
           COUNTIN_ACCEL: ${{ runner.os == 'Windows' && 'torch' || '' }}
         run: |
-          uv run python -c "import numpy as np, soundfile as sf; sr=44100; x=np.zeros((20*sr,2),np.float32); [x.__setitem__(slice(int(t*sr),int(t*sr)+400), 0.8) for t in np.arange(1,20,0.5)]; sf.write('smoke.wav', x, sr)"
+          uv run python -c "import numpy as np, soundfile as sf; sr=44100; x=np.zeros((12*sr,2),np.float32); [x.__setitem__(slice(int(t*sr),int(t*sr)+400), 0.8) for t in np.arange(1,12,0.5)]; sf.write('smoke.wav', x, sr)"
           ${{ matrix.cli }} --version
 
           # A real HTTPS request from the bundle. An HTTP error such as the shared runner IP hitting
@@ -141,14 +195,19 @@ jobs:
 
   release:
     # On a tag the changes check is skipped, and a skipped ancestor would skip this job too; check build directly.
-    if: ${{ !cancelled() && needs.build.result == 'success' && startsWith(github.ref, 'refs/tags/v') }}
-    needs: build
+    if: ${{ !cancelled() && startsWith(github.ref, 'refs/tags/v') && (needs.build.result == 'success' || needs.reuse.outputs.run != '') }}
+    needs: [reuse, build]
     runs-on: ubuntu-latest
     permissions:
       contents: write
+      actions: read
     steps:
+      # The reused PR run's bundles, or this run's.
       - uses: actions/download-artifact@v8
         with:
+          pattern: "*.zip"
+          run-id: ${{ needs.reuse.outputs.run || github.run_id }}
+          github-token: ${{ github.token }}
           merge-multiple: true
           skip-decompress: true
       - uses: softprops/action-gh-release@v3
