@@ -9,6 +9,8 @@ export const Root = () => (
   <>
     <Composition id="promo-en" component={Promo} defaultProps={{ lang: "en" as const }} durationInFrames={LEN} fps={FPS} {...size} />
     <Composition id="promo-ru" component={Promo} defaultProps={{ lang: "ru" as const }} durationInFrames={LEN} fps={FPS} {...size} />
+    <Composition id="vertical-en" component={Promo} defaultProps={{ lang: "en" as const, vertical: true }} durationInFrames={LEN} fps={FPS} width={1080} height={1920} />
+    <Composition id="vertical-ru" component={Promo} defaultProps={{ lang: "ru" as const, vertical: true }} durationInFrames={LEN} fps={FPS} width={1080} height={1920} />
     <Still id="poster-en" component={Poster} defaultProps={{ lang: "en" as const }} {...size} />
     <Still id="poster-ru" component={Poster} defaultProps={{ lang: "ru" as const }} {...size} />
   </>

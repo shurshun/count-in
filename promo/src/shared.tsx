@@ -56,7 +56,7 @@ export const EndCard = ({ tagline }: { tagline: string }) => {
     <AbsoluteFill style={{ background: C.bg, alignItems: "center", justifyContent: "center", fontFamily: FONT, color: C.text }}>
       <Img src={staticFile("icon.png")} style={{ width: 200, height: 200, transform: `scale(${s})` }} />
       <div style={{ fontSize: 120, fontWeight: 800, letterSpacing: -3, marginTop: 24, opacity: s }}>Count-In</div>
-      <div style={{ fontSize: 42, color: C.muted, marginTop: 8, opacity: s2 }}>{tagline}</div>
+      <div style={{ fontSize: 42, color: C.muted, marginTop: 8, maxWidth: "88%", textAlign: "center", opacity: s2 }}>{tagline}</div>
       <div style={{ marginTop: 48, display: "flex", alignItems: "center", gap: 18, fontSize: 46, fontWeight: 600, padding: "18px 40px 18px 30px",
         borderRadius: 40, background: C.card, border: `2px solid ${C.border}`, boxShadow: "0 8px 30px rgba(0,0,0,.12)",
         opacity: s2, transform: `translateY(${(1 - s2) * 30}px)` }}>

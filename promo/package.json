@@ -3,7 +3,8 @@
   "private": true,
   "scripts": {
     "studio": "remotion studio src/index.ts",
-    "render": "for l in en ru; do s=$([ $l = en ] && echo '' || echo -ru); remotion render src/index.ts promo-$l ../docs/promo/count-in$s.mp4 --log=error && remotion still src/index.ts poster-$l ../docs/promo/poster$s.jpg --image-format=jpeg --jpeg-quality=85 --scale=0.8333 --log=error || exit 1; done"
+    "render": "for l in en ru; do s=$([ $l = en ] && echo '' || echo -ru); remotion render src/index.ts promo-$l ../docs/promo/count-in$s.mp4 --log=error && remotion still src/index.ts poster-$l ../docs/promo/poster$s.jpg --image-format=jpeg --jpeg-quality=85 --scale=0.8333 --log=error || exit 1; done",
+    "render:vertical": "for l in en ru; do remotion render src/index.ts vertical-$l out/count-in-vertical-$l.mp4 --log=error || exit 1; done"
   },
   "dependencies": {
     "@remotion/cli": "4.0.543",
