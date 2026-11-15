@@ -290,8 +290,6 @@ EN = {
     'Папка assets рядом с программой тоже подходит, так модели можно носить на флешке вместе с ней.': 'An assets folder next to the app works too, so the models can travel with it on a flash drive.',
     "Заполнение пауз": "Pause fill",
     "{i} из {n}": "{i} of {n}",
-    "всего {n}": "{n} in all",
-    "нет": "none",
 }
 
 
