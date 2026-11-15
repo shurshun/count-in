@@ -653,3 +653,16 @@ def test_render_slows_the_song_and_keeps_clicks_on_the_slowed_grid():
     assert [s / sr for s in r.click_samples] == pytest.approx([1.25, 1.875])
     hit = np.argmax(np.abs(r.pcm[int(2.3 * sr) : int(2.7 * sr), 0]) > 0.3) / sr + 2.3
     assert hit == pytest.approx(2.0 / 0.8 + r.offset, abs=0.003)  # the song's "1" moved to 2.5 s with them
+
+
+def test_help_and_project_page_open_the_site_in_the_app_language():
+    from countin import gui, i18n
+
+    was = i18n.language()
+    try:
+        i18n.set_language("en")
+        assert gui.site_url("guide/") == "https://count-in.app/guide/" and gui.site_url() == "https://count-in.app/"
+        i18n.set_language("ru")
+        assert gui.site_url("guide/") == "https://count-in.app/ru/guide/" and gui.site_url() == "https://count-in.app/ru/"
+    finally:
+        i18n.set_language(was)

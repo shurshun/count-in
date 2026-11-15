@@ -26,7 +26,7 @@ TIPS = (
     "Папка assets рядом с программой позволяет носить модели на флешке",
 )
 
-# (section title, lines). The Help window shows every section as a card.
+# (section title, lines). The user guide on the site (docs/build_site.py) shows every section with screenshots.
 HELP = (
     ("Первая доля и темп", (
         "Оранжевый маркер «1» стоит на первой сильной доле. Отсчёт заканчивается ровно перед ней.",

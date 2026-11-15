@@ -35,10 +35,13 @@ document.addEventListener("click", e => {
   }
 });
 
-// Download size next to each button, from the latest release
+// Download size next to each button and the version under them, from the latest release
 const sizes = document.querySelectorAll("[data-size]");
-if (sizes.length) addEventListener("load", () =>
-  fetch("https://api.github.com/repos/shurshun/count-in/releases/latest").then(r => r.json()).then(r => sizes.forEach(el => {
+const versions = document.querySelectorAll("[data-version]");
+if (sizes.length || versions.length) addEventListener("load", () =>
+  fetch("https://api.github.com/repos/shurshun/count-in/releases/latest").then(r => r.json()).then(r => (versions.forEach(el => {
+    if (r.tag_name) el.textContent = (ru() ? "Версия " : "Version ") + r.tag_name.replace(/^v/, "") + " · ";
+  }), sizes).forEach(el => {
     const a = r.assets?.find(a => a.name === el.dataset.size);
     if (a) el.textContent = " · " + Math.round(a.size / 1048576) + (ru() ? " МБ" : " MB");
   })).catch(() => {}));

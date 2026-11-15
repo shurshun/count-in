@@ -1,6 +1,7 @@
 import { AbsoluteFill, Easing, Img, interpolate, staticFile } from "remotion";
 import { C, EndCard, FONT, ONE, Soundtrack, T, clamp, f } from "./shared";
 import { FOCUS } from "./zoom";
+import { LangContext, type Lang } from "./text";
 import { Intro } from "./intro";
 import { Flash, Footer, Header, pop, useBeat, useLine } from "./verticalParts";
 
@@ -9,7 +10,7 @@ import { Flash, Footer, Header, pop, useBeat, useLine } from "./verticalParts";
 
 const WIN = 760, LENS = { w: 820, h: 430 }, RINGS = { x: 540, y: 560 };
 
-export const Vertical = () => {
+const VerticalScene = () => {
   const { frame, copy, at, i, line } = useLine();
   const { k, pulse } = useBeat();
   const intro = frame < f(ONE);
@@ -74,3 +75,7 @@ export const Vertical = () => {
     </AbsoluteFill>
   );
 };
+
+export const Vertical = ({ lang }: { lang: Lang }) => (
+  <LangContext.Provider value={lang}><VerticalScene /></LangContext.Provider>
+);

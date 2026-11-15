@@ -17,7 +17,7 @@ Count-In finds a song's tempo and first downbeat and puts a drum count-in in fro
 
 News, releases and feedback: the Telegram channel [@count_in_app](https://t.me/count_in_app).
 
-The interface is in English and Russian; it follows the system language, and Settings can switch it. The [user guide](https://count-in.app/guide/) walks through every feature with screenshots; the same text is in the app under Help (F1).
+The interface is in English and Russian; it follows the system language, and Settings can switch it. The [user guide](https://count-in.app/guide/) walks through every feature with screenshots; the app opens it from Help (F1).
 
 ## Download
 
@@ -161,7 +161,7 @@ Count-In находит темп и первую сильную долю пес�
 - Разделение идёт на видеокарте: Core ML на Mac, DirectML на Windows. Песню, которую уже разделяли, программа открывает сразу.
 - Вход: mp3, FLAC, ALAC, WAV. Выход: MP3 320 kbps, FLAC, ALAC или WAV, теги и обложка сохраняются.
 - Работает без интернета. Сеть нужна для одной загрузки моделей и для обновлений.
-- Интерфейс на русском и английском: язык берётся из системы, его можно сменить в настройках. [Справка](https://count-in.app/ru/guide/) со скриншотами описывает все возможности, тот же текст есть в программе в меню «Справка» (F1).
+- Интерфейс на русском и английском: язык берётся из системы, его можно сменить в настройках. [Справка](https://count-in.app/ru/guide/) со скриншотами описывает все возможности, программа открывает её из меню «Справка» (F1).
 
 ### Скачать
 
