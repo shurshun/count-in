@@ -141,9 +141,6 @@ Count-In is released under the [MIT License](LICENSE). The bundled third-party c
 | [FFmpeg](https://ffmpeg.org), built without GPL parts, with LAME | LGPL |
 | [Qt for Python](https://doc.qt.io/qtforpython-6/) | LGPL |
 | [PyTorch](https://pytorch.org) | BSD |
-| [Signalsmith Stretch](https://github.com/Signalsmith-Audio/signalsmith-stretch) через [python-stretch](https://github.com/gregogiudici/python-stretch) (замедление) | MIT |
-| [coremltools](https://github.com/apple/coremltools) (macOS) | BSD |
-| [ONNX Runtime DirectML](https://onnxruntime.ai) (Windows) | MIT |
 | [Signalsmith Stretch](https://github.com/Signalsmith-Audio/signalsmith-stretch) via [python-stretch](https://github.com/gregogiudici/python-stretch) (slowing down) | MIT |
 | [coremltools](https://github.com/apple/coremltools) (macOS) | BSD |
 | [ONNX Runtime DirectML](https://onnxruntime.ai) (Windows) | MIT |
@@ -288,3 +285,6 @@ Count-In распространяется по [лицензии MIT](LICENSE). 
 | [FFmpeg](https://ffmpeg.org), сборка без GPL-частей, с LAME | LGPL |
 | [Qt for Python](https://doc.qt.io/qtforpython-6/) | LGPL |
 | [PyTorch](https://pytorch.org) | BSD |
+| [Signalsmith Stretch](https://github.com/Signalsmith-Audio/signalsmith-stretch) через [python-stretch](https://github.com/gregogiudici/python-stretch) (замедление) | MIT |
+| [coremltools](https://github.com/apple/coremltools) (macOS) | BSD |
+| [ONNX Runtime DirectML](https://onnxruntime.ai) (Windows) | MIT |
