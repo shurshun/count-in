@@ -35,9 +35,11 @@ EN = {
     "Перетащите сюда трек\n\nmp3, FLAC, ALAC, WAV": "Drop a track here\n\nmp3, FLAC, ALAC, WAV",
     "Отмена": "Cancel",
     "Тяните оранжевый маркер «1» на первую сильную долю. Колесо — масштаб, перетаскивание — сдвиг, "
-    "⌥ — без прилипания к долям. Пауза: выделите такты с ⇧ или по шкале времени, правый щелчок убирает.":
+    "⌥ — без прилипания к долям. Двойной щелчок — играть отсюда. Пауза: выделите такты с ⇧ или по шкале времени, "
+    "правый щелчок по паузе убирает её.":
         'Drag the orange "1" marker onto the first downbeat. Wheel zooms, dragging pans, '
-        "⌥ places it without snapping to beats. Pause: select bars with ⇧ or along the time ruler, right-click removes.",
+        "⌥ places it without snapping to beats. Double-click plays from there. Pause: select bars with ⇧ or along "
+        "the time ruler, right-click a pause to remove it.",
     # Cards
     "Темп и первая доля": "Tempo and first downbeat",
     "Темп": "Tempo",
@@ -65,7 +67,7 @@ EN = {
     "убрать": "remove",
     "Убрать гитару": "Remove guitar",
     "Заполнять паузы хай-хэтом": "Fill pauses with hi-hat",
-    "Такты, где без гитары и вокала тихо, получают хай-хэт на каждую долю и отсчёт палочками за такт до паузы. Правый щелчок по такту на волне добавляет или убирает его, края зоны тянутся мышью.": "Bars that go quiet without guitar and vocals get a hi-hat on every beat and a bar of stick count-in before the pause. Right-click a bar on the waveform to add or remove it; drag a zone edge to move it.",
+    "Такты, где без убранных дорожек тихо, получают хай-хэт на каждую долю и отсчёт палочками за такт до паузы. Правый щелчок по паузе убирает её, рядом с паузой добавляет такт, края паузы тянутся мышью.": "Bars that go quiet without the removed parts get a hi-hat on every beat and a bar of stick count-in before the pause. Right-click a pause to remove it, next to one to add a bar; drag a pause edge to move it.",
     "Насколько тише среднего уровня песни должен быть такт, чтобы считаться паузой": "How far below the song's average level a bar must be to count as a pause",
     "Пауза {a}–{b}": "Pause {a}–{b}",
     "Долей в такте": "Beats per bar",
@@ -112,6 +114,7 @@ EN = {
     "Tap…": "Tap…",
     "Настучать темп пробелом под играющую песню": "Tap the tempo with Space while the song plays",
     "Как в песне": "As detected",
+    "Убрать ручной темп и размер: пауза снова идёт по долям, найденным в песне": "Drop the manual tempo and meter: the pause follows the detected beats again",
     "Готово": "Done",
     "Отмена": "Cancel",
     "пауз: {n}": "pauses: {n}",
@@ -146,7 +149,7 @@ EN = {
     "считаю время…": "estimating time…",
     "Отменено": "Cancelled",
     "Отменяю…": "Cancelling…",
-    "Гитару и вокал можно менять на ходу": "Guitar and vocals change live",
+    "Дорожки можно менять на ходу": "Parts change live while playing",
     "Чтобы менять гитару и вокал на ходу, опустите ползунок до прослушивания":
         "To change guitar and vocals live, lower a slider before the preview",
     "Не удалось воспроизвести: {e}": "Playback failed: {e}",

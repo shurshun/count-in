@@ -1,4 +1,4 @@
-"""Fill zones: bars that go quiet once guitar or vocals are removed get a hi-hat on every beat.
+"""Pauses: bars that go quiet once parts are turned down get a hi-hat on every beat.
 
 The bars come from the detected beats and downbeats of the whole song, so the clicks follow tempo drift
 and meter changes. A zone that starts after music gets one bar of count-in in front of it, with the beat
@@ -88,12 +88,18 @@ def ranges(indices: set[int]) -> list[tuple[int, int]]:
 
 @dataclass
 class Zone:
-    """A pause over bars first..last. bpm and beats override the detected tempo and beats per bar inside it."""
+    """A pause over bars first..last. bpm and beats override the detected tempo and beats per bar inside it.
+    manual marks a pause the user made or edited; the automatic search keeps those."""
 
     first: int
     last: int
     bpm: float | None = None
     beats: int | None = None
+    manual: bool = False
+
+    @property
+    def kept(self) -> bool:
+        return self.manual or self.bpm is not None or self.beats is not None
 
 
 def zones_from(indices: set[int]) -> list[Zone]:
@@ -109,11 +115,14 @@ def zone_bars(bars: list[Bar], z: Zone) -> list[Bar]:
     p = 60.0 / z.bpm if z.bpm else own.period
     n = z.beats or len(own.beats)
     beats = list(start + p * np.arange(int(np.ceil((end - start) / p - 1e-6))))
-    return [Bar(beats[k], beats[k] + n * p, beats[k : k + n]) for k in range(0, len(beats), n)]
+    return [Bar(beats[k], min(beats[k] + n * p, end), beats[k : k + n]) for k in range(0, len(beats), n)]
 
 
 def describe(bars: list[Bar], z: Zone) -> tuple[float, float, float, int]:
     """(start, end, bpm, beats per bar) of a zone as it will play."""
+    own = bars[z.first]
+    if z.bpm is not None or z.beats is not None:
+        return own.start, bars[z.last].end, z.bpm or 60.0 / own.period, z.beats or len(own.beats)
     zb = zone_bars(bars, z)
     periods = [b.period for b in zb if len(b.beats) > 1] or [zb[0].period]
     counts = [len(b.beats) for b in zb]
@@ -124,16 +133,27 @@ def zone_clicks(bars: list[Bar], zones: list[Zone], downbeat: float) -> list[Cli
     """A hi-hat on every beat of the zone bars, plus a bar of stick count-in before each zone.
 
     The count-in has as many clicks as the zone's first bar has beats, at that bar's beat period, and ends
-    one beat before it. A zone that starts at the song's first downbeat needs none: the main count-in leads
-    into it. Beats before that downbeat never click.
+    one beat before it. A zone in the bar of the song's first downbeat needs none (the main count-in leads into
+    it), and neither does one right after another pause (the hi-hat already runs). The downbeat is the snapped
+    "1", a few ms off the detected bar start, so bars and beats compare with half a beat of slack.
     """
     clicks = []
-    for z in zones:
+    zones = sorted(zones, key=lambda q: q.first)
+    for i, z in enumerate(zones):
         zb = zone_bars(bars, z)
         bar = zb[0]
-        if bar.start > downbeat + 1e-3:
+        slack = bar.period / 2
+        follows = i > 0 and zones[i - 1].last == z.first - 1
+        if bar.start > downbeat + slack and not follows:
             n, p = len(bar.beats), bar.period
             clicks += [Click(bar.start - (n - k) * p, k == 0) for k in range(n)]
         for b in zb:
-            clicks += [Click(t, k == 0, voice="hihat") for k, t in enumerate(b.beats) if t >= downbeat - 1e-3]
+            clicks += [Click(t, k == 0, voice="hihat") for k, t in enumerate(b.beats) if t >= downbeat - slack]
     return clicks
+
+
+def merge(manual: list[Zone], found: list[Zone]) -> list[Zone]:
+    """Pauses the user made or edited stay; the found ones fill in where they don't overlap."""
+    taken = {i for z in manual for i in range(z.first, z.last + 1)}
+    extra = [z for z in found if not any(i in taken for i in range(z.first, z.last + 1))]
+    return sorted(manual + extra, key=lambda q: q.first)

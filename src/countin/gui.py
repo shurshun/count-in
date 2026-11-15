@@ -12,7 +12,7 @@ from pathlib import Path
 
 import numpy as np
 from PySide6.QtCore import QEvent, QObject, QSettings, QStandardPaths, QUrl, QPointF, QRectF, QRunnable, QSize, Qt, QThreadPool, QTimer, Signal
-from PySide6.QtGui import QAction, QDesktopServices, QIcon, QImage, QKeySequence, QColor, QPainter, QPainterPath, QPen, QPalette, QPixmap, QPolygonF
+from PySide6.QtGui import QAction, QDesktopServices, QFont, QIcon, QImage, QKeySequence, QColor, QPainter, QPainterPath, QPen, QPalette, QPixmap, QPolygonF
 from PySide6.QtWidgets import (
     QAbstractSpinBox, QApplication, QButtonGroup, QCheckBox, QComboBox, QDialog, QDoubleSpinBox, QFileDialog, QFrame,
     QGridLayout, QHBoxLayout, QLabel, QLineEdit, QMainWindow, QMessageBox, QProgressBar, QPushButton, QRadioButton,
@@ -32,6 +32,7 @@ log = logging.getLogger("countin")
 
 AUDIO_EXT = {".mp3", ".flac", ".m4a", ".wav", ".aif", ".aiff", ".ogg"}
 PREVIEW_AFTER = 10.0  # seconds of song after the downbeat
+PREVIEW_FROM = 30.0  # seconds played by "play from here"
 MUTE = -41  # level slider bottom means "remove"
 # Parts the backing-track card can turn down: (stem name in the model, label, icon, mute tooltip)
 PARTS = (
@@ -78,7 +79,7 @@ QPushButton#update:hover { background: #409cff; }
 #headerLabel { font-size: 15px; color: @FIELD@; }
 #progOverlay { background: transparent; }
 #progTitle { font-size: 26px; font-weight: 700; }
-#progWhy { font-size: 15px; color: @FIELD@; }
+#progWhy, #progEta { font-size: 15px; color: @FIELD@; }
 #progPct { font-size: 34px; font-weight: 700; }
 #progPhrase { font-size: 15px; font-style: italic; color: @FIELD@; }
 #subtitle { color: @FIELD@; }
@@ -190,11 +191,13 @@ def zones_key(s: Settings) -> tuple:
     return tuple(sorted(s.levels.items())), s.threshold
 
 
-def find_zones(t: Track, pcm: np.ndarray, sr: int, st: dict[str, np.ndarray] | None, s: Settings) -> list[zn.Zone]:
-    """Pauses: bars that go quiet once the turned-down stems are taken out."""
+def find_zones(t: Track, pcm: np.ndarray, sr: int, st: dict[str, np.ndarray] | None, s: Settings,
+               backing: np.ndarray | None = None) -> list[zn.Zone]:
+    """Pauses: bars that go quiet once the turned-down stems are taken out (backing, when already made)."""
     from .core import stems
 
-    backing = stems.attenuate(pcm, st, s.levels) if s.levels and st else pcm
+    if backing is None:
+        backing = stems.attenuate(pcm, st, s.levels) if s.levels and st else pcm
     return zn.zones_from(zn.quiet_bars(backing, sr, t.bars, zn.level_db(pcm), s.threshold))
 
 
@@ -303,7 +306,7 @@ def analyze_job(job: Job, track: Track):
 def _stems(job: Job, pcm, sr, label: str) -> dict[str, np.ndarray]:
     from .core import stems
 
-    if not stems._model.cache_info().currsize:
+    if not stems._load.cache_info().currsize:
         job.report(_("{name}: загрузка модели", name=label))
     return stems.separate(pcm, sr, lambda d, n: job.report(label, d, n), only=tuple(p[0] for p in PARTS))
 
@@ -313,15 +316,21 @@ def _covers(cached, i0: int, i1: int) -> bool:
     return bool(cached) and cached[0] <= i0 and cached[0] + len(cached[1]["guitar"]) >= i1
 
 
-def preview_job(job: Job, track: Track, s: Settings, pcm: np.ndarray, sr: int, cached, separate: bool):
-    """Count-in plus PREVIEW_AFTER seconds, with stems kept apart so the player can mix them live.
+def preview_job(job: Job, track: Track, s: Settings, pcm: np.ndarray, sr: int, cached, separate: bool,
+                at: float | None = None):
+    """Count-in plus PREVIEW_AFTER seconds, or PREVIEW_FROM seconds from song time `at` (play from here), with
+    stems kept apart so the player can mix them live.
 
     Returns (song with clicks, {stem: aligned array}, sr, original-song time of the first sample, new stem cache).
     """
     clicks = clicks_for(track, s)
-    first = min(c.time for c in clicks)
+    dur = len(pcm) / sr
+    if at is None:
+        first, end = min(c.time for c in clicks), track.t0 + PREVIEW_AFTER
+    else:
+        first, end = at, at + PREVIEW_FROM
     i0 = int(max(0.0, first - 0.5) * sr)
-    i1 = int(min(track.t0 + PREVIEW_AFTER, len(pcm) / sr) * sr)
+    i1 = int(min(end, dur) * sr)
     part, new_cache = None, None
     if _covers(cached, i0, i1):
         c0, st = cached
@@ -493,6 +502,7 @@ class Wave(QWidget):
     zonesEdited = Signal(object)
     zoneClicked = Signal(int)
     spanSelected = Signal(int, int)  # first and last bar of a span dragged with Shift or along the ruler
+    playFrom = Signal(float)  # double-click: play from here
     RULER = 20
 
     def __init__(self):
@@ -528,8 +538,13 @@ class Wave(QWidget):
         self.update()
 
     def _place_overlay(self):
+        """The progress fills the waveform; on a short one the explanation and the phrase step aside."""
         if self.overlay is not None:
             self.overlay.setGeometry(self.rect())
+            roomy = self.height() >= 340
+            for name in ("progWhy", "progPhrase"):
+                for label in self.overlay.findChildren(QLabel, name):
+                    label.setVisible(roomy)
 
     def resizeEvent(self, e):
         self._place_overlay()
@@ -611,18 +626,25 @@ class Wave(QWidget):
 
         p.drawPixmap(0, 0, self._wave_pixmap())
 
-        # Only what is on screen: a whole six-minute song has a thousand beat lines
+        # Only what is on screen, and no beat lines closer than 4 px: a whole song would be a grey wall
+        px_per_s = w / max(self.v1 - self.v0, 1e-6)
+        dense = len(self.beats) > 1 and (self.duration / len(self.beats)) * px_per_s < 4
         p.setPen(QPen(QColor(127, 127, 127, 70), 1))
-        for t in self._visible(self.beats):
+        for t in ([] if dense else self._visible(self.beats)):
             p.drawLine(QPointF(self.x_of(t), 0), QPointF(self.x_of(t), wh))
         p.setPen(QPen(QColor(127, 127, 127, 160), 1, Qt.DashLine))
         for t in self._visible(self.downs):
             p.drawLine(QPointF(self.x_of(t), 0), QPointF(self.x_of(t), wh))
 
         p.setPen(Qt.NoPen)
-        for c in self.clicks:
+        last_x = None
+        for c in sorted(self.clicks, key=lambda c: c.time):
             if not self.v0 - 1 <= c.time <= self.v1 + 1:
                 continue
+            x = self.x_of(c.time)
+            if last_x is not None and x - last_x < 5 and not c.accent:  # zoomed out: bar starts only
+                continue
+            last_x = x
             p.setBrush(GREEN if c.voice == "hihat" else accent)
             hgt = wh * (0.42 if c.accent else 0.28) * min(c.gain, 1.6)
             p.drawRoundedRect(QRectF(self.x_of(c.time) - 2, 6, 4, hgt), 2, 2)
@@ -657,15 +679,23 @@ class Wave(QWidget):
 
         # Pause labels on top: span, meter and tempo; a click opens the editor.
         self.labels = []
-        f = p.font()
+        f = QFont(self.font())
         f.setBold(True)
         f.setPointSizeF(f.pointSizeF() * 0.85)
         p.setFont(f)
+        right_of_last = -1.0
         for i, z in enumerate(self.zones):
             a, b, bpm, n = zn.describe(self.bars, z)
             text = f"{fmt_short(a)}–{fmt_short(b)} · {n}/4 · {bpm:.0f} BPM" + (" ✎" if z.bpm or z.beats else "")
-            xa = self.x_of(a)
-            box = QRectF(xa + 4, wh - 26, p.fontMetrics().horizontalAdvance(text) + 14, 20)
+            xa, xb = self.x_of(a), self.x_of(b)
+            if xb < 0 or xa > w:
+                continue
+            width = p.fontMetrics().horizontalAdvance(text) + 14
+            x = max(xa, 0) + 4  # a pause that starts off screen keeps its label at the left edge
+            if x < right_of_last + 6 or x + width > max(xb, x + width) + 40:
+                continue  # zoomed out: labels that would overlap give way
+            right_of_last = x + width
+            box = QRectF(x, wh - 26, width, 20)
             p.setPen(Qt.NoPen)
             p.setBrush(QColor(36, 138, 61, 235))
             p.drawRoundedRect(box, 6, 6)
@@ -683,7 +713,7 @@ class Wave(QWidget):
         # Ruler.
         p.setPen(QPen(QColor(127, 127, 127, 60), 1))
         p.drawLine(QPointF(0, wh), QPointF(w, wh))
-        f = p.font()
+        f = QFont(self.font())
         f.setBold(False)
         f.setPointSizeF(f.pointSizeF() * 0.85)
         p.setFont(f)
@@ -721,10 +751,19 @@ class Wave(QWidget):
         self.update()
 
     def add_zone(self, bar: int, length: int = 1):
-        """A pause over bars bar..bar+length-1, unless one already covers it."""
+        """A pause over bars bar..bar+length-1, unless one already covers it. Next to a pause that follows the
+        song, that pause grows instead, so the hi-hat runs on without a count-in in between."""
         last = min(bar + length, len(self.bars)) - 1
-        if self.bars and all(self._zone_at(i) is None for i in range(bar, last + 1)):
-            self._set_zones(self.zones + [zn.Zone(bar, last)])
+        if not self.bars or any(self._zone_at(i) is not None for i in range(bar, last + 1)):
+            return
+        for z in self.zones:
+            if z.bpm is None and z.beats is None and z.last == bar - 1:
+                z.last, z.manual = last, True
+                return self._set_zones(self.zones)
+            if z.bpm is None and z.beats is None and z.first == last + 1:
+                z.first, z.manual = bar, True
+                return self._set_zones(self.zones)
+        self._set_zones(self.zones + [zn.Zone(bar, last, manual=True)])
 
     def mousePressEvent(self, e):
         x, pos = e.position().x(), e.position()
@@ -744,14 +783,14 @@ class Wave(QWidget):
         if self.bars and (e.modifiers() & Qt.ShiftModifier or pos.y() > self.height() - self.RULER):
             i = self._bar_at(self.t_of(x))
             if i is not None:
-                self.drag = ("select", i)
+                self.drag = ("select", i, x)
                 self.sel = (i, i)
                 self.update()
             return
         if self._near_marker(x):
             self.drag = "marker"
         elif self.bars and (hit := self._near_edge(x)):
-            self.drag = ("edge", *hit)
+            self.drag = ("edge", self.zones[hit[0]], hit[1])
         else:
             self.drag = ("pan", x, self.v0, self.v1)
 
@@ -776,16 +815,21 @@ class Wave(QWidget):
             self.sel = (min(self.drag[1], i), max(self.drag[1], i))
             self.update()
         elif self.drag and self.drag[0] == "edge":
-            _kind, i, side = self.drag
-            z, t = self.zones[i], self.t_of(x)
-            others = [o for j, o in enumerate(self.zones) if j != i]
+            # The pause is held by reference, so a search that replaces the list mid-drag cannot break it;
+            # the edit is announced once, on release, so a playing preview rebuilds only for the final edge.
+            _kind, z, side = self.drag
+            if z not in self.zones:
+                self.drag = None
+                return
+            t = self.t_of(x)
+            others = [o for o in self.zones if o is not z]
             lo = max([o.last + 1 for o in others if o.last < z.first], default=0)
             hi = min([o.first - 1 for o in others if o.first > z.last], default=len(self.bars) - 1)
             if side == "start":
                 z.first = min(range(lo, z.last + 1), key=lambda k: abs(self.bars[k].start - t))
             else:
                 z.last = min(range(z.first, hi + 1), key=lambda k: abs(self.bars[k].end - t))
-            self.zonesEdited.emit(self.zones)
+            z.manual = True
             self.update()
         elif self.drag:
             _kind, x0, a, b = self.drag
@@ -797,12 +841,20 @@ class Wave(QWidget):
             self.setCursor(Qt.PointingHandCursor if on_label else
                            Qt.SizeHorCursor if self._near_marker(x) or edge else Qt.OpenHandCursor)
 
-    def mouseReleaseEvent(self, _event):
+    def mouseDoubleClickEvent(self, e):
+        if e.button() == Qt.LeftButton:
+            self.playFrom.emit(self.t_of(e.position().x()))
+
+    def mouseReleaseEvent(self, e):
         if self.drag and self.drag[0] == "select" and self.sel:
             a, b = self.sel
+            moved = abs(e.position().x() - self.drag[2]) > 4  # a plain click on the ruler makes nothing
             self.sel = None
             self.update()
-            self.spanSelected.emit(a, b)
+            if moved:
+                self.spanSelected.emit(a, b)
+        elif self.drag and self.drag[0] == "edge":
+            self.zonesEdited.emit(self.zones)
         self.drag = None
 
     def wheelEvent(self, e):
@@ -881,7 +933,7 @@ class MuteButton(QPushButton):
 
 
 def part_icon(kind: str, color: QColor, size: int = 16) -> QPixmap:
-    """Small guitar or microphone glyph for the backing-track rows, drawn so it follows the theme colour."""
+    """Small part or speaker glyph (guitar, mic, bass, drums, piano, speaker), drawn so it follows the theme colour."""
     dpr = 2
     pix = QPixmap(size * dpr, size * dpr)
     pix.setDevicePixelRatio(dpr)
@@ -1211,10 +1263,13 @@ class ZoneDialog(QDialog):
         g.addWidget(self.beats, 1, 1)
         h = QHBoxLayout()
         for text, slot in ((_("Удалить паузу"), self._remove), (_("Как в песне"), self._reset)):
-            h.addWidget(QPushButton(text, clicked=slot))
+            b = QPushButton(text, objectName="tool", clicked=slot)
+            if slot == self._reset:
+                b.setToolTip(_("Убрать ручной темп и размер: пауза снова идёт по долям, найденным в песне"))
+            h.addWidget(b)
         h.addStretch()
         ok = QPushButton(_("Готово"), objectName="primary", clicked=self.accept, default=True)
-        h.addWidget(QPushButton(_("Отмена"), clicked=self.reject))
+        h.addWidget(QPushButton(_("Отмена"), objectName="tool", clicked=self.reject))
         h.addWidget(ok)
         g.addLayout(h, 2, 0, 1, 2)
 
@@ -1353,7 +1408,6 @@ class Window(QMainWindow):
         self.info: io.AudioInfo | None = None
         self.pcm, self.sr = None, 0
         self.stem_cache = None  # (first sample, stems) of the current track
-        self.taps: list[float] = []
         self.job: Job | None = None
         self.analysis_job: Job | None = None
         self.analysis_pool = QThreadPool()
@@ -1365,6 +1419,7 @@ class Window(QMainWindow):
         self.resume_at = None  # song time a rebuilt preview carries on from
         self.zones_pending = False  # a pause search waits for the running job
         self.models_warm = False  # the separation model starts loading with the first track
+        self.backing_key, self.backing, self.wave_source = None, None, None  # see _backing
         self.play_timer = QTimer(self, interval=30, timeout=self._tick)
         self.last_saved: Path | None = None
         self.release = None
@@ -1482,7 +1537,7 @@ class Window(QMainWindow):
         self.prog_why.setFixedWidth(720)  # a fixed width lets the wrapped text get its full height
         self.progress = QProgressBar(textVisible=False, fixedHeight=8, fixedWidth=520)
         self.prog_pct = QLabel(objectName="progPct", alignment=Qt.AlignCenter)
-        self.prog_eta = QLabel(objectName="progWhy", alignment=Qt.AlignCenter)
+        self.prog_eta = QLabel(objectName="progEta", alignment=Qt.AlignCenter)
         self.prog_phrase = QLabel(objectName="progPhrase", alignment=Qt.AlignCenter, wordWrap=True)
         self.prog_phrase.setFixedWidth(720)
         self.cancel_b = QPushButton(_("Отмена"), objectName="tool", clicked=self._cancel)
@@ -1522,6 +1577,9 @@ class Window(QMainWindow):
         self.threshold.setToolTip(_("Насколько тише среднего уровня песни должен быть такт, чтобы считаться паузой"))
         self.threshold_l = QLabel(alignment=Qt.AlignCenter)
         self.threshold_box = QWidget()
+        sp = self.threshold_box.sizePolicy()
+        sp.setRetainSizeWhenHidden(True)  # turning the fill off must not widen the waveform
+        self.threshold_box.setSizePolicy(sp)
         tv = QVBoxLayout(self.threshold_box)
         tv.setContentsMargins(0, 0, 0, Wave.RULER)
         tv.setSpacing(4)
@@ -1529,7 +1587,8 @@ class Window(QMainWindow):
         tv.addWidget(self.threshold, 1, Qt.AlignHCenter)
         tv.addWidget(self.threshold_l)
         hint = QLabel(_("Тяните оранжевый маркер «1» на первую сильную долю. Колесо — масштаб, перетаскивание — сдвиг, "
-                        "⌥ — без прилипания к долям. Пауза: выделите такты с ⇧ или по шкале времени, правый щелчок убирает."),
+                        "⌥ — без прилипания к долям. Двойной щелчок — играть отсюда. Пауза: выделите такты с ⇧ или по шкале времени, "
+                        "правый щелчок по паузе убирает её."),
                       objectName="subtitle", wordWrap=True)
 
         tempo, g = card(_("Темп и первая доля"))
@@ -1563,7 +1622,7 @@ class Window(QMainWindow):
         self.meter_seg = Segmented([(m, m) for m in rd.METERS], "4/4")
         self.meter_seg.changed.connect(self._meter_changed)
         row(g, _("Размер"), self.meter_seg)
-        self.volume = QSlider(Qt.Horizontal, minimum=-24, maximum=6, value=0, minimumWidth=140)
+        self.volume = QSlider(Qt.Horizontal, minimum=-24, maximum=6, value=0, minimumWidth=110)
         self.volume_l = QLabel(minimumWidth=60)
         row(g, _("Громкость"), self.volume, self.volume_l)
         self.pattern: Path | None = None
@@ -1572,13 +1631,13 @@ class Window(QMainWindow):
         self.parts: dict[str, QSlider] = {}
         self.part_l: dict[str, QLabel] = {}
         for name, label, icon, tip in PARTS:
-            s = self.parts[name] = QSlider(Qt.Horizontal, minimum=MUTE, maximum=0, value=0, minimumWidth=140)
-            self.part_l[name] = QLabel(minimumWidth=90)
+            s = self.parts[name] = QSlider(Qt.Horizontal, minimum=MUTE, maximum=0, value=0, minimumWidth=110)
+            self.part_l[name] = QLabel(minimumWidth=80)
             row(g, icon_label(icon, _(label)), MuteButton(s, _(tip)), s, self.part_l[name])
         self.guitar, self.vocals = self.parts["guitar"], self.parts["vocals"]
         self.fill = QCheckBox(_("Заполнять паузы хай-хэтом"), checked=pref_bool(FILL_KEY, True))
-        self.fill.setToolTip(_("Такты, где без гитары и вокала тихо, получают хай-хэт на каждую долю и отсчёт палочками за такт до паузы. "
-                               "Правый щелчок по такту на волне добавляет или убирает его, края зоны тянутся мышью."))
+        self.fill.setToolTip(_("Такты, где без убранных дорожек тихо, получают хай-хэт на каждую долю и отсчёт палочками за такт до паузы. "
+                               "Правый щелчок по паузе убирает её, рядом с паузой добавляет такт, края паузы тянутся мышью."))
         self.zone_l = QLabel(objectName="field")
         h = QHBoxLayout()
         h.setSpacing(8)
@@ -1606,11 +1665,12 @@ class Window(QMainWindow):
         self.wave.zonesEdited.connect(self._zones_edited)
         self.wave.zoneClicked.connect(self._edit_zone)
         self.wave.spanSelected.connect(self._span_selected)
+        self.wave.playFrom.connect(self._play_from)
 
         # Pauses get searched again shortly after the levels or the threshold stop moving.
         self.zone_timer = QTimer(self, singleShot=True, interval=500, timeout=self._levels_settled)
         for w in (*self.parts.values(), self.threshold):
-            w.valueChanged.connect(self.zone_timer.start)
+            w.valueChanged.connect(lambda _v: self.zone_timer.start())  # start(int) would take the value as msec
         self.threshold.valueChanged.connect(self._labels)
         self.threshold.valueChanged.connect(self._refresh)
         self.threshold.valueChanged.connect(lambda v: QSettings().setValue(THRESHOLD_KEY, v))
@@ -1812,17 +1872,10 @@ class Window(QMainWindow):
         if not self.models_warm:
             self.models_warm = True
             warm_models()
+        self._reset_track()
+        self._load_defaults()  # every new track starts from the saved defaults
         t = self.current = Track(path)
-        self.pcm, self.info, self.stem_cache, self.last_saved = None, None, None, None
-        self.reveal_b.hide()
-        self.status.setText("")
         self.stack.setCurrentIndex(1)
-        self.wave.env, self.wave.t0, self.wave.beats, self.wave.downs, self.wave.clicks = None, None, [], [], []
-        self.wave.bars, self.wave.zones, self.wave.ref_db = [], [], None
-        self.zone_l.setText("")
-        self.wave._cache = (None, None)
-        self.wave.update()
-        self.warning.setText("")
         self.title.setText(path.stem)
         self.subtitle.setText("")
         self.detector.setText(_("Анализ…"))
@@ -1951,8 +2004,11 @@ class Window(QMainWindow):
     def _gains(self):
         self.player.gains = {name: keep(s.value()) for name, s in self.parts.items()}
 
-        # A preview started with both parts as they are has no stems to turn down: rebuild it with them.
-        if self.play_start is not None and not self.player.stems and any(g < 1 for g in self.player.gains.values()):
+        # A preview started with all parts as they are has no stems to turn down: rebuild it with them. With
+        # the pause fill on, the pause search separates the whole song anyway and rebuilds the preview after,
+        # so a second, excerpt-only separation would only cost time.
+        if (self.play_start is not None and not self.player.stems and any(g < 1 for g in self.player.gains.values())
+                and not (self.fill.isChecked() and self._full_stems() is None)):
             self._restart_preview(separate=True)
 
     def _labels(self):
@@ -2021,6 +2077,7 @@ class Window(QMainWindow):
         self.job.signals.cancelled.connect(self._cancelled)
         self.progress.setRange(0, 0)
         self._stage = None
+        self.prog_label.setText("")
         self.prog_why.setText(_(JOB_WHY.get(fn.__name__, "")))
         self.prog_pct.setText("")
         self.prog_eta.setText("")
@@ -2062,32 +2119,46 @@ class Window(QMainWindow):
 
     def _failed(self, msg: str):
         self._finish()
+        self.resume_at = None
         self.status.setText(msg)
         QMessageBox.warning(self, "Count-In", msg)
 
     def _cancelled(self):
         self._finish()
+        self.resume_at = None
         self.status.setText(_("Отменено"))
 
+    def _reset_track(self):
+        """Forgets the current track: its audio, stems, waveform and pauses."""
+        self.current, self.pcm, self.info, self.stem_cache, self.last_saved = None, None, None, None, None
+        self.resume_at, self.zones_pending = None, False
+        self.backing_key, self.backing, self.wave_source = None, None, None
+        self.wave.env, self.wave.t0, self.wave.beats, self.wave.downs, self.wave.clicks = None, None, [], [], []
+        self.wave.bars, self.wave.zones, self.wave.ref_db = [], [], None
+        self.wave._cache = (None, None)
+        self.wave.update()
+        for label in (self.subtitle, self.detector, self.warning, self.file_l, self.status, self.zone_l):
+            label.setText("")
+        self.reveal_b.hide()
+
     def _close_track(self):
-        """Back to the drop page; the app keeps running and the models stay loaded."""
+        """Back to the drop page; the app keeps running and the models stay loaded. A running job is cancelled
+        and cut loose at once, so a new file can open right away instead of waiting for its next step."""
         if self.current is None:
             return
         self._stop()
         for j in (self.job, self.analysis_job):
             if j:
                 j.cancelled.set()
-        self.current, self.pcm, self.info, self.stem_cache, self.last_saved = None, None, None, None, None
-        self.wave.env, self.wave.t0, self.wave.beats, self.wave.downs, self.wave.clicks = None, None, [], [], []
-        self.wave.bars, self.wave.zones = [], []
+                for sig in (j.signals.progress, j.signals.done, j.signals.failed, j.signals.cancelled):
+                    try:
+                        sig.disconnect()
+                    except (RuntimeError, TypeError):  # nothing connected
+                        pass
+        self.job = self.analysis_job = None
+        self.phrase_timer.stop()
+        self._reset_track()
         self.title.setText("Count-In")
-        self.subtitle.setText("")
-        self.detector.setText("")
-        self.warning.setText("")
-        self.file_l.setText("")
-        self.status.setText("")
-        self.zone_l.setText("")
-        self.reveal_b.hide()
         self.stack.setCurrentIndex(0)
         self._enable()
 
@@ -2113,7 +2184,7 @@ class Window(QMainWindow):
             return
         if new_cache:
             self.stem_cache = new_cache
-        self.status.setText(clip_note(clipped) or (_("Гитару и вокал можно менять на ходу") if stems else ""))
+        self.status.setText(clip_note(clipped) or (_("Дорожки можно менять на ходу") if stems else ""))
         self._gains()
         resume, self.resume_at = self.resume_at, None
         try:
@@ -2188,23 +2259,37 @@ class Window(QMainWindow):
         for name, s in self.parts.items():
             st.setValue(DEFAULTS + "part/" + name, s.value())
         st.setValue(DEFAULTS + "trim", self.trim.isChecked())
-        st.setValue(DEFAULTS + "format", self.fmt.currentIndex())
+        st.setValue(DEFAULTS + "format", self.fmt.currentData() or "")
         st.setValue(FILL_KEY, self.fill.isChecked())
         st.setValue(THRESHOLD_KEY, self.threshold.value())
         self.status.setText(_("Настройки сохранены как настройки по умолчанию"))
 
     def _load_defaults(self):
+        """Saved defaults; a value that no longer fits (an old meter, a removed format) is skipped."""
         st = QSettings()
         if st.value(DEFAULTS + "style") is None:
             return
-        self.style_seg.set_value(st.value(DEFAULTS + "style"))
-        self.bars_seg.set_value(int(st.value(DEFAULTS + "bars")))
-        self.meter_seg.set_value(st.value(DEFAULTS + "meter"))
-        self.volume.setValue(int(st.value(DEFAULTS + "volume", 0)))
+
+        def num(key, default=0):
+            try:
+                return int(st.value(DEFAULTS + key, default))
+            except (TypeError, ValueError):
+                return default
+
+        for seg, key, cast in ((self.style_seg, "style", str), (self.bars_seg, "bars", int), (self.meter_seg, "meter", str)):
+            try:
+                v = cast(st.value(DEFAULTS + key))
+            except (TypeError, ValueError):
+                continue
+            if v in seg.values:
+                seg.set_value(v)
+        self.volume.setValue(num("volume"))
         for name, s in self.parts.items():
-            s.setValue(int(st.value(DEFAULTS + "part/" + name, 0)))
+            s.setValue(num("part/" + name))
         self.trim.setChecked(st.value(DEFAULTS + "trim", False) in (True, "true"))
-        self.fmt.setCurrentIndex(int(st.value(DEFAULTS + "format", 0)))
+        i = self.fmt.findData(st.value(DEFAULTS + "format", "") or None)
+        if i >= 0:
+            self.fmt.setCurrentIndex(i)
 
     # --- pauses ---
 
@@ -2224,14 +2309,27 @@ class Window(QMainWindow):
     def _full_stems(self):
         return self.stem_cache[1] if self.pcm is not None and _covers(self.stem_cache, 0, len(self.pcm)) else None
 
+    def _backing(self, levels: dict) -> np.ndarray:
+        """The song minus the turned-down stems, kept while the levels stay: a threshold change needs no new
+        mix, and the waveform and the pause search share one."""
+        st = self._full_stems()
+        if not (st and levels):
+            return self.pcm
+        key = (id(st), tuple(sorted(levels.items())))
+        if self.backing_key != key:
+            from .core import stems
+
+            self.backing_key, self.backing = key, stems.attenuate(self.pcm, st, levels)
+        return self.backing
+
     def _update_backing(self):
         """The waveform shows what will be heard: the song minus the turned-down stems, once they exist."""
-        st, levels = self._full_stems(), self.settings().levels
         if self.pcm is None:
             return
-        from .core import stems
-
-        self.wave.set_audio(stems.attenuate(self.pcm, st, levels) if st and levels else self.pcm, self.sr)
+        backing = self._backing(self.settings().levels)
+        if backing is not self.wave_source:
+            self.wave_source = backing
+            self.wave.set_audio(backing, self.sr)
         self.wave.update()
 
     def _auto_zones(self):
@@ -2244,11 +2342,18 @@ class Window(QMainWindow):
             return
         st = self._full_stems()
         if st is not None or not s.levels:
-            t.zones, t.zones_key = find_zones(t, self.pcm, self.sr, st, s), zones_key(s)
-            self._refresh()
-            self._restart_preview()
+            self._set_found(t, find_zones(t, self.pcm, self.sr, st, s, self._backing(s.levels)), zones_key(s))
             return
         self._run(zones_job, t, s, self.pcm, self.sr, self.stem_cache, on_done=self._zones_found)
+
+    def _set_found(self, t: Track, found: list, key: tuple):
+        """Found pauses replace the old found ones; pauses the user made or edited stay."""
+        zones = zn.merge([z for z in (t.zones or []) if z.kept], found)
+        changed = zones != t.zones
+        t.zones, t.zones_key = zones, key
+        self._refresh()
+        if changed:
+            self._restart_preview()
 
     def _zones_found(self, result):
         track, zones, key, full = result
@@ -2256,12 +2361,11 @@ class Window(QMainWindow):
         if track is not self.current:
             return
         self.stem_cache = full
-        track.zones, track.zones_key = zones, key
         self._update_backing()
-        self._refresh()
+        self._set_found(track, zones, key)
         self._enable()
         self._auto_zones()  # the levels may have moved during the search
-        self._restart_preview()
+        self._restart_preview()  # a preview that played without stems picks them up now
 
     def _zones_edited(self, zones: list):
         if self.current:
@@ -2276,12 +2380,13 @@ class Window(QMainWindow):
             return
         if not self.fill.isChecked():
             self.fill.setChecked(True)
+        before = [zn.Zone(**vars(z)) for z in (t.zones or [])]
         kept = [z for z in (t.zones or []) if z.last < first or z.first > last]
-        z = zn.Zone(first, last)
+        z = zn.Zone(first, last, manual=True)
         t.zones = sorted(kept + [z], key=lambda q: q.first)
         self._zones_edited(t.zones)
         if not self._edit_zone(t.zones.index(z)):
-            t.zones.remove(z)
+            t.zones = before  # cancel brings back what the selection covered
             self._zones_edited(t.zones)
 
     def _edit_zone(self, i: int) -> bool:
@@ -2297,8 +2402,14 @@ class Window(QMainWindow):
             t.zones.pop(i)
         elif d.reset:
             z.bpm = z.beats = None
+            z.manual = True
         elif result == QDialog.Accepted:
-            z.bpm, z.beats = d.bpm.value(), d.beats.value()
+            # Only what changed becomes an override; untouched fields keep following the song
+            if abs(d.bpm.value() - bpm) > 0.05:
+                z.bpm = d.bpm.value()
+            if d.beats.value() != n:
+                z.beats = d.beats.value()
+            z.manual = True
         else:
             return False
         self._zones_edited(t.zones)
@@ -2314,6 +2425,18 @@ class Window(QMainWindow):
         self._stop()
         s = self.settings()
         self._run(preview_job, self.current, s, self.pcm, self.sr, self.stem_cache, separate or bool(s.levels),
+                  max(0.0, self.resume_at - 0.5), on_done=self._preview_ready)
+
+    def _play_from(self, t: float):
+        """Double-click on the waveform: plays from the bar before that point, so a pause can be heard in place."""
+        if self.job or not (self.current and self.current.analysis and self.pcm is not None):
+            return
+        self._stop()
+        bars = self.current.bars
+        i = next((k for k, b in enumerate(bars) if b.start <= t < b.end), None)
+        start = bars[max(i - 1, 0)].start if i is not None else max(0.0, t - 2.0)
+        s = self.settings()
+        self._run(preview_job, self.current, s, self.pcm, self.sr, self.stem_cache, bool(s.levels), start,
                   on_done=self._preview_ready)
 
     def _reveal(self):

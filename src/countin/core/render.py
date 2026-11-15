@@ -115,7 +115,8 @@ def hihat_samples(sr: int) -> tuple[np.ndarray, np.ndarray]:
         x = x + 0.8 * rng.standard_normal(n)
         spec = np.fft.rfft(x)
         freqs = np.fft.rfftfreq(n, 1 / sr)
-        spec[(freqs < 7000) | (freqs > 16000)] = 0
+        lo_hz, hi_hz = min(7000.0, 0.3 * sr), min(16000.0, 0.48 * sr)  # low sample rates have no 7-16 kHz band
+        spec[(freqs < lo_hz) | (freqs > hi_hz)] = 0
         x = np.fft.irfft(spec, n) * np.exp(-t / decay)
         x[: int(0.001 * sr)] *= np.linspace(0, 1, int(0.001 * sr))  # 1 ms attack, no click from the onset step
         return (x / np.abs(x).max() * peak).astype(np.float32)

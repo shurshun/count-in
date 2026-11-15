@@ -379,7 +379,9 @@ def test_every_ui_string_has_an_english_version():
 
     # Constants translated where they are shown.
     from countin import gui
-    for text in (*gui.ICON_CHOICES.values(), *gui.OUT_LEVELS.values(), gui.FORMAT_NAMES[None], i18n.LANGUAGES["system"]):
+    parts = [t for _n, label, _i, tip in gui.PARTS for t in (label, tip)]
+    for text in (*gui.ICON_CHOICES.values(), *gui.OUT_LEVELS.values(), gui.FORMAT_NAMES[None], i18n.LANGUAGES["system"],
+                 *parts, *gui.JOB_WHY.values(), *gui.PHRASES):
         if text not in i18n.EN:
             missing.append(text)
     assert not missing, missing
@@ -477,3 +479,24 @@ def test_assets_search_order_and_copy(tmp_path, monkeypatch):
     (portable / "dir" / "b.bin").write_bytes(b"xy")
     assets.copy_from(portable)
     assert assets.has_all(data) and assets.path("dir") == portable / "dir"
+
+
+def test_pauses_keep_manual_edits_and_join_without_extra_count_in():
+    from countin.core import zones as zn
+
+    beats = np.arange(0, 16, 0.5)
+    bars = zn.bars_from(beats, beats[::4], 16.0)
+
+    # the snapped "1" sits a few ms after the detected bar start: no second count-in, no lost hi-hat
+    first = zn.zone_clicks(bars, [zn.Zone(0, 0)], downbeat=0.016)
+    assert [c.voice for c in first] == ["hihat"] * 4
+
+    # a pause right after another one runs on without a stick count-in in between
+    joined = zn.zone_clicks(bars, [zn.Zone(1, 1), zn.Zone(2, 2)], downbeat=0.0)
+    assert [c.voice for c in joined].count("stick") == 4
+
+    # an override describes itself as set; the automatic search keeps it
+    edited = zn.Zone(3, 3, beats=6)
+    assert zn.describe(bars, edited)[2:] == (120.0, 6)
+    merged = zn.merge([edited], [zn.Zone(2, 4), zn.Zone(6, 6)])
+    assert [(z.first, z.last) for z in merged] == [(3, 3), (6, 6)]

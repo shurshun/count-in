@@ -1,8 +1,9 @@
-"""Guitar and vocal attenuation with BS-RoFormer SW, a six-stem model (bass, drums, other, vocals, guitar, piano).
+"""Part attenuation with BS-RoFormer SW, a six-stem model (bass, drums, other, vocals, guitar, piano).
 
 One pass gives a guitar stem that keeps screamed vocals out better than Demucs htdemucs_6s did.
 """
 
+import threading
 from functools import lru_cache
 
 import numpy as np
@@ -25,8 +26,17 @@ def _device():
     return "cuda" if torch.cuda.is_available() else "cpu"
 
 
-@lru_cache(maxsize=1)
+_load_lock = threading.Lock()
+
+
 def _model():
+    """The loaded model; the warm-up thread and a job may ask at once, the lock makes it load once."""
+    with _load_lock:
+        return _load()
+
+
+@lru_cache(maxsize=1)
+def _load():
     """(model, stem names, chunk length in samples)."""
     import torch
     import yaml
