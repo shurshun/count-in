@@ -314,6 +314,8 @@ EN = {
     "Медленнее на 5%, тон не меняется": "5% slower, same pitch",
     "Быстрее на 5%": "5% faster",
     "Скорость прослушивания и сохранения. Тон не меняется, отсчёт и хай-хэт встают на замедленную сетку.": "Speed for listening and saving. The pitch stays; the count-in and the hi-hat land on the slowed grid.",
+    "Темп с учётом скорости": "Tempo at this speed",
+    "→ {bpm} BPM": "→ {bpm} BPM",
 }
 
 

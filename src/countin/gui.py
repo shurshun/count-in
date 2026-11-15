@@ -11,7 +11,7 @@ from dataclasses import dataclass, field
 from pathlib import Path
 
 import numpy as np
-from PySide6.QtCore import QEvent, QObject, QSettings, QStandardPaths, QUrl, QPointF, QRectF, QRunnable, QSize, Qt, QThreadPool, QTimer, Signal
+from PySide6.QtCore import QEvent, QLocale, QObject, QSettings, QStandardPaths, QUrl, QPointF, QRectF, QRunnable, QSize, Qt, QThreadPool, QTimer, Signal
 from PySide6.QtGui import QAction, QDesktopServices, QFont, QIcon, QImage, QKeySequence, QColor, QPainter, QPainterPath, QPen, QPalette, QPixmap, QPolygonF
 from PySide6.QtWidgets import (
     QAbstractSpinBox, QApplication, QButtonGroup, QCheckBox, QComboBox, QDialog, QDoubleSpinBox, QFileDialog, QFrame,
@@ -2442,6 +2442,10 @@ class Window(QMainWindow):
         sh.addWidget(self.speed_l)
         h.addWidget(schip)
         h.addWidget(glyph_button("plus", _("Быстрее на 5%"), lambda: self._set_speed(self.speed + 5), "round"))
+        self.speed_bpm_l = QLabel(objectName="lcdSub")  # the tempo it plays at
+        self.speed_bpm_l.setToolTip(_("Темп с учётом скорости"))
+        h.addSpacing(6)
+        h.addWidget(self.speed_bpm_l)
         h.addStretch()
         h.addWidget(vsep())
         h.addSpacing(6)
@@ -2462,7 +2466,16 @@ class Window(QMainWindow):
             return
         self.speed = pct
         self.speed_l.setText(f"{pct}%")
+        self._speed_bpm()
         self._restart_preview()
+
+    def _speed_bpm(self):
+        """The tempo the song plays at with the speed applied, next to the speed; empty at 100%."""
+        t = self.current
+        if t is None or not t.bpm or self.speed == 100:
+            self.speed_bpm_l.setText("")
+            return
+        self.speed_bpm_l.setText(_("→ {bpm} BPM", bpm=QLocale().toString(t.bpm * self.speed / 100, "f", 1)))
 
     def _nav_changed(self):
         """Shows the play position and the current pause in the transport bar."""
@@ -3118,6 +3131,7 @@ class Window(QMainWindow):
         )
 
     def _refresh(self, *_args):
+        self._speed_bpm()
         t = self.current
         if not t or not t.analysis:
             return
