@@ -86,7 +86,41 @@ def ranges(indices: set[int]) -> list[tuple[int, int]]:
     return out
 
 
-def zone_clicks(bars: list[Bar], zone: set[int], downbeat: float) -> list[Click]:
+@dataclass
+class Zone:
+    """A pause over bars first..last. bpm and beats override the detected tempo and beats per bar inside it."""
+
+    first: int
+    last: int
+    bpm: float | None = None
+    beats: int | None = None
+
+
+def zones_from(indices: set[int]) -> list[Zone]:
+    return [Zone(a, b) for a, b in ranges(indices)]
+
+
+def zone_bars(bars: list[Bar], z: Zone) -> list[Bar]:
+    """The bars a zone plays: the detected ones, or a steady grid from the zone start when it has an override."""
+    if z.bpm is None and z.beats is None:
+        return bars[z.first : z.last + 1]
+    start, end = bars[z.first].start, bars[z.last].end
+    own = bars[z.first]
+    p = 60.0 / z.bpm if z.bpm else own.period
+    n = z.beats or len(own.beats)
+    beats = list(start + p * np.arange(int(np.ceil((end - start) / p - 1e-6))))
+    return [Bar(beats[k], beats[k] + n * p, beats[k : k + n]) for k in range(0, len(beats), n)]
+
+
+def describe(bars: list[Bar], z: Zone) -> tuple[float, float, float, int]:
+    """(start, end, bpm, beats per bar) of a zone as it will play."""
+    zb = zone_bars(bars, z)
+    periods = [b.period for b in zb if len(b.beats) > 1] or [zb[0].period]
+    counts = [len(b.beats) for b in zb]
+    return bars[z.first].start, bars[z.last].end, 60.0 / float(np.median(periods)), max(set(counts), key=counts.count)
+
+
+def zone_clicks(bars: list[Bar], zones: list[Zone], downbeat: float) -> list[Click]:
     """A hi-hat on every beat of the zone bars, plus a bar of stick count-in before each zone.
 
     The count-in has as many clicks as the zone's first bar has beats, at that bar's beat period, and ends
@@ -94,11 +128,12 @@ def zone_clicks(bars: list[Bar], zone: set[int], downbeat: float) -> list[Click]
     into it. Beats before that downbeat never click.
     """
     clicks = []
-    for first, last in ranges(zone):
-        bar = bars[first]
+    for z in zones:
+        zb = zone_bars(bars, z)
+        bar = zb[0]
         if bar.start > downbeat + 1e-3:
             n, p = len(bar.beats), bar.period
             clicks += [Click(bar.start - (n - k) * p, k == 0) for k in range(n)]
-        for b in bars[first : last + 1]:
+        for b in zb:
             clicks += [Click(t, k == 0, voice="hihat") for k, t in enumerate(b.beats) if t >= downbeat - 1e-3]
     return clicks

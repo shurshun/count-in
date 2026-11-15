@@ -428,7 +428,7 @@ def test_zone_count_in_takes_the_next_bar_meter_and_tempo():
     stray = zn.bars_from(np.array(beats), np.array([0, 0.5, 2, 4, 5.8]), 8.0)
     assert [(b.start, len(b.beats)) for b in stray[:2]] == [(0.0, 4), (2.0, 4)]
 
-    clicks = zn.zone_clicks(bars, {2}, downbeat=0.0)
+    clicks = zn.zone_clicks(bars, zn.zones_from({2}), downbeat=0.0)
     times = [round(c.time, 3) for c in clicks]
     # count-in: three clicks 0.6 s apart ending one beat before bar 3, then the bar's own beats
     assert times == [2.2, 2.8, 3.4, 4.0, 4.6, 5.2]
@@ -436,7 +436,13 @@ def test_zone_count_in_takes_the_next_bar_meter_and_tempo():
     assert [c.voice for c in clicks] == ["stick"] * 3 + ["hihat"] * 3
 
     # a zone on the first bar gets no extra count-in: the main count-in leads into it
-    assert [round(c.time, 3) for c in zn.zone_clicks(bars, {0}, downbeat=0.0)] == [0, 0.5, 1, 1.5]
+    assert [round(c.time, 3) for c in zn.zone_clicks(bars, zn.zones_from({0}), downbeat=0.0)] == [0, 0.5, 1, 1.5]
+
+    # an override plays a steady grid: bars 1-2 (2.0-5.8 s) at 120 BPM in 3/4, count-in in that meter too
+    z = zn.Zone(1, 2, bpm=120.0, beats=3)
+    times = [round(c.time, 3) for c in zn.zone_clicks(bars, [z], downbeat=0.0)]
+    assert times[:3] == [0.5, 1.0, 1.5] and times[3:6] == [2.0, 2.5, 3.0]
+    assert zn.describe(bars, z)[2:] == (120.0, 3)
 
 
 def test_quiet_bars_and_runs():
