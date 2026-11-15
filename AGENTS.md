@@ -36,7 +36,7 @@ Count-In inserts a drum count-in before a song's first downbeat and can turn gui
 - The last click lands exactly one click before the downbeat. `countin-verify` checks it: "vs planned" must stay at 0.00 ms.
 - Stems come back sample-aligned with the input and of its shape. `test_stems_sum_back_to_the_mix_without_shift` guards it.
 - Clicks never clip the song. `render` only counts overs the clicks add.
-- Models ship in the bundle. The only network traffic is the update check and the update download.
+- Models download once into the data folder (or come from an `assets` folder). The only other network traffic is the update check and the update download.
 
 ## Why these technologies
 
@@ -78,11 +78,12 @@ Count-In inserts a drum count-in before a song's first downbeat and can turn gui
 
 ## Packaging
 
-- `io.resource()` resolves `models/`, `samples/` and `bin/` against `sys._MEIPASS` in a bundle and the project root in development.
+- `io.resource()` resolves `samples/` and `bin/` against `sys._MEIPASS` in a bundle and the project root in development.
 - `io.tool()` finds ffmpeg/ffprobe in `bin/` by full path; nothing relies on `PATH`.
-- `packaging/countin.spec` builds one bundle with two executables sharing its libraries: `Count-In` (app) and `countin` (CLI). It bundles `LICENSE` (MIT), `models/final0.ckpt`, `models/separator/`, the `samples/stick_*.wav` clicks (the rest of `samples/` is ignored local test audio), `bin/`, the light and dark PNGs from `assets/icons/` and the `countin` package metadata (the update check reads the version from it).
+- `packaging/countin.spec` builds one bundle with two executables sharing its libraries: `Count-In` (app) and `countin` (CLI). It bundles `LICENSE` (MIT), the `samples/stick_*.wav` clicks (the rest of `samples/` is ignored local test audio), `bin/`, the light and dark PNGs from `assets/icons/` and the `countin` package metadata (the update check reads the version from it).
 - `packaging/build_ffmpeg.sh` builds a static, audio-only LGPL ffmpeg on macOS. ffmpeg 7+ needs the `fd` protocol for `-` pipes. Windows CI downloads a BtbN LGPL build instead.
-- `packaging/fetch_models.sh` downloads the weights and checks their sha256. When the JKU server fails, `final0.ckpt` comes out of the latest release zip through HTTP range requests (`packaging/fetch_from_release.py`); `build_ffmpeg.sh` checks the ffmpeg tarball. Windows CI pins a dated BtbN build by hash; BtbN prunes old autobuilds, so a 404 there means moving the URL and hash to a newer one. CI caches `models/` keyed by the fetch script.
+- **Models live outside the bundle** (`core/assets.py`), so app updates stay small: about 780 MB of weights download once. Each file is looked up in `COUNTIN_ASSETS`, an `assets` folder next to Count-In.app / Count-In.exe (a copy carried on a flash drive), the user data folder (`~/Library/Application Support/Count-In/assets`, `%APPDATA%\Count-In\assets`) and `models/` in a checkout. On first run `AssetsDialog` downloads the missing ones from this repo's `assets-v1` prerelease (the update check ignores prereleases), falling back to the original publishers, or copies them from a chosen folder; sizes and sha256 are pinned in `assets.FILES`. The CLI downloads them on first use. When a model changes, upload it to a new `assets-vN` release and update `RELEASE` and `FILES`.
+- `packaging/fetch_models.sh` downloads the weights for CI and development and checks their sha256, falling back to the `assets-v1` release; `build_ffmpeg.sh` checks the ffmpeg tarball. Windows CI pins a dated BtbN build by hash; BtbN prunes old autobuilds, so a 404 there means moving the URL and hash to a newer one. CI caches `models/` keyed by the fetch script.
 - The windowed Windows build has no stderr; `packaging/countin_app.py` points it at devnull before anything prints.
 
 ## CI and releases

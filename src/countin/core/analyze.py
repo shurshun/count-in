@@ -5,7 +5,7 @@ from functools import lru_cache
 
 import numpy as np
 
-from .io import resource
+from . import assets
 
 FPS = 50  # beat_this frame rate, 20 ms per frame
 GRID_BEATS = 16
@@ -35,7 +35,7 @@ class Analysis:
 def _model():
     from beat_this.inference import Audio2Frames
 
-    ckpt = resource("models", "final0.ckpt")
+    ckpt = assets.path("final0.ckpt")
     if not ckpt.exists():
         raise RuntimeError(f"beat_this checkpoint missing: {ckpt}")
     return Audio2Frames(checkpoint_path=str(ckpt), device="cpu")

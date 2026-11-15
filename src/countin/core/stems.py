@@ -8,7 +8,7 @@ from functools import lru_cache
 import numpy as np
 import soxr
 
-from .io import resource
+from . import assets
 
 MODEL = "BS-Roformer-SW"
 MODEL_SR = 44100
@@ -33,7 +33,7 @@ def _model():
 
     from .roformer.bs_roformer import BSRoformer
 
-    folder = resource("models", "separator")
+    folder = assets.path("separator")
     cfg = yaml.load((folder / f"{MODEL}.yaml").read_text(encoding="utf-8"), Loader=yaml.FullLoader)
     model = BSRoformer(**cfg["model"])
     state = torch.load(folder / f"{MODEL}.ckpt", map_location="cpu", weights_only=True)

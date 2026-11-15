@@ -457,3 +457,23 @@ def test_quiet_bars_and_runs():
     quiet = zn.quiet_bars(x, sr, bars, zn.level_db(x))
     assert quiet == {1, 2}
     assert zn.ranges(quiet | {0, 5}) == [(0, 2), (5, 5)]
+
+
+def test_assets_search_order_and_copy(tmp_path, monkeypatch):
+    from countin.core import assets
+
+    monkeypatch.setattr(assets, "FILES", {"a.bin": (3, "", ""), "dir/b.bin": (2, "", "")})
+    portable, data = tmp_path / "usb" / "assets", tmp_path / "data"
+    monkeypatch.setattr(assets, "search_dirs", lambda: [portable, data])
+    monkeypatch.setattr(assets, "data_dir", lambda: data)
+    assert assets.missing() == ["a.bin", "dir/b.bin"]
+
+    (portable / "dir").mkdir(parents=True)
+    (portable / "a.bin").write_bytes(b"abc")
+    (portable / "dir" / "b.bin").write_bytes(b"x")  # wrong size: incomplete
+    assert assets.missing() == ["dir/b.bin"]
+    assert assets.path("a.bin") == portable / "a.bin"
+
+    (portable / "dir" / "b.bin").write_bytes(b"xy")
+    assets.copy_from(portable)
+    assert assets.has_all(data) and assets.path("dir") == portable / "dir"

@@ -62,6 +62,17 @@ def report(path: Path, a: an.Analysis) -> None:
         print(f"note: {n}")
 
 
+def ensure_assets() -> None:
+    """Downloads the model weights on first use; they live outside the app (see core/assets.py)."""
+    from .core import assets
+
+    if not assets.missing():
+        return
+    print(f"downloading the models once ({assets.missing_bytes() / 1e6:.0f} MB) into {assets.data_dir()}", file=sys.stderr)
+    assets.download(lambda d, n: print(f"\r{d / 1e6:.0f}/{n / 1e6:.0f} MB", end="", file=sys.stderr))
+    print(file=sys.stderr)
+
+
 def main(argv: list[str] | None = None) -> int:
     parser = build_parser()
     args = parser.parse_args(argv)
@@ -74,6 +85,7 @@ def main(argv: list[str] | None = None) -> int:
         parser.error("--bpm must be positive")
     if len(args.songs) > 1 and not args.dry_run:
         sys.exit("several files need --dry-run")
+    ensure_assets()
 
     rows = []
     for song in args.songs:

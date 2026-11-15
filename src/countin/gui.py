@@ -25,6 +25,7 @@ from .core import analyze as an
 from .core import io
 from .core import render as rd
 from .core import zones as zn
+from .core import assets
 from .core.io import resource
 
 log = logging.getLogger("countin")
@@ -1000,6 +1001,101 @@ def output_prefs() -> tuple[Path | None, tuple[bool, bool, bool] | None]:
     return Path(root), group
 
 
+class AssetsDialog(QDialog):
+    """First run without the models: download them once, or take them from a folder (a flash drive, a backup).
+    App updates no longer carry them, so they stay small."""
+
+    def __init__(self, parent):
+        super().__init__(parent)
+        self.setWindowTitle(_("Модели для Count-In"))
+        self.setMinimumWidth(560)
+        v = QVBoxLayout(self)
+        v.setSpacing(12)
+        v.addWidget(QLabel(_("Нужно скачать модели"), objectName="progTitle"))
+        mb = assets.missing_bytes() / 1e6
+        text = QLabel(_("Count-In находит доли и разделяет песню на дорожки нейросетями. Их веса ({mb:.0f} МБ) "
+                        "скачиваются один раз и потом не меняются, поэтому обновления приложения остаются маленькими. "
+                        "Если модели уже есть на флешке или в другой папке, укажите её. Папка assets рядом с "
+                        "приложением подхватывается сама.", mb=mb), wordWrap=True, objectName="progWhy")
+        v.addWidget(text)
+        self.bar = QProgressBar(textVisible=False, fixedHeight=8)
+        self.bar.hide()
+        self.note = QLabel(objectName="field")
+        v.addWidget(self.bar)
+        v.addWidget(self.note)
+        h = QHBoxLayout()
+        self.later_b = QPushButton(_("Позже"), objectName="tool", clicked=self.reject)
+        self.folder_b = QPushButton(_("Указать папку…"), objectName="tool", clicked=self._folder)
+        self.get_b = QPushButton(_("Скачать"), objectName="primary", clicked=self._download)
+        h.addWidget(self.later_b)
+        h.addStretch()
+        h.addWidget(self.folder_b)
+        h.addWidget(self.get_b)
+        v.addLayout(h)
+        self.pool = QThreadPool()
+        self.job = None
+
+    def _start(self, fn, *args):
+        self.bar.show()
+        self.bar.setRange(0, 0)
+        for b in (self.folder_b, self.get_b):
+            b.setEnabled(False)
+        self.later_b.setText(_("Отмена"))
+        self.job = Job(fn, *args)
+        self.job.signals.progress.connect(self._progress)
+        self.job.signals.done.connect(lambda _r: self.accept())
+        self.job.signals.failed.connect(self._failed)
+        self.job.signals.cancelled.connect(self.reject)
+        self.pool.start(self.job)
+
+    def _progress(self, text, done, total):
+        if total:
+            self.bar.setRange(0, 1000)
+            self.bar.setValue(int(done / total * 1000))
+        self.note.setText(text)
+
+    def _failed(self, msg):
+        self.note.setText(_("Не получилось: {e}", e=msg))
+        for b in (self.folder_b, self.get_b):
+            b.setEnabled(True)
+        self.later_b.setText(_("Позже"))
+
+    def _download(self):
+        def run(job):
+            assets.download(lambda d, n: job.report(_("Скачано {d:.0f} из {n:.0f} МБ", d=d / 1e6, n=n / 1e6), d, n),
+                            job.cancelled.is_set)
+        self._start(run)
+
+    def _folder(self):
+        d = QFileDialog.getExistingDirectory(self, _("Папка с моделями"))
+        if not d:
+            return
+        folder = Path(d)
+        if (folder / "assets").is_dir() and not assets.has_all(folder):
+            folder = folder / "assets"
+        if not any((folder / n).exists() for n in assets.FILES):
+            self.note.setText(_("В этой папке нет моделей Count-In"))
+            return
+
+        def run(job):
+            assets.copy_from(folder, lambda d, n: job.report(_("Скопировано {d:.0f} из {n:.0f} МБ", d=d / 1e6, n=n / 1e6), d, n))
+        self._start(run)
+
+    def reject(self):
+        if self.job and not self.job.cancelled.is_set() and self.pool.activeThreadCount():
+            self.job.cancelled.set()
+            return
+        super().reject()
+
+
+def ensure_assets(parent) -> bool:
+    """True when the models are in place, after asking for them if needed."""
+    if not assets.missing():
+        return True
+    AssetsDialog(parent).exec()
+    return not assets.missing()
+
+
 class TapDialog(QDialog):
     """Tap tempo over the playing song: Space taps, and once the taps stop the song carries on with a click
     at the tapped tempo and phase. Closing stops it; Apply keeps the tempo."""
@@ -1710,6 +1806,9 @@ class Window(QMainWindow):
         self._stop()
         if self.analysis_job:
             self.analysis_job.cancelled.set()
+        if not ensure_assets(self):
+            self.status.setText(_("Без моделей трек не разобрать"))
+            return
         if not self.models_warm:
             self.models_warm = True
             warm_models()
@@ -2300,6 +2399,7 @@ def main() -> int:
         QTimer.singleShot(2000, lambda: app.exit(1 if app.windowIcon().isNull() else 0))
     else:
         w.check_updates()
+        QTimer.singleShot(400, lambda: ensure_assets(w))
     return app.exec()
 
 
