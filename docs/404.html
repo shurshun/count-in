@@ -5,20 +5,39 @@
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>Page not found — Count-In</title>
 <meta name="robots" content="noindex">
+<meta name="theme-color" content="#fbfbfd">
 <link rel="icon" href="/favicon.png" type="image/png">
+<script>
+  // Russian for paths under /ru/, a saved Russian choice or a Russian system; the saved theme before the first paint
+  try {
+    const r = document.documentElement, lang = localStorage.getItem("lang");
+    r.lang = location.pathname.startsWith("/ru/") || (lang || navigator.language.slice(0, 2)) === "ru" ? "ru" : "en";
+    if (r.lang === "ru") document.title = "Страница не найдена — Count-In";
+    r.dataset.theme = localStorage.getItem("theme") || "light";
+  } catch {}
+</script>
 <link rel="stylesheet" href="/site.css">
 <script src="/site.js" defer></script>
 <style>
-  main { text-align: center; padding: 18vh 0; }
+  main { text-align: center; padding: 14vh 0 18vh; }
   main .downloads { justify-content: center; margin-top: 24px; }
 </style>
 </head>
 <body>
 <div class="wrap">
+<header>
+<nav>
+  <a class="name" href="/"><img src="/favicon.png" alt="">Count-In</a>
+  <button type="button" data-toggle="theme" aria-label="Switch theme"><span class="light-only">☾</span><span class="dark-only">☀</span></button>
+</nav>
+</header>
 <main>
   <h1>404</h1>
-  <p class="lead">This page does not exist.<br>Такой страницы нет.</p>
-  <div class="downloads"><a class="dl" href="/">Count-In</a></div>
+  <p class="lead"><span lang="en">This page does not exist</span><span lang="ru">Такой страницы нет</span></p>
+  <div class="downloads">
+    <a class="dl" href="/" lang="en">Go to the Count-In home page</a>
+    <a class="dl" href="/ru/" lang="ru">На главную Count-In</a>
+  </div>
 </main>
 </div>
 <!-- Cloudflare Web Analytics --><script type='module' src='https://static.cloudflareinsights.com/beacon.min.js' data-cf-beacon='{"token": "233b03e9efac47f49997b5e79752c396"}'></script><!-- End Cloudflare Web Analytics -->
