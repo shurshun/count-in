@@ -19,6 +19,8 @@ API = os.environ.get("COUNTIN_API", "https://api.count-in.app")
 SERVICE = "Count-In"
 ACCOUNT = "api-key"
 POLL_S = 2.0
+BLOCK = 256 * 1024
+STEPS = 1000  # progress resolution while files move
 
 
 class CloudError(Exception):
@@ -58,19 +60,41 @@ def _tls() -> ssl.SSLContext | None:
     return truststore.SSLContext(ssl.PROTOCOL_TLS_CLIENT)
 
 
-def _call(method: str, path: str, token: str, body: bytes | dict | None = None, timeout: float = 30):
-    """JSON for API routes, bytes for files."""
+class _Upload(io.BytesIO):
+    """A request body that reports how much of it has gone out."""
+
+    def __init__(self, data: bytes, progress):
+        super().__init__(data)
+        self.size, self.progress = len(data), progress
+
+    def read(self, n=-1):
+        chunk = super().read(BLOCK if n is None or n < 0 else min(n, BLOCK))
+        self.progress(self.tell(), self.size)
+        return chunk
+
+
+def _call(method: str, path: str, token: str, body: bytes | dict | None = None, timeout: float = 30, progress=None):
+    """JSON for API routes, bytes for files. progress(done, total) follows the bytes of a file going up or down."""
     headers = {"Authorization": f"Bearer {token}", "User-Agent": "Count-In"}
     data = None
     if isinstance(body, dict):
         data, headers["Content-Type"] = json.dumps(body).encode(), "application/json"
     elif body is not None:
         data, headers["Content-Type"] = body, "audio/flac"
+        headers["Content-Length"] = str(len(body))
+        if progress:
+            data = _Upload(body, progress)
     req = urllib.request.Request(API + path, data=data, method=method, headers=headers)
     try:
         with urllib.request.urlopen(req, timeout=timeout, context=_tls()) as r:
-            raw = r.read()
-            return json.loads(raw) if r.headers.get_content_type() == "application/json" else raw
+            if r.headers.get_content_type() == "application/json":
+                return json.loads(r.read())
+            size, raw = int(r.headers.get("Content-Length") or 0), bytearray()
+            while chunk := r.read(BLOCK):
+                raw += chunk
+                if progress:
+                    progress(len(raw), size)
+            return bytes(raw)
     except urllib.error.HTTPError as e:
         try:
             msg = json.loads(e.read()).get("error", "")
@@ -112,10 +136,15 @@ def separate(pcm: np.ndarray, sr: int, song_hash: str, report, cancelled) -> dic
     peak = float(np.abs(pcm).max()) if len(pcm) else 0.0
     gain = 1.0 / peak if peak > 1.0 else 1.0
 
+    report(_("Проверка песни на сервере"), 0, 0)
     job = _call("POST", "/v1/jobs", token, {"duration_s": len(pcm) / sr, "hash": song_hash})
     if job["status"] == "uploading":
-        report(_("Загрузка в облако"), 0, 0)
-        _call("PUT", job["upload"], token, _flac(pcm * gain, sr), timeout=600)
+        report(_("Подготовка песни к загрузке"), 0, 0)
+        flac = _flac(pcm * gain, sr)
+        mb = len(flac) / 1e6
+        _call("PUT", job["upload"], token, flac, timeout=600,
+              progress=lambda d, n: report(_("Загрузка песни на сервер, {mb:.0f} МБ", mb=mb), int(d * STEPS / n), STEPS))
+        report(_("Песня загружена, отправляю на обработку"), 0, 0)
         _call("POST", f"/v1/jobs/{job['id']}/start", token)
         while True:
             if cancelled():
@@ -131,13 +160,17 @@ def separate(pcm: np.ndarray, sr: int, song_hash: str, report, cancelled) -> dic
                 break
             else:
                 raise CloudError(job.get("error") or job["status"])
+    else:
+        report(_("Партии этой песни уже есть на сервере"), 0, 0)
     out = {}
     names = list(job["stems"])
     for i, name in enumerate(names):
         if cancelled():
             raise Cancelled
-        report(_("Скачивание партий"), i, len(names))
-        x, _sr = sf.read(io.BytesIO(_call("GET", job["stems"][name], token, timeout=600)), dtype="float32", always_2d=True)
+        got = _call("GET", job["stems"][name], token, timeout=600,
+                    progress=lambda d, n, i=i: report(_("Скачивание партий"), int((i + (d / n if n else 0)) * STEPS / len(names)),
+                                                      STEPS))
+        x, _sr = sf.read(io.BytesIO(got), dtype="float32", always_2d=True)
         x = x[: len(pcm)]
         if len(x) < len(pcm):
             x = np.pad(x, ((0, len(pcm) - len(x)), (0, 0)))
