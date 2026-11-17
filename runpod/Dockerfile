@@ -10,12 +10,13 @@ ENV UV_COMPILE_BYTECODE=1 UV_LINK_MODE=copy COUNTIN_ASSETS=/app/models PYTHONUNB
 # Dependencies first, so code changes do not reinstall torch. The GUI and the beat tracker (a git
 # dependency, and the worker only separates) stay out.
 COPY pyproject.toml uv.lock README.md LICENSE ./
-RUN uv sync --locked --no-dev --no-install-project --no-install-package pyside6-essentials --no-install-package beat-this \
-    && uv pip install runpod==2.2.1
+RUN uv sync --locked --no-dev --no-install-project --no-install-package pyside6-essentials --no-install-package beat-this
 
 COPY models/separator /app/models/separator
 COPY src ./src
 COPY runpod/handler.py ./
-RUN uv sync --locked --no-dev --no-install-package pyside6-essentials --no-install-package beat-this
+# runpod is not in the lock, and a sync removes packages outside it, so it goes in last.
+RUN uv sync --locked --no-dev --no-install-package pyside6-essentials --no-install-package beat-this \
+    && uv pip install runpod==2.2.1
 
 CMD ["uv", "run", "--no-sync", "python", "handler.py"]
