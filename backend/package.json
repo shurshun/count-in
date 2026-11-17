@@ -1,0 +1,13 @@
+{
+  "name": "count-in-api",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "dev": "wrangler dev --local --show-interactive-dev-session=false",
+    "db:init": "wrangler d1 execute count-in --local --file schema.sql",
+    "token": "node scripts/token.mjs"
+  },
+  "devDependencies": {
+    "wrangler": "4.129.0"
+  }
+}

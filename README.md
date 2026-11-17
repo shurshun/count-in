@@ -44,7 +44,7 @@ The app follows the system appearance and has a [dark theme](docs/screenshots/ma
 3. Pick the count-in pattern, length and meter. Blue marks on the waveform show where the clicks will sound.
 4. For a backing track, lower the part sliders in the Backing track card. With "Fill pauses with hi-hat" on, quiet stretches get a hi-hat; the silence threshold fits itself to the song, and the − and + buttons in the bar under the waveform remove or add a pause.
 5. Press Play or Space. A click on the waveform or the overview sets the playhead, ← and → jump between pauses, and the speed control slows the song down. Levels change while it plays.
-6. Press Save or ⌘S. By default the file goes next to the original, and Finder or Explorer opens with it selected; turn that off in Settings.
+6. Press Save or ⌘S. By default the file goes next to the original, and Finder or Explorer opens with it selected; turn that off in Settings. Save asks for a backing track as one file, in the source format or as MP3, FLAC, ALAC or WAV, or a multitrack for a DAW: the parts as WAV plus the click grid and tempo map as MIDI, all starting on bar 1. The window shows the file or folder name before it saves.
 
 In Settings (⌘,) you can pick one output folder and have files sorted into Artist / Year - Album subfolders from the source tags; each level is a checkbox.
 
@@ -75,6 +75,10 @@ On first launch the app downloads its models once: about 780 MB on a Mac, plus a
 On start, the app checks GitHub for a newer version and downloads it in the background, checking its SHA-256 against the release. When it is ready, a round blue badge appears left of the version in the bottom right corner, and the menu offers "Restart to Update". Without a restart, the update installs when you quit. "Check for Updates…" sits in the app menu on macOS and under Help on Windows.
 
 The app updates itself only from a folder it can write to. Run from Downloads on macOS without moving it, or from a protected folder, the badge opens the download page instead.
+
+### Reporting a problem
+
+Help → Report a Problem… sends your description to the author. You choose whether details about the computer and the app log go with it; no audio is sent, though the log may name the songs you opened.
 
 ---
 
@@ -188,7 +192,7 @@ Count-In находит темп и первую сильную долю пес�
 3. Выберите рисунок, длину и размер отсчёта. Синие отметки на волне показывают, где прозвучат клики.
 4. Для бэктрека опустите ползунки в карточке «Бэктрек». С галочкой «Заполнять паузы хай-хэтом» тихие места получают хай-хэт; порог тишины подбирается сам, кнопки − и + под волной убирают и добавляют паузы.
 5. Нажмите Play или пробел. Щелчок по волне или обзору трека ставит курсор, ← и → переходят по паузам, блок «Скорость» замедляет песню. Уровни меняются на ходу.
-6. Нажмите «Сохранить» или ⌘S. По умолчанию файл ложится рядом с исходником, а Finder или Проводник открывается с ним; это отключается в настройках.
+6. Нажмите «Сохранить» или ⌘S. По умолчанию файл ложится рядом с исходником, а Finder или Проводник открывается с ним; это отключается в настройках. Окно сохранения предлагает бэктрек одним файлом, в формате исходника, MP3, FLAC, ALAC или WAV, или мультитрек для DAW: партии в WAV, сетку кликов и темповую карту в MIDI, все с первого такта. Имя файла или папки видно до сохранения.
 
 В настройках (⌘,) можно один раз выбрать папку для всех файлов и раскладывать их по подпапкам «Исполнитель / Год - Альбом» по тегам исходника, каждый уровень включается галочкой.
 
@@ -219,6 +223,10 @@ Count-In находит темп и первую сильную долю пес�
 При запуске приложение проверяет, нет ли новой версии на GitHub, и в фоне скачивает её, сверяя SHA-256 с релизом. Когда загрузка готова, справа внизу слева от версии появляется круглый голубой значок, а в меню — пункт «Перезапустить и обновить». Если не перезапускать, обновление установится при выходе. «Проверить обновления…» находится в меню приложения на macOS и в меню «Справка» на Windows.
 
 Само обновляется только приложение из папки, куда можно писать. Если на macOS запускать его прямо из «Загрузок», не перенося, или из защищённой папки, значок открывает страницу загрузки.
+
+#### Сообщить о проблеме
+
+«Справка → Сообщить о проблеме…» отправляет автору ваше описание. Вы сами решаете, приложить ли сведения о компьютере и журнал программы; звук не уходит, а в журнале могут быть названия открытых песен.
 
 ---
 
