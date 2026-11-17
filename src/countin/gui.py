@@ -7,7 +7,7 @@ import sys
 import threading
 import random
 import time
-from dataclasses import dataclass, field
+from dataclasses import dataclass, field, replace
 from pathlib import Path
 
 import numpy as np
@@ -15,7 +15,7 @@ from PySide6.QtCore import QEvent, QLocale, QObject, QSettings, QStandardPaths, 
 from PySide6.QtGui import QAction, QDesktopServices, QFont, QIcon, QImage, QKeySequence, QColor, QPainter, QPainterPath, QPen, QPalette, QPixmap, QPolygonF
 from PySide6.QtWidgets import (
     QAbstractSpinBox, QApplication, QButtonGroup, QCheckBox, QComboBox, QDialog, QDoubleSpinBox, QFileDialog, QFrame,
-    QGridLayout, QHBoxLayout, QLabel, QLineEdit, QMainWindow, QMessageBox, QProgressBar, QPushButton, QRadioButton, QScrollArea,
+    QGridLayout, QHBoxLayout, QLabel, QLayout, QLineEdit, QMainWindow, QMessageBox, QProgressBar, QPushButton, QRadioButton, QScrollArea,
     QGraphicsDropShadowEffect, QSlider, QSpinBox, QStackedWidget, QStatusBar, QVBoxLayout, QWidget,
 )
 
@@ -98,6 +98,13 @@ QPushButton#iconButton:hover { background: rgba(127,127,127,0.24); }
 #drop { border: 2px dashed @BORDER@; border-radius: 18px; color: @FIELD@; font-size: 18px; }
 QFrame#card { background: @CARD@; border: 1px solid @BORDER@; border-radius: 12px; }
 #cardTitle { font-weight: 600; font-size: 16px; }
+QFrame#option { background: @CARD@; border: 1px solid @BORDER@; border-radius: 12px; margin: 1px; }
+QFrame#option:focus { border-color: @ACCENT@; }
+QFrame#option[selected="true"] { border: 2px solid @ACCENT@; margin: 0; }
+#optionTitle { font-weight: 600; font-size: 16px; }
+#optionNote { font-size: 13px; color: @FIELD@; }
+QFrame#target { background: rgba(127,127,127,0.11); border-radius: 9px; }
+#targetName { font-weight: 600; }
 #field { color: @FIELD@; }
 QPushButton[seg] { border: 1px solid rgba(127,127,127,0.35); background: rgba(127,127,127,0.06);
                    padding: 3px 11px; min-height: 18px; border-radius: 0; }
@@ -1633,6 +1640,9 @@ def part_icon(kind: str, color: QColor, size: int = 16) -> QPixmap:
         p.setBrush(color)
         p.drawEllipse(QPointF(6.8 * s, 11.2 * s), 1.4 * s, 1.1 * s)  # note head
         p.drawRect(QRectF(7.6 * s, 6 * s, 0.9 * s, 5.2 * s))  # stem
+    elif kind == "tracks":  # three clips on their lanes
+        for x, y, w in ((1.5, 2.5, 9), (4.5, 6.6, 10), (2.5, 10.7, 7)):
+            p.drawRoundedRect(QRectF(x * s, y * s, w * s, 2.8 * s), 1.2 * s, 1.2 * s)
     elif kind == "speaker":
         p.drawPolygon(QPolygonF([QPointF(1.5 * s, 6 * s), QPointF(4.5 * s, 6 * s), QPointF(8.5 * s, 2.5 * s),
                                  QPointF(8.5 * s, 13.5 * s), QPointF(4.5 * s, 10 * s), QPointF(1.5 * s, 10 * s)]))
@@ -1995,21 +2005,114 @@ class ZoneDialog(QDialog):
         self.reject()
 
 
-EXPORT_MODE, EXPORT_PARTS, EXPORT_CLICK, EXPORT_TEMPO = (
-    "export/mode", "export/parts", "export/click", "export/tempo")
+EXPORT_MODE, EXPORT_PARTS, EXPORT_CLICK, EXPORT_TEMPO, EXPORT_FORMAT = (
+    "export/mode", "export/parts", "export/click", "export/tempo", "export/format")
+
+
+def export_format() -> str | None:
+    """The backing-track format chosen in the save dialog; None follows the source. A format saved with the
+    defaults by an older version still counts until the dialog saves its own."""
+    st = QSettings()
+    v = st.value(EXPORT_FORMAT, st.value(DEFAULTS + "format", "")) or None
+    return v if v in FORMAT_NAMES else None
+
+
+def option_pix(kind: str | None, on: bool) -> QPixmap:
+    """The icon tile of an option card, or its radio mark when kind is None. A chosen one sits on the accent."""
+    app = QApplication.instance()
+    size = 40 if kind else 20
+    pix = QPixmap(size * 2, size * 2)
+    pix.setDevicePixelRatio(2)
+    pix.fill(Qt.transparent)
+    p = QPainter(pix)
+    p.setRenderHint(QPainter.Antialiasing)
+    p.setPen(Qt.NoPen)
+    ink = on_accent(app) if on else QColor(127, 127, 127)
+    if kind:
+        p.setBrush(accent_color(app) if on else QColor(127, 127, 127, 40))
+        p.drawRoundedRect(QRectF(0, 0, size, size), 10, 10)
+        p.drawPixmap(QPointF(9, 9), part_icon(kind, ink, 22))
+    elif on:
+        p.setBrush(accent_color(app))
+        p.drawEllipse(QRectF(0, 0, size, size))
+        p.setPen(QPen(ink, 2, Qt.SolidLine, Qt.RoundCap, Qt.RoundJoin))
+        p.drawPolyline(QPolygonF([QPointF(5.5, 10.5), QPointF(8.8, 13.6), QPointF(14.5, 6.8)]))
+    else:
+        p.setBrush(Qt.NoBrush)
+        p.setPen(QPen(QColor(127, 127, 127, 150), 1.5))
+        p.drawEllipse(QRectF(1, 1, size - 2, size - 2))
+    p.end()
+    return pix
+
+
+class OptionCard(QFrame):
+    """A selectable card: icon, title, one-line note, and the options of the choice, shown while it is chosen."""
+
+    picked = Signal()
+
+    def __init__(self, kind: str, title: str, note: str, body: QLayout):
+        super().__init__(objectName="option")
+        self.kind = kind
+        self.setFocusPolicy(Qt.StrongFocus)
+        self.setCursor(Qt.PointingHandCursor)
+        self.icon, self.mark = QLabel(), QLabel()
+        text = QVBoxLayout()
+        text.setSpacing(2)
+        text.addWidget(QLabel(title, objectName="optionTitle"))
+        text.addWidget(QLabel(note, objectName="optionNote"))
+        head = QHBoxLayout()
+        head.setSpacing(12)
+        head.addWidget(self.icon)
+        head.addLayout(text, 1)
+        head.addWidget(self.mark)
+        self.body = QWidget()
+        self.body.setCursor(Qt.ArrowCursor)
+        body.setContentsMargins(52, 2, 0, 2)  # under the title, past the icon
+        self.body.setLayout(body)
+        v = QVBoxLayout(self)
+        v.setContentsMargins(14, 12, 14, 12)
+        v.setSpacing(10)
+        v.addLayout(head)
+        v.addWidget(self.body)
+        self.set_on(False)
+
+    def set_on(self, on: bool):
+        self.on = on
+        self.setProperty("selected", on)
+        self.style().unpolish(self)
+        self.style().polish(self)
+        self.icon.setPixmap(option_pix(self.kind, on))
+        self.mark.setPixmap(option_pix(None, on))
+        self.body.setVisible(on)
+
+    def mousePressEvent(self, e):
+        self.setFocus()
+        self.picked.emit()
+
+    def keyPressEvent(self, e):
+        if e.key() == Qt.Key_Space:
+            self.picked.emit()
+        else:
+            super().keyPressEvent(e)
 
 
 class ExportDialog(QDialog):
-    """What Save writes: one backing track, or a multitrack for a DAW. The choice is remembered."""
+    """What Save writes: one backing track in a chosen format, or a multitrack for a DAW. The choice is
+    remembered. target(fmt, multi) names the file or folder a choice would write."""
 
-    def __init__(self, parent):
+    def __init__(self, parent, target):
         super().__init__(parent)
         self.setWindowTitle(_("Сохранить"))
-        self.setMinimumWidth(440)
-        self.backing = QRadioButton(_("Бэктрек одним файлом"))
-        self.multi = QRadioButton(_("Мультитрек для DAW"))
-        note = QLabel(_("Отдельная папка. Все файлы начинаются с первого такта, их можно положить в начало "
-                        "проекта Cubase, Logic или Reaper."), objectName="field", wordWrap=True)
+        self.setFixedWidth(580)
+        self.target = target
+
+        self.fmt = Segmented([(_(name), key) for key, name in FORMAT_NAMES.items()], export_format())
+        self.fmt.changed.connect(self._update)
+        fmt = QVBoxLayout()
+        fmt.setSpacing(6)
+        fmt.addWidget(QLabel(_("Формат"), objectName="field"))
+        fmt.addWidget(self.fmt)
+
         self.boxes = {
             EXPORT_PARTS: QCheckBox(_("Партии отдельными файлами (WAV)")),
             EXPORT_CLICK: QCheckBox(_("Сетка кликов (MIDI)")),
@@ -2020,43 +2123,92 @@ class ExportDialog(QDialog):
             EXPORT_CLICK: _("Отсчёт и хай-хэт в паузах нотами на 10-м канале, General MIDI"),
             EXPORT_TEMPO: _("Темп и размер каждого такта, чтобы такты DAW совпали с песней"),
         }
-        v = QVBoxLayout(self)
-        v.addWidget(self.backing)
-        v.addWidget(self.multi)
-        inner = QVBoxLayout()
-        inner.setContentsMargins(24, 0, 0, 0)
-        inner.addWidget(note)
+        files = QVBoxLayout()
+        files.setSpacing(8)
         for key, box in self.boxes.items():
             box.setChecked(pref_bool(key, True))
             box.setToolTip(tips[key])
             box.toggled.connect(self._update)
-            inner.addWidget(box)
-        v.addLayout(inner)
+            files.addWidget(box)
+
+        self.backing = OptionCard("file", _("Бэктрек одним файлом"), _("Песня с отсчётом в одном аудиофайле"), fmt)
+        self.multi = OptionCard("tracks", _("Мультитрек для DAW"),
+                                _("Папка с WAV 32 бит float и MIDI, все файлы с первого такта"), files)
+        self.multi.setToolTip(_("Отдельная папка. Все файлы начинаются с первого такта, их можно положить в начало "
+                                "проекта Cubase, Logic или Reaper."))
+        self.cards = (self.backing, self.multi)
+        for c in self.cards:
+            c.picked.connect(lambda c=c: self._pick(c))
+
+        # What gets written and where
+        self.kind_l = QLabel(objectName="field")
+        self.name_l = QLabel(objectName="targetName")
+        self.dir_l = QLabel(objectName="optionNote")
+        box = QFrame(objectName="target")
+        g = QGridLayout(box)
+        g.setContentsMargins(14, 9, 14, 9)
+        g.setHorizontalSpacing(10)
+        g.setVerticalSpacing(2)
+        g.addWidget(self.kind_l, 0, 0)
+        g.addWidget(self.name_l, 0, 1)
+        g.addWidget(self.dir_l, 1, 1)
+        g.setColumnStretch(1, 1)
+
+        cancel = QPushButton(_("Отмена"), objectName="tool", clicked=self.reject, autoDefault=False)
+        self.ok = QPushButton(_("Сохранить"), objectName="primary", clicked=self._accept, default=True)
         h = QHBoxLayout()
         h.addStretch()
-        h.addWidget(QPushButton(_("Отмена"), objectName="tool", clicked=self.reject))
-        self.ok = QPushButton(_("Сохранить"), objectName="primary", clicked=self._accept, default=True)
+        h.addWidget(cancel)
         h.addWidget(self.ok)
+        v = QVBoxLayout(self)
+        v.setContentsMargins(18, 18, 18, 16)
+        v.setSpacing(10)
+        v.addWidget(self.backing)
+        v.addWidget(self.multi)
+        v.addWidget(box)
+        v.addSpacing(6)
         v.addLayout(h)
-        (self.multi if QSettings().value(EXPORT_MODE, "backing") == "multi" else self.backing).setChecked(True)
-        self.multi.toggled.connect(self._update)
-        self._update()
+        self._pick(self.multi if QSettings().value(EXPORT_MODE, "backing") == "multi" else self.backing)
 
-    def _update(self):
-        for box in self.boxes.values():
-            box.setEnabled(self.multi.isChecked())
-        self.ok.setEnabled(self.backing.isChecked() or any(b.isChecked() for b in self.boxes.values()))
+    def _pick(self, card: OptionCard):
+        for c in self.cards:
+            c.set_on(c is card)
+        card.setFocus()
+        self._update()
+        self.layout().activate()
+        self.setFixedHeight(self.sizeHint().height())
+
+    def _update(self, *_args):
+        multi = self.multi.on
+        self.ok.setEnabled(not multi or any(b.isChecked() for b in self.boxes.values()))
+        out = self.target(self.fmt.value(), multi)
+        folder = str(out.parent)
+        home = str(Path.home())
+        if folder.startswith(home):
+            folder = "~" + folder[len(home):]
+        self.kind_l.setText(_("Папка") if multi else _("Файл"))
+        m, width = self.name_l.fontMetrics(), self.width() - 150
+        self.name_l.setText(m.elidedText(out.name, Qt.ElideMiddle, width))
+        self.dir_l.setText(self.dir_l.fontMetrics().elidedText(folder, Qt.ElideLeft, width))
+        self.name_l.setToolTip(str(out))
+
+    def keyPressEvent(self, e):
+        if e.key() in (Qt.Key_Up, Qt.Key_Down) and isinstance(self.focusWidget(), OptionCard):
+            self._pick(self.multi if e.key() == Qt.Key_Down else self.backing)
+        else:
+            super().keyPressEvent(e)
 
     def _accept(self):
         st = QSettings()
-        st.setValue(EXPORT_MODE, "multi" if self.multi.isChecked() else "backing")
+        st.setValue(EXPORT_MODE, "multi" if self.multi.on else "backing")
+        st.setValue(EXPORT_FORMAT, self.fmt.value() or "")
         for key, box in self.boxes.items():
             st.setValue(key, box.isChecked())
         self.accept()
 
     def choice(self) -> dict | None:
         """None for the backing track, else which multitrack files to write."""
-        if self.backing.isChecked():
+        if not self.multi.on:
             return None
         return {"parts": self.boxes[EXPORT_PARTS].isChecked(), "click": self.boxes[EXPORT_CLICK].isChecked(),
                 "tempo": self.boxes[EXPORT_TEMPO].isChecked()}
@@ -2802,10 +2954,6 @@ class Window(QMainWindow):
         row(g, icon_label("threshold", _("Порог тишины")), self.threshold, self.threshold_l)
         self.trim = QCheckBox(_("Обрезать тишину в начале"))
         g.addWidget(self.trim, g.rowCount(), 0, 1, 2, Qt.AlignLeft | Qt.AlignVCenter)
-        self.fmt = QComboBox()
-        for key, name in FORMAT_NAMES.items():
-            self.fmt.addItem(_(name), key)
-        row(g, icon_label("file", _("Выходной формат")), self.fmt)
 
         for w in (self.volume, *self.parts.values()):
             w.valueChanged.connect(self._labels)
@@ -3217,7 +3365,7 @@ class Window(QMainWindow):
         return Settings(
             style=self.style_seg.value(), bars=self.bars_seg.value(), meter=self.meter_seg.value(),
             pattern=self.pattern, volume_db=float(self.volume.value()),
-            levels=levels, pre_roll="trim" if self.trim.isChecked() else "keep", fmt=self.fmt.currentData(),
+            levels=levels, pre_roll="trim" if self.trim.isChecked() else "keep", fmt=export_format(),
             out_root=out_root, group=group, fill=self.fill.isChecked(), fill_build=self.fill_build.isChecked(),
             threshold=float(self.threshold.value()), speed=self.speed / 100,
         )
@@ -3438,7 +3586,8 @@ class Window(QMainWindow):
         if not self.save_b.isEnabled():
             return
         self._stop()
-        d = ExportDialog(self)
+        s, info, song = self.settings(), self.info or io.probe(self.current.path), self.current.path
+        d = ExportDialog(self, lambda fmt, multi: (multitrack_dir if multi else target_path)(song, replace(s, fmt=fmt), info))
         if d.exec() != QDialog.Accepted:
             return
         self.export = d.choice()
@@ -3482,7 +3631,7 @@ class Window(QMainWindow):
         self.player.volume = v / 100
 
     def _save_defaults(self):
-        """The current count-in, part levels, pause and output settings become the start for every track."""
+        """The current count-in, part levels and pause settings become the start for every track."""
         st = QSettings()
         st.setValue(DEFAULTS + "style", self.style_seg.value() if self.style_seg.value() != "midi" else "buildup")
         st.setValue(DEFAULTS + "bars", self.bars_seg.value())
@@ -3491,7 +3640,6 @@ class Window(QMainWindow):
         for name, s in self.parts.items():
             st.setValue(DEFAULTS + "part/" + name, s.value())
         st.setValue(DEFAULTS + "trim", self.trim.isChecked())
-        st.setValue(DEFAULTS + "format", self.fmt.currentData() or "")
         st.setValue(FILL_KEY, self.fill.isChecked())
         st.setValue(THRESHOLD_KEY, self.threshold.value())
         self.status.setText(_("Настройки сохранены как настройки по умолчанию"))
@@ -3518,13 +3666,12 @@ class Window(QMainWindow):
         for s in self.parts.values():
             s.setValue(0)
         self.trim.setChecked(False)
-        self.fmt.setCurrentIndex(0)
         self.fill.setChecked(True)
         self.threshold.setValue(int(zn.QUIET_DB))
         self.status.setText(_("Настройки сброшены"))
 
     def _load_defaults(self):
-        """Saved defaults; a value that no longer fits (an old meter, a removed format) is skipped."""
+        """Saved defaults; a value that no longer fits (an old meter) is skipped."""
         st = QSettings()
         if st.value(DEFAULTS + "style") is None:
             return
@@ -3546,9 +3693,6 @@ class Window(QMainWindow):
         for name, s in self.parts.items():
             s.setValue(num("part/" + name))
         self.trim.setChecked(st.value(DEFAULTS + "trim", False) in (True, "true"))
-        i = self.fmt.findData(st.value(DEFAULTS + "format", "") or None)
-        if i >= 0:
-            self.fmt.setCurrentIndex(i)
 
     # --- pauses ---
 
