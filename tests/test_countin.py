@@ -726,3 +726,25 @@ def test_tempo_map_follows_the_marker_meter_and_tempo_the_user_set(tmp_path, met
     assert len(sigs) == 1
     assert np.allclose(bpms, 60 / period * beat_quarters, rtol=1e-3)
     assert any(abs(b.start - t0) < 1e-9 for b in g.bars)
+
+
+@pytest.mark.parametrize("dark", [True, False])
+@pytest.mark.parametrize("accent", ["#0a84ff", "#ffffff", "#d0d0d0", "#ffd60a", "#8c8c8c", "#101010", "#30d158", "#ff375f"])
+def test_accent_controls_stay_readable_with_any_system_accent(monkeypatch, dark, accent):
+    """Play and the primary buttons sit on the system accent. Any accent stays visible against the window and
+    its icon and text stay readable on it; a white Play icon on a white accent once hid the button."""
+    os.environ.setdefault("QT_QPA_PLATFORM", "offscreen")
+    from PySide6.QtGui import QColor, QPalette
+    from PySide6.QtWidgets import QApplication
+
+    from countin import gui
+
+    app = QApplication.instance() or QApplication([])
+    pal = QPalette(app.palette())
+    for role in (QPalette.Highlight, QPalette.Accent):
+        pal.setColor(QPalette.Active, role, QColor(accent))
+    monkeypatch.setattr(app, "palette", lambda: pal)
+    monkeypatch.setattr(gui, "is_dark", lambda _app: dark)
+    acc = gui.accent_color(app)
+    assert gui.contrast(acc, gui.window_color(dark)) >= 1.6
+    assert gui.contrast(gui.on_accent(app), acc) >= 3.0

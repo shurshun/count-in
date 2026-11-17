@@ -104,7 +104,7 @@ QPushButton[seg] { border: 1px solid rgba(127,127,127,0.35); background: rgba(12
 QPushButton[seg="first"] { border-top-left-radius: 6px; border-bottom-left-radius: 6px; }
 QPushButton[seg="last"] { border-top-right-radius: 6px; border-bottom-right-radius: 6px; }
 QPushButton[seg]:checked { background: @ACCENT@; color: @ACCENT_TEXT@; border-color: @ACCENT@; }
-QPushButton#primary { background: @ACCENT@; color: white; border: none;
+QPushButton#primary { background: @ACCENT@; color: @ACCENT_TEXT@; border: none;
                       border-radius: 9px; padding: 8px 26px; font-size: 15px; font-weight: 600; min-height: 22px; }
 QPushButton#primary:disabled { background: rgba(127,127,127,0.25); }
 QPushButton#tool { border: 1px solid @BORDER@; border-radius: 9px; padding: 8px 18px; font-size: 15px;
@@ -2482,7 +2482,7 @@ class Window(QMainWindow):
         h = QHBoxLayout(bar)
         h.setContentsMargins(10, 6, 10, 6)
         h.setSpacing(4)
-        self.play_b = glyph_button("play", _("Пробел"), self._play, "tplay", QColor(255, 255, 255))
+        self.play_b = glyph_button("play", _("Пробел"), self._play, "tplay", on_accent(QApplication.instance()))
         for b in (glyph_button("start", _("К отсчёту (Home)"), self._to_start),
                   glyph_button("prev", _("Предыдущая пауза (←)"), lambda: self._jump_pause(-1)),
                   self.play_b,
@@ -2585,7 +2585,7 @@ class Window(QMainWindow):
         icon = "stop" if self.play_start is not None else "play"
         if icon != self.play_b.property("icon"):  # this runs on every playback tick
             self.play_b.setProperty("icon", icon)
-            self.play_b.setIcon(glyph(icon, QColor(255, 255, 255)))
+            self.play_b.setIcon(glyph(icon, on_accent(QApplication.instance())))
         self.pause_l.setText(_("{i} из {n}", i=w.current_zone + 1, n=len(w.zones)) if w.current_zone is not None
                              else str(len(w.zones)))  # the group title already says what it counts
         w.overview.update()
@@ -3861,10 +3861,37 @@ def is_dark(app: QApplication) -> bool:
     return scheme == Qt.ColorScheme.Dark
 
 
+def luminance(c: QColor) -> float:
+    """WCAG relative luminance, 0 for black, 1 for white."""
+    def lin(v: float) -> float:
+        return v / 12.92 if v <= 0.04045 else ((v + 0.055) / 1.055) ** 2.4
+    return 0.2126 * lin(c.redF()) + 0.7152 * lin(c.greenF()) + 0.0722 * lin(c.blueF())
+
+
+def contrast(a: QColor, b: QColor) -> float:
+    la, lb = sorted((luminance(a), luminance(b)), reverse=True)
+    return (la + 0.05) / (lb + 0.05)
+
+
+def window_color(dark: bool) -> QColor:
+    return QColor("#1e1e20" if dark else "#f5f5f7")
+
+
 def accent_color(app: QApplication) -> QColor:
-    """Selection blue in dark mode; in light mode that blue is too pale, so the system accent."""
-    pal = app.palette()
-    return pal.color(QPalette.Active, QPalette.Highlight) if is_dark(app) else pal.color(QPalette.Accent)
+    """Selection blue in dark mode; in light mode that blue is too pale, so the system accent. An accent that
+    blends into the window (white in the light theme, near-black in the dark one) falls back to system blue."""
+    pal, dark = app.palette(), is_dark(app)
+    c = pal.color(QPalette.Active, QPalette.Highlight) if dark else pal.color(QPalette.Accent)
+    if contrast(c, window_color(dark)) < 1.6:
+        c = QColor("#0a84ff" if dark else "#007aff")
+    return c
+
+
+def on_accent(app: QApplication) -> QColor:
+    """Text and icons on the accent: white, as the system draws them, unless the accent is too light for it
+    (a white, light grey or yellow accent), then near-black."""
+    acc = accent_color(app)
+    return QColor(255, 255, 255) if contrast(acc, QColor(255, 255, 255)) >= 3.0 else QColor(28, 28, 30)
 
 
 def style_sheet(app: QApplication) -> str:
@@ -3876,7 +3903,7 @@ def style_sheet(app: QApplication) -> str:
                "@FIELD@": "#6e6e73", "@WARN@": "#a35a00", "@TIP_CARD@": "rgba(255,255,255,0.82)"})
 
     colors["@ACCENT@"] = accent_color(app).name()
-    colors["@ACCENT_TEXT@"] = "palette(highlighted-text)" if dark else "white"
+    colors["@ACCENT_TEXT@"] = on_accent(app).name()
     out = STYLE
     for k, v in colors.items():
         out = out.replace(k, v)
