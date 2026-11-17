@@ -25,11 +25,12 @@ def folder() -> Path:
     return Path(os.environ.get("XDG_CACHE_HOME", Path.home() / ".cache")) / "count-in" / "stems"
 
 
-def key(song: Path) -> str:
-    """The song file's content and the separation settings: a re-encoded or edited file gets new stems."""
+def key(song: Path, overlap: int | None = None) -> str:
+    """The song file's content and the separation settings: a re-encoded or edited file gets new stems.
+    overlap defaults to the local one; cloud stems pass theirs."""
     from . import stems
 
-    h = hashlib.sha256(f"{stems.MODEL}/{stems.OVERLAP}".encode())
+    h = hashlib.sha256(f"{stems.MODEL}/{overlap or stems.OVERLAP}".encode())
     with open(song, "rb") as f:
         while chunk := f.read(1 << 20):
             h.update(chunk)

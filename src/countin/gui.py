@@ -426,6 +426,23 @@ def cloud_on() -> bool:
     return pref_bool(CLOUD_KEY, False) and bool(cloud.key())
 
 
+def cloud_overlap() -> int:
+    from .core import cloud
+
+    try:
+        v = int(QSettings().value(CLOUD_OVERLAP, 8))
+    except (TypeError, ValueError):
+        v = 8
+    return v if v in cloud.OVERLAPS else 8
+
+
+def stem_key(song: Path) -> str:
+    """Stem cache key; cloud stems of each overlap are kept apart from local ones."""
+    from .core import stemcache
+
+    return stemcache.key(song, cloud_overlap() if cloud_on() else None)
+
+
 def _stems(job: Job, pcm, sr, label: str, urgent: bool = False, song: Path | None = None) -> dict[str, np.ndarray]:
     """Stems from the separation process (core/worker.py), so the interface and the audio keep running. An
     urgent request, a preview excerpt, goes ahead of the whole-song separation. A whole song (song given) goes
@@ -436,7 +453,7 @@ def _stems(job: Job, pcm, sr, label: str, urgent: bool = False, song: Path | Non
         from .core import cloud, stemcache
 
         try:
-            return cloud.separate(pcm, sr, stemcache.key(song), job.report, job.cancelled.is_set)
+            return cloud.separate(pcm, sr, stem_key(song), job.report, job.cancelled.is_set, cloud_overlap())
         except cloud.Cancelled:
             raise Cancelled
         except cloud.CloudError as e:
@@ -602,7 +619,7 @@ def separate_job(job: Job, t: Track, pcm: np.ndarray, sr: int):
     names = tuple(p[0] for p in PARTS)
     job.report(_("Разделение на дорожки"))
     try:
-        k = stemcache.key(t.path)
+        k = stem_key(t.path)
         st = stemcache.load(k, names, len(pcm))
     except Exception:
         log.exception("stem cache unreadable")
@@ -1774,6 +1791,7 @@ OUT_DIR, OUT_GROUP = "output/dir", "output/group"
 OUT_REVEAL = "output/reveal"
 FILL_KEY = "fill/enabled"
 CLOUD_KEY = "cloud/enabled"
+CLOUD_OVERLAP = "cloud/overlap"
 FILL_BUILD_KEY = "fill/buildup"
 OUTPUT_VOLUME_KEY = "playback/volume"
 DEFAULTS = "defaults/"  # prefix for the settings saved with "Save as default"
@@ -2394,8 +2412,18 @@ class PrefsDialog(QDialog):
             self.cloud = QCheckBox(_("Разделять песни на сервере Count-In"), checked=pref_bool(CLOUD_KEY, False))
             self.cloud.toggled.connect(lambda on: QSettings().setValue(CLOUD_KEY, on))
             g4.addWidget(self.cloud, 0, 0, 1, 2)
+            g4.addWidget(QLabel(_("Перекрытие"), objectName="field"), 1, 0)
+            self.overlap = QComboBox()
+            for n, text in ((2, _("2 · быстрее")), (4, "4"), (8, _("8 · чище"))):
+                self.overlap.addItem(text, n)
+            self.overlap.setCurrentIndex(self.overlap.findData(cloud_overlap()))
+            self.overlap.setToolTip(_("Сколько раз модель слушает каждый момент песни. Больше даёт чуть чище партии "
+                                      "и дольше разделение. Новое значение действует на песни, открытые после "
+                                      "смены; партии каждого значения хранятся отдельно."))
+            self.overlap.currentIndexChanged.connect(lambda _i: QSettings().setValue(CLOUD_OVERLAP, self.overlap.currentData()))
+            g4.addWidget(self.overlap, 1, 1)
             self.cloud_l = QLabel(_("проверяю ключ…"), objectName="field", wordWrap=True)
-            g4.addWidget(self.cloud_l, 1, 0, 1, 2)
+            g4.addWidget(self.cloud_l, 2, 0, 1, 2)
             v.addWidget(box)
             from .core import cloud
 

@@ -19,6 +19,7 @@ API = os.environ.get("COUNTIN_API", "https://api.count-in.app")
 SERVICE = "Count-In"
 ACCOUNT = "api-key"
 POLL_S = 2.0
+OVERLAPS = (2, 4, 8)  # windows per chunk the backend accepts; more is slower and a little cleaner
 BLOCK = 256 * 1024
 STEPS = 1000  # progress resolution while files move
 
@@ -121,7 +122,7 @@ def _flac(x: np.ndarray, sr: int) -> bytes:
     return buf.getvalue()
 
 
-def separate(pcm: np.ndarray, sr: int, song_hash: str, report, cancelled) -> dict[str, np.ndarray]:
+def separate(pcm: np.ndarray, sr: int, song_hash: str, report, cancelled, overlap: int = 8) -> dict[str, np.ndarray]:
     """Stems for the whole song, sample-aligned with pcm. report(text, done, total) shows progress;
     cancelled() stops waiting (the GPU job still finishes and stays in the cache)."""
     import soundfile as sf
@@ -137,7 +138,7 @@ def separate(pcm: np.ndarray, sr: int, song_hash: str, report, cancelled) -> dic
     gain = 1.0 / peak if peak > 1.0 else 1.0
 
     report(_("Проверка песни на сервере"), 0, 0)
-    job = _call("POST", "/v1/jobs", token, {"duration_s": len(pcm) / sr, "hash": song_hash})
+    job = _call("POST", "/v1/jobs", token, {"duration_s": len(pcm) / sr, "hash": song_hash, "overlap": overlap})
     if job["status"] == "uploading":
         report(_("Подготовка песни к загрузке"), 0, 0)
         flac = _flac(pcm * gain, sr)
