@@ -2103,7 +2103,6 @@ class ExportDialog(QDialog):
     def __init__(self, parent, target):
         super().__init__(parent)
         self.setWindowTitle(_("Сохранить"))
-        self.setFixedWidth(580)
         self.target = target
 
         self.fmt = Segmented([(_(name), key) for key, name in FORMAT_NAMES.items()], export_format())
@@ -2144,7 +2143,7 @@ class ExportDialog(QDialog):
         self.kind_l = QLabel(objectName="field")
         self.name_l = QLabel(objectName="targetName")
         self.dir_l = QLabel(objectName="optionNote")
-        box = QFrame(objectName="target")
+        box = QFrame(objectName="target", minimumWidth=544)
         g = QGridLayout(box)
         g.setContentsMargins(14, 9, 14, 9)
         g.setHorizontalSpacing(10)
@@ -2168,6 +2167,7 @@ class ExportDialog(QDialog):
         v.addWidget(box)
         v.addSpacing(6)
         v.addLayout(h)
+        v.setSizeConstraint(QLayout.SetFixedSize)  # the window follows the options of the chosen card
         self._pick(self.multi if QSettings().value(EXPORT_MODE, "backing") == "multi" else self.backing)
 
     def _pick(self, card: OptionCard):
@@ -2175,8 +2175,6 @@ class ExportDialog(QDialog):
             c.set_on(c is card)
         card.setFocus()
         self._update()
-        self.layout().activate()
-        self.setFixedHeight(self.sizeHint().height())
 
     def _update(self, *_args):
         multi = self.multi.on
@@ -2187,14 +2185,18 @@ class ExportDialog(QDialog):
         if folder.startswith(home):
             folder = "~" + folder[len(home):]
         self.kind_l.setText(_("Папка") if multi else _("Файл"))
-        m, width = self.name_l.fontMetrics(), self.width() - 150
-        self.name_l.setText(m.elidedText(out.name, Qt.ElideMiddle, width))
+        width = 440  # fits the target box at its narrowest
+        self.name_l.setText(self.name_l.fontMetrics().elidedText(out.name, Qt.ElideMiddle, width))
         self.dir_l.setText(self.dir_l.fontMetrics().elidedText(folder, Qt.ElideLeft, width))
         self.name_l.setToolTip(str(out))
 
     def keyPressEvent(self, e):
         if e.key() in (Qt.Key_Up, Qt.Key_Down) and isinstance(self.focusWidget(), OptionCard):
             self._pick(self.multi if e.key() == Qt.Key_Down else self.backing)
+        elif e.key() in (Qt.Key_Left, Qt.Key_Right) and self.focusWidget() is self.backing and self.backing.on:
+            i = self.fmt.values.index(self.fmt.value()) + (1 if e.key() == Qt.Key_Right else -1)
+            self.fmt.set_value(self.fmt.values[min(max(i, 0), len(self.fmt.values) - 1)])
+            self._update()
         else:
             super().keyPressEvent(e)
 

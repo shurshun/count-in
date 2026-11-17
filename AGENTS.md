@@ -55,7 +55,7 @@ Count-In inserts a drum count-in before a song's first downbeat and can turn gui
 
 ## Multitrack export (`core/daw.py`)
 
-- Save opens `ExportDialog`: two `OptionCard`s, a backing track as one file (`save_job`) or a multitrack folder (`export_job`). The chosen card shows its options: the output format for the backing track, the three file checkboxes for the multitrack, which always writes float WAV and MIDI. A line under the cards names the file or folder the choice writes (`target_path`, `multitrack_dir`). The choice sits in `export/*` settings and gets saved on Save only.
+- Save opens `ExportDialog`: two `OptionCard`s, a backing track as one file (`save_job`) or a multitrack folder (`export_job`). The chosen card shows its options: the output format for the backing track, the three file checkboxes for the multitrack, which always writes float WAV and MIDI. A line under the cards names the file or folder the choice writes (`target_path`, `multitrack_dir`). The choice sits in `export/*` settings and gets saved on Save only. Up and Down switch the card, Left and Right the format, Enter saves, Esc cancels; the layout's `SetFixedSize` resizes the window to the chosen card.
 - The output format lives in `export/format` (empty follows the source). `export_format()` reads it for `Settings.fmt`; a `defaults/format` left by an older version counts until the dialog saves its own. The card defaults and the reset leave the format alone.
 - Icon tiles and radio marks of the cards come from `option_pix`: the accent with `on_accent(app)` ink when chosen, grey otherwise.
 - Output time 0 is bar 1. `daw.grid` adds even bars at the set tempo before the "1" marker until it reaches the song start and the earliest click.
