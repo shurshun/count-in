@@ -2285,7 +2285,8 @@ def system_info() -> dict[str, str]:
         _("Ядер"): str(os.cpu_count()),
         _("Память"): f"{_ram_gb():.0f} GB" if _ram_gb() else "?",
         _("Язык"): i18n.language(),
-        _("Разделение"): _("в облаке") if cloud_on() else _("на этом компьютере"),
+        # The setting alone: reading the key would touch the Keychain and could ask for access.
+        _("Разделение"): _("в облаке") if pref_bool(CLOUD_KEY, False) else _("на этом компьютере"),
     }
     if worker.separator().last:
         sec, how = worker.separator().last
