@@ -127,7 +127,7 @@ def _flac(x: np.ndarray, sr: int) -> bytes:
     return buf.getvalue()
 
 
-def separate(pcm: np.ndarray, sr: int, song_hash: str, report, cancelled, overlap: int = 8) -> dict[str, np.ndarray]:
+def separate(pcm: np.ndarray, sr: int, song_hash: str, report, cancelled, overlap: int = 4) -> dict[str, np.ndarray]:
     """Stems for the whole song, sample-aligned with pcm. report(text, done, total) shows progress;
     cancelled() stops waiting (the GPU job still finishes and stays in the cache)."""
     import soundfile as sf

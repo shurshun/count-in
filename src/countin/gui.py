@@ -430,10 +430,10 @@ def cloud_overlap() -> int:
     from .core import cloud
 
     try:
-        v = int(QSettings().value(CLOUD_OVERLAP, 8))
+        v = int(QSettings().value(CLOUD_OVERLAP, 4))
     except (TypeError, ValueError):
-        v = 8
-    return v if v in cloud.OVERLAPS else 8
+        v = 4
+    return v if v in cloud.OVERLAPS else 4
 
 
 def stem_key(song: Path) -> str:
