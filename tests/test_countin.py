@@ -381,7 +381,7 @@ def test_every_ui_string_has_an_english_version():
 
     root = Path(__file__).resolve().parents[1] / "src" / "countin"
     missing = []
-    for f in (root / "gui.py", root / "core" / "io.py"):
+    for f in (root / "gui.py", root / "guitarmatch.py", root / "core" / "io.py"):
         for node in ast.walk(ast.parse(f.read_text(encoding="utf-8"))):
             if (isinstance(node, ast.Call) and getattr(node.func, "id", None) == "_" and node.args
                     and isinstance(node.args[0], ast.Constant) and node.args[0].value not in i18n.EN):
@@ -675,11 +675,36 @@ def test_eq_match_brings_one_spectrum_to_the_other():
     rng = np.random.default_rng(1)
     noise = lambda: rng.standard_normal(sr * 4) * 0.1
     gaps = np.repeat(rng.random(16) > 0.3, sr // 4)  # the original guitar rests in a third of the song
-    true = [eqmatch.Move(250, 5.0, 1.0), eqmatch.Move(2500, -4.0, 1.4), eqmatch.Move(6000, 3.0, 0.8)]
+    true = [eqmatch.Move(90, -6.0, 0.707, "low"), eqmatch.Move(400, 5.0, 1.0), eqmatch.Move(2500, -4.0, 1.4),
+            eqmatch.Move(7000, 4.0, 0.707, "high")]
     target = eqmatch.apply(noise(), sr, true, level_db=-6.0) * gaps
     source = noise()
-    moves, level = eqmatch.match(source, target, sr)
-    assert 1 <= len(moves) <= 6 and all(abs(m.gain_db) <= 6 for m in moves)
-    assert abs(level + 6.0) < 1.0
-    left = eqmatch.bands(target, sr) - eqmatch.bands(eqmatch.apply(source, sr, moves, level), sr)
-    assert np.abs(left).max() < 1.5
+    r = eqmatch.match(source, target, sr)
+    assert 1 <= len(r.moves) <= 6 and all(abs(m.gain_db) <= 6 for m in r.moves)
+    assert abs(r.level_db + 6.0) < 1.5
+    left = eqmatch.bands(target, sr) - eqmatch.bands(eqmatch.apply(source, sr, r.moves, r.level_db), sr)
+    assert np.abs(left).max() < 2.0 and r.left_db < 2.0
+
+
+def test_eq_match_lines_a_take_up_with_the_stem():
+    from countin.core import eqmatch
+
+    sr = 44100
+    rng = np.random.default_rng(2)
+    ref = rng.standard_normal(sr * 6) * np.repeat(rng.random(24) > 0.5, sr // 4)
+    take = np.r_[np.zeros(31234), ref * 0.5][: len(ref)]  # started 0.7 s late
+    assert abs(eqmatch.offset(take, ref, sr) + 31234) <= sr // 1000
+    assert abs(eqmatch.offset(ref[5000:], ref, sr) - 5000) <= sr // 1000
+
+
+def test_auto_click_volume_keeps_song_and_clicks_under_the_ceiling():
+    samples = rd.load_samples(SR)
+    rng = np.random.default_rng(3)
+    song = (rng.standard_normal((SR * 6, 2)) * 0.25).clip(-0.8, 0.8).astype(np.float32)  # a loud intro
+    clicks = rd.click_grid(4.0, 0.5, 1, "4/4") + [rd.Click(5.0, True, voice="hihat")]
+    v = rd.safe_volume_db(song, SR, clicks, samples)
+    assert -24 < v < 0
+    r = rd.render(song, SR, clicks, 4.0, volume_db=v, samples=samples)
+    assert np.abs(r.pcm).max() <= 10 ** (-1 / 20) + 1e-4
+    quiet = np.zeros_like(song)
+    assert rd.safe_volume_db(quiet, SR, clicks, samples) == 0.0  # silence leaves the clicks as set

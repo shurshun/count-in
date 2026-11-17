@@ -213,6 +213,7 @@ class Track:
     bar_db: list | None = None  # level of each bar against the song (zones.bar_levels); sets the hi-hat level
     covered: set = field(default_factory=set)  # bars under the pauses as last shown
     dismissed: set = field(default_factory=set)  # bars whose pause the user removed; a search never brings them back
+    extra: np.ndarray | None = None  # the player's own guitar, EQ'd and lined up with the song; preview and save mix it in
 
 
 @dataclass
@@ -452,6 +453,8 @@ def preview_job(job: Job, track: Track, s: Settings, pcm: np.ndarray, sr: int, c
     win = [rd.Click((c.time - lo_t) / s.speed, c.accent, c.gain, c.voice)
            for c in clicks if first - 0.35 <= c.time < end]
     song, part = pcm[i0:i1], dict(part or {})
+    if track.extra is not None:
+        song = song + track.extra[i0:i1]
     if s.speed != 1.0:
         # Stretching shifts phases, so a stretched song minus a stretched stem no longer cancels. The slowed
         # song gets rebuilt from its slowed pieces, every stem and the rest, so the player's live subtraction
@@ -494,6 +497,8 @@ def save_job(job: Job, t: Track, s: Settings, cached):
         if s.fill and t.zones is None:
             t.zones, t.zones_key = find_zones(t, pcm, info.sr, st, s), zones_key(s)
         pcm = stems.attenuate(pcm, st, s.levels)
+    if t.extra is not None and len(t.extra) == len(pcm):
+        pcm = pcm + t.extra
     job.report(_("{name}: запись", name=t.path.name))
     if s.speed != 1.0:
         job.report(_("{name}: замедление", name=t.path.name))
@@ -1694,6 +1699,7 @@ FILL_BUILD_KEY = "fill/buildup"
 OUTPUT_VOLUME_KEY = "playback/volume"
 DEFAULTS = "defaults/"  # prefix for the settings saved with "Save as default"
 THRESHOLD_KEY = "fill/threshold"
+VOLUME_AUTO_KEY = "clicks/auto_volume"
 OUT_LEVELS = {"output/artist": "Исполнитель", "output/year": "Год", "output/album": "Альбом"}
 
 
@@ -2181,6 +2187,7 @@ class Window(QMainWindow):
         self.save_a = file.addAction(_("Сохранить"), QKeySequence.Save, self._save)
         self.close_a = file.addAction(_("Закрыть трек"), QKeySequence.Close, self._close_track)
         self.reveal_a = file.addAction(_("Показать сохранённый файл"), self._reveal)
+        self.match_a = file.addAction(_("Подогнать мою гитару…"), self._guitar_match)
         file.addSeparator()
         file.addAction(_("Сохранить настройки как по умолчанию"), self._save_defaults)
         file.addAction(_("Вернуть настройки по умолчанию"), self._reset_settings)
@@ -2656,7 +2663,12 @@ class Window(QMainWindow):
         row(g, _("Размер"), self.meter_seg)
         self.volume = QSlider(Qt.Horizontal, minimum=-24, maximum=6, value=0, minimumWidth=90)
         self.volume_l = QLabel(minimumWidth=60)
-        row(g, _("Громкость"), self.volume, self.volume_l)
+        self.vol_auto = QCheckBox(_("Авто"), checked=pref_bool(VOLUME_AUTO_KEY, True))
+        self.vol_auto.setToolTip(_("Громкость отсчёта подбирается сама: клики громкие, но вместе с песней не "
+                                   "перегружают звук. Снимите галочку, чтобы задать громкость вручную."))
+        self.vol_auto.toggled.connect(self._vol_auto_toggled)
+        self.volume.setEnabled(not self.vol_auto.isChecked())
+        row(g, _("Громкость"), self.volume, self.volume_l, self.vol_auto)
         self.pattern: Path | None = None
 
         save_b = self._icon_button("save", _("Сохранить эти настройки как настройки по умолчанию"), self._save_defaults)
@@ -2669,6 +2681,9 @@ class Window(QMainWindow):
             self.part_l[name] = QLabel(minimumWidth=80)
             row(g, icon_label(icon, _(label)), MuteButton(s, _(tip)), s, self.part_l[name])
         self.guitar, self.vocals = self.parts["guitar"], self.parts["vocals"]
+        self.match_b = QPushButton(_("Подогнать мою гитару…"), clicked=self._guitar_match)
+        self.match_b.setToolTip(_("Сравнить запись своей гитары с гитарой из песни и получить настройки эквалайзера"))
+        g.addWidget(self.match_b, g.rowCount(), 0, 1, 2, Qt.AlignLeft | Qt.AlignVCenter)
         self.fill = QCheckBox(_("Заполнять паузы хай-хэтом"), checked=pref_bool(FILL_KEY, True))
         self.fill.setToolTip(_("Такты, где без убранных дорожек тихо, получают хай-хэт на каждую долю. "
                                "Правый щелчок по паузе убирает её, рядом с паузой добавляет такт, края паузы тянутся мышью."))
@@ -3126,6 +3141,7 @@ class Window(QMainWindow):
             self.wave.clicks = []
             self.status.setText(str(e))
         self.wave.t0 = t.t0
+        self._auto_volume()
         self.wave.zones = t.zones or []
         self.wave.fill = self.fill.isChecked()
         self.wave.threshold_db = float(self.threshold.value())
@@ -3135,6 +3151,26 @@ class Window(QMainWindow):
             self.wave.current_zone = None
         self._nav_changed()
         self.wave.update()
+
+    def _vol_auto_toggled(self, on: bool):
+        QSettings().setValue(VOLUME_AUTO_KEY, on)
+        self.volume.setEnabled(not on)
+        self._auto_volume()
+
+    def _auto_volume(self):
+        """In auto mode the volume slider follows the loudest click level the backing leaves room for."""
+        if not (self.vol_auto.isChecked() and self.pcm is not None and self.wave.clicks):
+            return
+        song = self.backing if self.backing is not None and len(self.backing) == len(self.pcm) else self.pcm
+        if self.current.extra is not None:
+            song = song + self.current.extra
+        if getattr(self, "_samples", (None,))[0] != self.sr:
+            self._samples = (self.sr, rd.load_samples(self.sr))
+        v = int(np.floor(rd.safe_volume_db(song, self.sr, self.wave.clicks, self._samples[1])))
+        v = max(self.volume.minimum(), min(0, v))
+        if v != self.volume.value():
+            self.volume.setValue(v)
+            self.status.setText(_("Громкость отсчёта подобрана без перегрузки: {v:+d} дБ", v=v))
 
     def _threshold_moved(self, _v):
         self.wave.threshold_full = True
@@ -3162,6 +3198,8 @@ class Window(QMainWindow):
         self.close_a.setEnabled(self.current is not None)
         self.open_a.setEnabled(not busy)
         self.reveal_a.setEnabled(self.last_saved is not None)
+        self.match_b.setEnabled(ready)
+        self.match_a.setEnabled(ready)
         self.prog_panel.setVisible(busy)
         self._nav_changed()
         self._show_tips()
@@ -3526,6 +3564,18 @@ class Window(QMainWindow):
         self._undock_busy()
         return True
 
+    def _guitar_match(self):
+        """Opens the take-vs-original window once the whole-song stems exist."""
+        from .guitarmatch import GuitarMatchDialog
+
+        if self.pcm is None or self._wait_for_stems(self._guitar_match):
+            return
+        st = self._full_stems()
+        if st is None:
+            self.status.setText(_("Дорожки ещё не разделены, попробуйте через минуту"))
+            return
+        GuitarMatchDialog(self, self.pcm, self.sr, st, self.current.path.stem).show()
+
     def _full_stems(self):
         return self.stem_cache[1] if self.pcm is not None and _covers(self.stem_cache, 0, len(self.pcm)) else None
 
@@ -3559,6 +3609,7 @@ class Window(QMainWindow):
         t, key, sl = self.mix_wanted
         self.backing_key, self.backing = key, backing
         self.wave.set_env(env, len(backing) / self.sr)
+        self._auto_volume()
         if found is None:
             return
         threshold, fit = used
