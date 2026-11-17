@@ -130,6 +130,13 @@ class Separator:
             if q is not None:
                 q.put(msg)
 
+    def stop(self):
+        """Ends the process and frees its models, unless a separation is running."""
+        with self.lock:
+            if self.proc is not None and self.proc.is_alive() and not self.waiting:
+                self.proc.terminate()
+                self.proc = None
+
     def warm(self):
         """Starts the process and loads the models in it."""
         self._ensure()

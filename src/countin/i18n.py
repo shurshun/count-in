@@ -92,6 +92,7 @@ EN = {
     "Облако недоступно, разделяю на этом компьютере": "The cloud is unavailable, separating on this computer",
     "Проверка песни на сервере": "Checking the song on the server",
     "Перекрытие": "Overlap",
+    "в облаке": "in the cloud",
     "2 · быстрее": "2 · faster",
     "8 · чище": "8 · cleaner",
     "Сколько раз модель слушает каждый момент песни. Больше даёт чуть чище партии и дольше разделение. Новое значение действует на песни, открытые после смены; партии каждого значения хранятся отдельно.": "How many times the model hears each moment of the song. More gives slightly cleaner parts and a longer separation. A new value applies to songs opened after the change; the parts of each value are kept apart.",

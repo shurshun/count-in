@@ -453,7 +453,10 @@ def _stems(job: Job, pcm, sr, label: str, urgent: bool = False, song: Path | Non
         from .core import cloud, stemcache
 
         try:
-            return cloud.separate(pcm, sr, stem_key(song), job.report, job.cancelled.is_set, cloud_overlap())
+            began = time.monotonic()
+            st = cloud.separate(pcm, sr, stem_key(song), job.report, job.cancelled.is_set, cloud_overlap())
+            worker.separator().last = (time.monotonic() - began, _("в облаке"))
+            return st
         except cloud.Cancelled:
             raise Cancelled
         except cloud.CloudError as e:
@@ -2410,7 +2413,7 @@ class PrefsDialog(QDialog):
         if cloud_key():
             box, g4 = card(_("Облачное разделение"))
             self.cloud = QCheckBox(_("Разделять песни на сервере Count-In"), checked=pref_bool(CLOUD_KEY, False))
-            self.cloud.toggled.connect(lambda on: QSettings().setValue(CLOUD_KEY, on))
+            self.cloud.toggled.connect(self._cloud_toggled)
             g4.addWidget(self.cloud, 0, 0, 1, 2)
             g4.addWidget(QLabel(_("Перекрытие"), objectName="field"), 1, 0)
             self.overlap = QComboBox()
@@ -2437,6 +2440,16 @@ class PrefsDialog(QDialog):
     def _save(self, key, value):
         QSettings().setValue(key, value)
         self._update()
+
+    def _cloud_toggled(self, on: bool):
+        """Takes effect at once: the cloud frees the local model, the local mode loads it again."""
+        from .core import worker
+
+        QSettings().setValue(CLOUD_KEY, on)
+        if on:
+            worker.separator().stop()
+        else:
+            warm_models()
 
     def _cloud_info(self, i: dict):
         self.cloud_l.setText(_("Ключ {name}: {used} из {limit} песен в этом месяце", name=i["name"], used=i["used"],
