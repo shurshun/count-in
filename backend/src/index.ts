@@ -14,6 +14,8 @@ export interface Env {
   PUBLIC_URL: string;
   MAX_SECONDS: string;
   OVERLAP: string;
+  TELEGRAM_TOKEN: string;
+  TELEGRAM_CHAT: string;
 }
 
 const STEMS = ["guitar", "vocals", "bass", "drums", "piano"];
@@ -224,6 +226,79 @@ async function workerFile(env: Env, req: Request, url: URL, id: string, name: st
   return json({ ok: true });
 }
 
+// --- bug reports (no key: anyone with the app can send one) ---
+
+const REPORT_TEXT = 4000;
+const REPORT_LOG = 200 * 1024;
+const REPORTS_PER_IP_HOUR = 3;
+const REPORTS_TO_TELEGRAM_DAY = 50;
+
+async function report(env: Env, req: Request) {
+  if (Number(req.headers.get("content-length")) > REPORT_TEXT * 4 + REPORT_LOG * 2) return fail(413, "report too large");
+  const body = await req.json<{ text?: string; contact?: string; system?: Record<string, unknown>; log?: string }>()
+    .catch(() => null);
+  const text = String(body?.text ?? "").trim();
+  if (!text) return fail(400, "text is required");
+  if (text.length > REPORT_TEXT) return fail(413, `text is limited to ${REPORT_TEXT} characters`);
+  const log = String(body?.log ?? "");
+  if (log.length > REPORT_LOG) return fail(413, "log is limited to 200 KB");
+  const contact = String(body?.contact ?? "").slice(0, 200).trim();
+  const system = body?.system ? JSON.stringify(body.system).slice(0, 4000) : null;
+
+  const ip = await sha256(`${req.headers.get("cf-connecting-ip") ?? ""}/${env.SIGNING_KEY}`);
+  const textHash = await sha256(text);
+  const recent = await env.DB.prepare(`SELECT COUNT(*) AS n, SUM(text_hash = ? AND created_at >= ?) AS same
+                                       FROM reports WHERE ip_hash = ? AND created_at >= ?`)
+    .bind(textHash, now() - 86400, ip, now() - 86400).first<{ n: number; same: number }>();
+  const lastHour = await env.DB.prepare("SELECT COUNT(*) AS n FROM reports WHERE ip_hash = ? AND created_at >= ?")
+    .bind(ip, now() - 3600).first<{ n: number }>();
+  if (recent?.same) return json({ ok: true, duplicate: true });
+  if ((lastHour?.n ?? 0) >= REPORTS_PER_IP_HOUR) {
+    note("report refused: too many from one address", { ip: ip.slice(0, 8) });
+    return fail(429, "too many reports, try again in an hour");
+  }
+
+  const r = await env.DB.prepare(`INSERT INTO reports (created_at, ip_hash, text_hash, text, contact, system, log_bytes)
+                                  VALUES (?, ?, ?, ?, ?, ?, ?) RETURNING id`)
+    .bind(now(), ip, textHash, text, contact || null, system, log.length).first<{ id: number }>();
+  const id = r!.id;
+  const today = await env.DB.prepare("SELECT COUNT(*) AS n FROM reports WHERE sent = 1 AND created_at >= ?")
+    .bind(now() - 86400).first<{ n: number }>();
+  if ((today?.n ?? 0) >= REPORTS_TO_TELEGRAM_DAY) {
+    note("report kept, Telegram quota for the day used up", { report: id });
+    return json({ ok: true, id });
+  }
+  const sent = await telegram(env, id, text, contact, body?.system, log);
+  if (sent) await env.DB.prepare("UPDATE reports SET sent = 1 WHERE id = ?").bind(id).run();
+  note(`report ${id} ${sent ? "sent to Telegram" : "kept, Telegram failed"}`, { report: id, log_kb: Math.round(log.length / 1024) });
+  return json({ ok: true, id });
+}
+
+async function telegram(env: Env, id: number, text: string, contact: string, system: unknown, log: string) {
+  const sys = system && typeof system === "object"
+    ? Object.entries(system as Record<string, unknown>).map(([k, v]) => `${k}: ${v}`).join("\n") : "";
+  const parts = [`Отчёт #${id}`, text, contact && `Связь: ${contact}`, sys].filter(Boolean);
+  const api = `https://api.telegram.org/bot${env.TELEGRAM_TOKEN}`;
+  const msg = await fetch(`${api}/sendMessage`, {
+    method: "POST",
+    headers: { "content-type": "application/json" },
+    body: JSON.stringify({ chat_id: env.TELEGRAM_CHAT, text: parts.join("\n\n").slice(0, 4096) }),
+  });
+  if (!msg.ok) {
+    console.error("telegram sendMessage", msg.status, await msg.text());
+    return false;
+  }
+  if (log) {
+    const form = new FormData();
+    form.append("chat_id", env.TELEGRAM_CHAT);
+    form.append("caption", `Журнал к отчёту #${id}`);
+    form.append("document", new Blob([log], { type: "text/plain" }), `count-in-${id}.log`);
+    const doc = await fetch(`${api}/sendDocument`, { method: "POST", body: form });
+    if (!doc.ok) console.error("telegram sendDocument", doc.status, await doc.text());
+  }
+  return true;
+}
+
 export default {
   async fetch(req: Request, env: Env): Promise<Response> {
     const url = new URL(req.url);
@@ -233,6 +308,7 @@ export default {
         return await workerFile(env, req, url, p[1], p[2]);
       }
       if (p[0] !== "v1") return fail(404, "not found");
+      if (p[1] === "report" && p.length === 2 && req.method === "POST") return await report(env, req);
       const t = await auth(env, req);
       if (!t) {
         note("refused: invalid or revoked key", { path: url.pathname });

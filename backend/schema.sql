@@ -36,3 +36,18 @@ CREATE TABLE IF NOT EXISTS songs (
 
 CREATE INDEX IF NOT EXISTS jobs_by_token ON jobs (token_hash, started_at);
 CREATE INDEX IF NOT EXISTS jobs_by_age ON jobs (created_at);
+
+-- Bug reports from the app's Help menu. Anyone may send one, so the IP is kept only as a salted hash for the limits.
+CREATE TABLE IF NOT EXISTS reports (
+  id INTEGER PRIMARY KEY AUTOINCREMENT,
+  created_at INTEGER NOT NULL,
+  ip_hash TEXT NOT NULL,
+  text_hash TEXT NOT NULL,
+  text TEXT NOT NULL,
+  contact TEXT,
+  system TEXT,                   -- JSON the user agreed to send
+  log_bytes INTEGER NOT NULL DEFAULT 0,
+  sent INTEGER NOT NULL DEFAULT 0 -- 1 when it reached Telegram
+);
+CREATE INDEX IF NOT EXISTS reports_by_ip ON reports (ip_hash, created_at);
+CREATE INDEX IF NOT EXISTS reports_by_age ON reports (created_at);

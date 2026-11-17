@@ -114,6 +114,11 @@ def me(token: str | None = None) -> dict:
     return _call("GET", "/v1/me", token)
 
 
+def report(payload: dict) -> dict:
+    """Sends a bug report; it needs no key, the server limits how many one address may send."""
+    return _call("POST", "/v1/report", "", payload)
+
+
 def _flac(x: np.ndarray, sr: int) -> bytes:
     import soundfile as sf
 

@@ -15,7 +15,7 @@ from PySide6.QtCore import QEvent, QLocale, QObject, QSettings, QStandardPaths, 
 from PySide6.QtGui import QAction, QDesktopServices, QFont, QIcon, QImage, QKeySequence, QColor, QPainter, QPainterPath, QPen, QPalette, QPixmap, QPolygonF
 from PySide6.QtWidgets import (
     QAbstractSpinBox, QApplication, QButtonGroup, QCheckBox, QComboBox, QDialog, QDoubleSpinBox, QFileDialog, QFrame,
-    QGridLayout, QHBoxLayout, QLabel, QLayout, QLineEdit, QMainWindow, QMessageBox, QProgressBar, QPushButton, QRadioButton, QScrollArea,
+    QGridLayout, QHBoxLayout, QLabel, QLayout, QLineEdit, QPlainTextEdit, QMainWindow, QMessageBox, QProgressBar, QPushButton, QRadioButton, QScrollArea,
     QGraphicsDropShadowEffect, QSlider, QSpinBox, QStackedWidget, QStatusBar, QVBoxLayout, QWidget,
 )
 
@@ -2271,6 +2271,140 @@ class ExportDialog(QDialog):
                 "tempo": self.boxes[EXPORT_TEMPO].isChecked()}
 
 
+def system_info() -> dict[str, str]:
+    """What a bug report tells about this computer: no names of files, folders or the user."""
+    import platform
+
+    from .core import worker
+
+    info = {
+        _("Версия"): update.current_version(),
+        _("Система"): platform.platform(terse=True),
+        _("Архитектура"): platform.machine(),
+        _("Процессор"): _cpu_name(),
+        _("Ядер"): str(os.cpu_count()),
+        _("Память"): f"{_ram_gb():.0f} GB" if _ram_gb() else "?",
+        _("Язык"): i18n.language(),
+        _("Разделение"): _("в облаке") if cloud_on() else _("на этом компьютере"),
+    }
+    if worker.separator().last:
+        sec, how = worker.separator().last
+        info[_("Последнее разделение")] = f"{sec:.0f} s, {how}"
+    return info
+
+
+def _cpu_name() -> str:
+    import platform
+    import subprocess
+
+    if sys.platform == "darwin":
+        try:
+            return subprocess.run(["sysctl", "-n", "machdep.cpu.brand_string"], capture_output=True, text=True,
+                                  timeout=2).stdout.strip()
+        except OSError:
+            pass
+    return platform.processor() or "?"
+
+
+def _ram_gb() -> float:
+    try:
+        return os.sysconf("SC_PAGE_SIZE") * os.sysconf("SC_PHYS_PAGES") / 1024**3
+    except (ValueError, OSError, AttributeError):  # Windows has no sysconf
+        import ctypes
+
+        class Mem(ctypes.Structure):
+            _fields_ = [("len", ctypes.c_ulong), ("load", ctypes.c_ulong), ("total", ctypes.c_ulonglong),
+                        ("rest", ctypes.c_ulonglong * 6)]
+
+        m = Mem(len=ctypes.sizeof(Mem))
+        try:
+            ctypes.windll.kernel32.GlobalMemoryStatusEx(ctypes.byref(m))
+            return m.total / 1024**3
+        except Exception:
+            return 0.0
+
+
+def log_tail(limit: int = 190 * 1024) -> str:
+    try:
+        data = log_path().read_bytes()[-limit:]
+    except OSError:
+        return ""
+    return data.decode("utf-8", "replace").replace(str(Path.home()), "~")  # paths carry the account name
+
+
+class ReportDialog(QDialog):
+    """Help → Report a problem: the user's words, and with their consent this computer's details and the app log,
+    go to the author through the Count-In server."""
+
+    def __init__(self, parent):
+        super().__init__(parent)
+        self.setWindowTitle(_("Сообщить о проблеме"))
+        self.setMinimumWidth(520)
+        v = QVBoxLayout(self)
+        v.addWidget(QLabel(_("Что случилось? Что вы делали перед этим?"), objectName="field"))
+        self.text = QPlainTextEdit(placeholderText=_("Например: после нажатия «Сохранить» программа зависла на 40%"))
+        self.text.setMinimumHeight(120)
+        v.addWidget(self.text)
+        self.contact = QLineEdit(placeholderText=_("Почта или Telegram, если хотите получить ответ (необязательно)"))
+        v.addWidget(self.contact)
+
+        self.info = system_info()
+        self.send_info = QCheckBox(_("Приложить сведения о компьютере"), checked=True)
+        v.addWidget(self.send_info)
+        shown = QLabel("\n".join(f"{k}: {val}" for k, val in self.info.items()), objectName="field")
+        shown.setTextInteractionFlags(Qt.TextSelectableByMouse)
+        shown.setContentsMargins(24, 0, 0, 0)
+        v.addWidget(shown)
+        self.send_info.toggled.connect(shown.setEnabled)
+        self.send_log = QCheckBox(_("Приложить журнал программы (ошибки и время операций, без звука)"),
+                                  checked=True)
+        v.addWidget(self.send_log)
+
+        self.note = QLabel(objectName="field", wordWrap=True)
+        v.addWidget(self.note)
+        h = QHBoxLayout()
+        h.addStretch()
+        h.addWidget(QPushButton(_("Отмена"), objectName="tool", clicked=self.reject))
+        self.ok = QPushButton(_("Отправить"), objectName="primary", clicked=self._send, default=True)
+        h.addWidget(self.ok)
+        v.addLayout(h)
+        self.pool = QThreadPool()
+
+    def _send(self):
+        from .core import cloud
+
+        text = self.text.toPlainText().strip()
+        if not text:
+            self.note.setText(_("Опишите проблему хотя бы парой слов."))
+            return
+        payload = {"text": text[:4000], "contact": self.contact.text().strip()}
+        if self.send_info.isChecked():
+            payload["system"] = self.info
+        if self.send_log.isChecked():
+            payload["log"] = log_tail()
+        self.ok.setEnabled(False)
+        self.note.setText(_("Отправляю…"))
+        self.job = Job(lambda _job: cloud.report(payload))
+        self.job.signals.done.connect(self._sent)
+        self.job.signals.failed.connect(self._failed)
+        self.pool.start(self.job)
+
+    def _sent(self, _r):
+        log.info("bug report sent")
+        self.note.setText(_("Отправлено. Спасибо!"))
+        self.ok.setText(_("Готово"))
+        self.ok.setEnabled(True)
+        self.ok.clicked.disconnect()
+        self.ok.clicked.connect(self.accept)
+
+    def _failed(self, error: str):
+        self.ok.setEnabled(True)
+        if " 429 " in f" {error} ":
+            self.note.setText(_("С этого адреса уже отправлено несколько отчётов. Попробуйте через час."))
+        else:
+            self.note.setText(_("Не отправилось: {e}", e=error.removeprefix("CloudError: ")))
+
+
 class CloudKeyDialog(QDialog):
     """Paste a Count-In key; a valid one turns on separation in the cloud and shows it in the preferences."""
 
@@ -2620,6 +2754,8 @@ class Window(QMainWindow):
         self.update_a.setMenuRole(QAction.ApplicationSpecificRole)
         help_.addAction(_("Справка Count-In"), QKeySequence.HelpContents, self._help)
         help_.addAction(_("Страница проекта"), lambda: QDesktopServices.openUrl(QUrl(site_url())))
+        help_.addSeparator()
+        help_.addAction(_("Сообщить о проблеме…"), lambda: ReportDialog(self).exec())
 
         # Not in any menu: the cloud key is for people the author gave one to.
         key_a = QAction(self, shortcut=QKeySequence("Ctrl+Alt+K"), triggered=lambda: CloudKeyDialog(self).exec())
