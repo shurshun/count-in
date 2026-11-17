@@ -413,11 +413,35 @@ def analyze_job(job: Job, track: Track):
     return track, pcm, sr, env
 
 
-def _stems(job: Job, pcm, sr, label: str, urgent: bool = False) -> dict[str, np.ndarray]:
+def cloud_key() -> bool:
+    from .core import cloud
+
+    return bool(cloud.key())
+
+
+def cloud_on() -> bool:
+    """Cloud separation is switched on and a key is stored."""
+    from .core import cloud
+
+    return pref_bool(CLOUD_KEY, False) and bool(cloud.key())
+
+
+def _stems(job: Job, pcm, sr, label: str, urgent: bool = False, song: Path | None = None) -> dict[str, np.ndarray]:
     """Stems from the separation process (core/worker.py), so the interface and the audio keep running. An
-    urgent request, a preview excerpt, goes ahead of the whole-song separation."""
+    urgent request, a preview excerpt, goes ahead of the whole-song separation. A whole song (song given) goes
+    to the cloud when that is on; when the cloud fails, this computer separates it."""
     from .core import worker
 
+    if song is not None and cloud_on():
+        from .core import cloud, stemcache
+
+        try:
+            return cloud.separate(pcm, sr, stemcache.key(song), job.report, job.cancelled.is_set)
+        except cloud.Cancelled:
+            raise Cancelled
+        except cloud.CloudError as e:
+            log.warning("cloud separation failed, separating here: %s", e)
+            label = _("Облако недоступно, разделяю на этом компьютере")
     job.report(label)
     try:
         return worker.separator().separate(pcm, sr, lambda d, n: job.report(label, d, n),
@@ -452,7 +476,7 @@ def preview_job(job: Job, track: Track, s: Settings, pcm: np.ndarray, sr: int, c
     if _covers(cached, i0, i1):
         c0, st = cached
         part = {k: v[i0 - c0 : i1 - c0] for k, v in st.items()}
-    elif separate:
+    elif separate and not cloud_on():  # with the cloud the whole song is on its way; the excerpt plays as is
         part = _stems(job, pcm[i0:i1], sr, _("Разделяю отрывок"), urgent=True)
         new_cache = (i0, part)
 
@@ -498,7 +522,7 @@ def save_job(job: Job, t: Track, s: Settings, cached):
     pcm, info = io.decode(t.path)
     full = None
     if s.levels:
-        st = cached[1] if _covers(cached, 0, len(pcm)) else _stems(job, pcm, info.sr, _("{name}: разделение", name=t.path.name))
+        st = cached[1] if _covers(cached, 0, len(pcm)) else _stems(job, pcm, info.sr, _("{name}: разделение", name=t.path.name), song=t.path)
         full = (0, st)
         if s.fill and t.zones is None:
             t.zones, t.zones_key = find_zones(t, pcm, info.sr, st, s), zones_key(s)
@@ -530,7 +554,7 @@ def export_job(job: Job, t: Track, s: Settings, cached, what: dict):
     pcm, info = io.decode(t.path)
     full, st = None, None
     if what["parts"] or s.levels:
-        st = cached[1] if _covers(cached, 0, len(pcm)) else _stems(job, pcm, info.sr, _("{name}: разделение", name=t.path.name))
+        st = cached[1] if _covers(cached, 0, len(pcm)) else _stems(job, pcm, info.sr, _("{name}: разделение", name=t.path.name), song=t.path)
         full = (0, st)
     if s.fill and t.zones is None:
         t.zones, t.zones_key = find_zones(t, pcm, info.sr, st, s), zones_key(s)
@@ -565,7 +589,7 @@ def warm_models():
 
 def zones_job(job: Job, t: Track, s: Settings, pcm: np.ndarray, sr: int, cached):
     """Separates the whole song when needed and finds the pauses. Returns (track, zones, key, (0, stems))."""
-    st = cached[1] if _covers(cached, 0, len(pcm)) else _stems(job, pcm, sr, _("{name}: поиск пауз", name=t.path.name))
+    st = cached[1] if _covers(cached, 0, len(pcm)) else _stems(job, pcm, sr, _("{name}: поиск пауз", name=t.path.name), song=t.path)
     job.report(_("Поиск пауз"))
     return t, find_zones(t, pcm, sr, st, s), zones_key(s), (0, st)
 
@@ -585,7 +609,7 @@ def separate_job(job: Job, t: Track, pcm: np.ndarray, sr: int):
         k, st = None, None
     if st is not None:
         return t, (0, st), True
-    st = _stems(job, pcm, sr, _("Разделение на дорожки"))
+    st = _stems(job, pcm, sr, _("Разделение на дорожки"), song=t.path)
     if k is not None:
         def keep():
             try:
@@ -1741,6 +1765,7 @@ def stack(grid: QGridLayout, label: str, *widgets) -> None:
 OUT_DIR, OUT_GROUP = "output/dir", "output/group"
 OUT_REVEAL = "output/reveal"
 FILL_KEY = "fill/enabled"
+CLOUD_KEY = "cloud/enabled"
 FILL_BUILD_KEY = "fill/buildup"
 OUTPUT_VOLUME_KEY = "playback/volume"
 DEFAULTS = "defaults/"  # prefix for the settings saved with "Save as default"
@@ -2217,6 +2242,70 @@ class ExportDialog(QDialog):
                 "tempo": self.boxes[EXPORT_TEMPO].isChecked()}
 
 
+class CloudKeyDialog(QDialog):
+    """Paste a Count-In key; a valid one turns on separation in the cloud and shows it in the preferences."""
+
+    def __init__(self, parent):
+        from .core import cloud
+
+        super().__init__(parent)
+        self.setWindowTitle(_("Ключ Count-In"))
+        self.setMinimumWidth(460)
+        v = QVBoxLayout(self)
+        v.addWidget(QLabel(_("Ключ включает разделение на дорожки на сервере Count-In. Песня уходит на сервер, "
+                             "исходный файл удаляется через сутки, партии хранятся 30 дней, чтобы та же песня "
+                             "открывалась без нового разделения."), objectName="field", wordWrap=True))
+        self.edit = QLineEdit(cloud.key() or "", placeholderText="cin_…", echoMode=QLineEdit.Password)
+        v.addWidget(self.edit)
+        self.note = QLabel(objectName="field", wordWrap=True)
+        v.addWidget(self.note)
+        h = QHBoxLayout()
+        self.remove = QPushButton(_("Удалить ключ"), objectName="tool", clicked=self._remove, enabled=bool(cloud.key()))
+        h.addWidget(self.remove)
+        h.addStretch()
+        h.addWidget(QPushButton(_("Отмена"), objectName="tool", clicked=self.reject))
+        self.ok = QPushButton(_("Проверить и сохранить"), objectName="primary", clicked=self._check, default=True)
+        h.addWidget(self.ok)
+        v.addLayout(h)
+        self.pool = QThreadPool()
+
+    def _check(self):
+        from .core import cloud
+
+        token = self.edit.text().strip()
+        if not token:
+            return
+        self.ok.setEnabled(False)
+        self.note.setText(_("Проверяю…"))
+        self.job = Job(lambda _job: cloud.me(token))
+        self.job.signals.done.connect(self._checked)
+        self.job.signals.failed.connect(self._refused)
+        self.pool.start(self.job)
+
+    def _checked(self, info):
+        from .core import cloud
+
+        cloud.set_key(self.edit.text().strip())
+        QSettings().setValue(CLOUD_KEY, True)
+        self.note.setText(_("Ключ {name}: {used} из {limit} песен в этом месяце. Разделение в облаке включено.",
+                            name=info["name"], used=info["used"], limit=info["limit"]))
+        self.ok.setText(_("Готово"))
+        self.ok.setEnabled(True)
+        self.ok.clicked.disconnect()
+        self.ok.clicked.connect(self.accept)
+
+    def _refused(self, error: str):
+        self.ok.setEnabled(True)
+        self.note.setText(_("Ключ не принят: {e}", e=error))
+
+    def _remove(self):
+        from .core import cloud
+
+        cloud.set_key(None)
+        QSettings().setValue(CLOUD_KEY, False)
+        self.accept()
+
+
 class PrefsDialog(QDialog):
     """Output folder and layout, app icon. Every change is saved at once."""
 
@@ -2292,12 +2381,33 @@ class PrefsDialog(QDialog):
         v.addWidget(out)
         v.addWidget(look)
         v.addWidget(cache)
+        if cloud_key():
+            box, g4 = card(_("Облачное разделение"))
+            self.cloud = QCheckBox(_("Разделять песни на сервере Count-In"), checked=pref_bool(CLOUD_KEY, False))
+            self.cloud.toggled.connect(lambda on: QSettings().setValue(CLOUD_KEY, on))
+            g4.addWidget(self.cloud, 0, 0, 1, 2)
+            self.cloud_l = QLabel(_("проверяю ключ…"), objectName="field", wordWrap=True)
+            g4.addWidget(self.cloud_l, 1, 0, 1, 2)
+            v.addWidget(box)
+            from .core import cloud
+
+            self.cloud_job = Job(lambda _job: cloud.me())
+            self.cloud_job.signals.done.connect(self._cloud_info)
+            self.cloud_job.signals.failed.connect(self._cloud_refused)
+            self.pool.start(self.cloud_job)
         v.addWidget(close, 0, Qt.AlignRight)
         self._update()
 
     def _save(self, key, value):
         QSettings().setValue(key, value)
         self._update()
+
+    def _cloud_info(self, i: dict):
+        self.cloud_l.setText(_("Ключ {name}: {used} из {limit} песен в этом месяце", name=i["name"], used=i["used"],
+                               limit=i["limit"]))
+
+    def _cloud_refused(self, error: str):
+        self.cloud_l.setText(_("Ключ не принят: {e}", e=error))
 
     def _count_cache(self):
         from .core import stemcache
@@ -2461,6 +2571,11 @@ class Window(QMainWindow):
         self.update_a.setMenuRole(QAction.ApplicationSpecificRole)
         help_.addAction(_("Справка Count-In"), QKeySequence.HelpContents, self._help)
         help_.addAction(_("Страница проекта"), lambda: QDesktopServices.openUrl(QUrl(site_url())))
+
+        # Not in any menu: the cloud key is for people the author gave one to.
+        key_a = QAction(self, shortcut=QKeySequence("Ctrl+Alt+K"), triggered=lambda: CloudKeyDialog(self).exec())
+        key_a.setShortcutContext(Qt.ApplicationShortcut)
+        self.addAction(key_a)
 
     def _header(self) -> QWidget:
         head = QWidget(objectName="header")
@@ -3345,7 +3460,7 @@ class Window(QMainWindow):
         # the pause fill on, the pause search separates the whole song anyway and rebuilds the preview after,
         # so a second, excerpt-only separation would only cost time.
         if (self.play_start is not None and not self.player.stems and any(g < 1 for g in self.player.gains.values())
-                and not (self.fill.isChecked() and self._full_stems() is None)):
+                and not (self.fill.isChecked() and self._full_stems() is None) and not cloud_on()):
             self._restart_preview(separate=True)
 
     def _labels(self):
@@ -3965,7 +4080,7 @@ class Window(QMainWindow):
     def _separate_now(self, s) -> bool:
         """Whether a preview separates its own excerpt: whenever a part is turned down. During the whole-song
         separation the excerpt goes ahead of it in the separation process, so playback starts in seconds."""
-        return bool(s.levels)
+        return bool(s.levels) and not cloud_on()
 
     def _reveal(self):
         if self.last_saved:

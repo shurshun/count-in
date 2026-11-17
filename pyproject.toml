@@ -13,6 +13,7 @@ dependencies = [
     "beat-this",
     "coremltools>=9.0 ; sys_platform == 'darwin'",
     "einops>=0.8.2",
+    "keyring>=25.7.0",
     "mido>=1.3.3",
     "numpy>=2.5.4",
     "onnxruntime-directml>=1.24 ; sys_platform == 'win32'",
