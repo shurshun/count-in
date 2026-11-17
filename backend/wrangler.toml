@@ -27,3 +27,8 @@ OVERLAP = "8"
 
 # Secrets (wrangler secret put, or .dev.vars locally):
 # RUNPOD_API_KEY, RUNPOD_ENDPOINT, SIGNING_KEY, PUBLIC_URL
+
+# Workers Logs: every request and console line, kept 3 days on the free plan.
+[observability]
+enabled = true
+head_sampling_rate = 1

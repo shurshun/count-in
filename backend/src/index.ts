@@ -112,12 +112,14 @@ async function create(env: Env, t: Token, req: Request) {
       env.DB.prepare(`INSERT INTO jobs (id, token_hash, status, duration_s, created_at, finished_at, song_hash, cached)
                       VALUES (?, ?, 'done', ?, ?, ?, ?, 1)`).bind(id, t.hash, dur, now(), now(), hash),
     ]);
+    console.log({ event: "job", id, user: t.name, status: "cached", song_s: Math.round(dur), overlap });
     return json({ id, status: "done", cached: true, stems: stemLinks(id) }, 201);
   }
   if (dur > Number(env.MAX_SECONDS)) return fail(413, "song too long", { max_seconds: Number(env.MAX_SECONDS) });
   if ((await used(env, t)) >= t.monthly_limit) return fail(429, "monthly limit reached", { limit: t.monthly_limit });
   await env.DB.prepare(`INSERT INTO jobs (id, token_hash, status, duration_s, created_at, song_hash)
                         VALUES (?, ?, 'uploading', ?, ?, ?)`).bind(id, t.hash, dur, now(), hash).run();
+  console.log({ event: "job", id, user: t.name, status: "uploading", song_s: Math.round(dur), overlap });
   return json({ id, status: "uploading", upload: `/v1/jobs/${id}/input`, max_bytes: MAX_INPUT_BYTES }, 201);
 }
 
@@ -159,7 +161,11 @@ async function status(env: Env, t: Token, id: string) {
   const ended = next === "done" || next === "failed";
   await env.DB.prepare("UPDATE jobs SET status = ?, finished_at = ?, gpu_seconds = ?, error = ? WHERE id = ?")
     .bind(next, ended ? now() : null, r.executionTime ? r.executionTime / 1000 : null, error, id).run();
-  if (ended) await purgeInput(env, id);
+  if (ended) {
+    await purgeInput(env, id);
+    console.log({ event: "job", id, user: t.name, status: next, gpu_s: r.executionTime / 1000 || null,
+                  wait_s: now() - j.started_at, worker: r.workerId ?? null, error });
+  }
   if (next === "done") {
     await env.DB.prepare(`INSERT INTO songs (token_hash, song_hash, created_at, accessed_at) VALUES (?, ?, ?, ?)
                           ON CONFLICT DO UPDATE SET accessed_at = excluded.accessed_at`)
