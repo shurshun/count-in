@@ -1,0 +1,43 @@
+name: worker
+
+# Builds the RunPod separation worker image (runpod/Dockerfile) and pushes it to GHCR.
+on:
+  push:
+    branches: [main, cloud-separation]
+    paths:
+      - runpod/**
+      - src/countin/core/**
+      - pyproject.toml
+      - uv.lock
+      - .github/workflows/worker.yml
+  workflow_dispatch:
+
+jobs:
+  image:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      packages: write
+    steps:
+      - uses: actions/checkout@v7
+
+      # torch with CUDA makes an image of several GB; the runner's preinstalled SDKs leave too little disk.
+      - name: free disk
+        run: sudo rm -rf /usr/share/dotnet /usr/local/lib/android /opt/ghc /opt/hostedtoolcache/CodeQL && df -h /
+
+      - uses: actions/cache@v6
+        with:
+          path: models
+          key: models-${{ hashFiles('packaging/fetch_models.sh') }}
+      - run: packaging/fetch_models.sh
+
+      - name: build and push
+        env:
+          IMAGE: ghcr.io/${{ github.repository_owner }}/count-in-worker
+          TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          echo "$TOKEN" | docker login ghcr.io -u "${{ github.actor }}" --password-stdin
+          tag="sha-${GITHUB_SHA::7}"
+          docker buildx build --platform linux/amd64 -f runpod/Dockerfile \
+            -t "$IMAGE:$tag" -t "$IMAGE:${GITHUB_REF_NAME//\//-}" --push .
+          echo "pushed $IMAGE:$tag" >> "$GITHUB_STEP_SUMMARY"
