@@ -4020,7 +4020,7 @@ class Window(QMainWindow):
         self.sep_job.signals.progress.connect(self._sep_progress)
         self.sep_job.signals.done.connect(self._separated)
         self.sep_job.signals.failed.connect(self._sep_failed)
-        self.sep_started = None
+        self.sep_started, self.sep_stage = None, None
         self.show_busy(_("Разделяю на дорожки"), _(BUSY_WHY["separation"]), None, _("Готовлю модель…"))
         self.dock_timer.start()
         self.wave._place_overlay()
@@ -4037,8 +4037,15 @@ class Window(QMainWindow):
                     pass
         self.hide_busy()
 
-    def _sep_progress(self, _text: str, done: int, total: int):
+    def _sep_progress(self, text: str, done: int, total: int):
+        # The cloud goes through stages (upload, queue, separation, download), each named and counted from zero.
+        local = text == _("Разделение на дорожки")
+        title = _("Разделяю на дорожки") if local else text
+        if text != self.sep_stage:
+            self.sep_stage, self.sep_started = text, None
         if not total:
+            if not local:
+                self.show_busy(title, _(BUSY_WHY["separation"]), None, "", self.busy_docked)
             return
         # Time left from the chunks after the first; the first one carries model loading.
         if self.sep_started is None:
@@ -4047,7 +4054,7 @@ class Window(QMainWindow):
         left = (total - done) * (time.monotonic() - t0) / (done - d0) if done > d0 else None
         rest = (_("осталось ~{m}:{s:02d}", m=int(left // 60), s=int(left % 60)) if left is not None
                 else _("считаю время…"))
-        self.show_busy(_("Разделяю на дорожки"), _(BUSY_WHY["separation"]), done / total, rest, self.busy_docked)
+        self.show_busy(title, _(BUSY_WHY["separation"]), done / total, rest, self.busy_docked)
 
     def _separated(self, result):
         t, full, cached = result
