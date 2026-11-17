@@ -31,6 +31,10 @@ const json = (body: unknown, status = 200) =>
 const fail = (status: number, error: string, extra: object = {}) => json({ error, ...extra }, status);
 const now = () => Math.floor(Date.now() / 1000);
 
+// One line per step of a job in Workers Logs: msg reads as a sentence, the fields can be filtered on.
+const note = (msg: string, fields: Record<string, unknown>) => console.log({ msg, ...fields });
+const mb = (bytes: number) => Math.round(bytes / 1e5) / 10;
+
 async function sha256(text: string): Promise<string> {
   const d = await crypto.subtle.digest("SHA-256", new TextEncoder().encode(text));
   return [...new Uint8Array(d)].map((b) => b.toString(16).padStart(2, "0")).join("");
@@ -112,14 +116,18 @@ async function create(env: Env, t: Token, req: Request) {
       env.DB.prepare(`INSERT INTO jobs (id, token_hash, status, duration_s, created_at, finished_at, song_hash, cached)
                       VALUES (?, ?, 'done', ?, ?, ?, ?, 1)`).bind(id, t.hash, dur, now(), now(), hash),
     ]);
-    console.log({ event: "job", id, user: t.name, status: "cached", song_s: Math.round(dur), overlap });
+    note(`${t.name}: song found in the cache, no upload`, { user: t.name, job: id, song_s: Math.round(dur), overlap });
     return json({ id, status: "done", cached: true, stems: stemLinks(id) }, 201);
   }
+  if (dur > Number(env.MAX_SECONDS)) note(`${t.name}: song too long`, { user: t.name, song_s: Math.round(dur) });
   if (dur > Number(env.MAX_SECONDS)) return fail(413, "song too long", { max_seconds: Number(env.MAX_SECONDS) });
-  if ((await used(env, t)) >= t.monthly_limit) return fail(429, "monthly limit reached", { limit: t.monthly_limit });
+  if ((await used(env, t)) >= t.monthly_limit) {
+    note(`${t.name}: monthly limit reached`, { user: t.name, limit: t.monthly_limit });
+    return fail(429, "monthly limit reached", { limit: t.monthly_limit });
+  }
   await env.DB.prepare(`INSERT INTO jobs (id, token_hash, status, duration_s, created_at, song_hash)
                         VALUES (?, ?, 'uploading', ?, ?, ?)`).bind(id, t.hash, dur, now(), hash).run();
-  console.log({ event: "job", id, user: t.name, status: "uploading", song_s: Math.round(dur), overlap });
+  note(`${t.name}: new song, waiting for the upload`, { user: t.name, job: id, song_s: Math.round(dur), overlap });
   return json({ id, status: "uploading", upload: `/v1/jobs/${id}/input`, max_bytes: MAX_INPUT_BYTES }, 201);
 }
 
@@ -131,6 +139,7 @@ async function upload(env: Env, t: Token, id: string, req: Request) {
   if (!size || size > MAX_INPUT_BYTES) return fail(413, "input must be 1 byte to 120 MB with a Content-Length");
   await env.AUDIO.put(`jobs/${id}/input.flac`, req.body);
   await env.DB.prepare("UPDATE jobs SET input_bytes = ? WHERE id = ?").bind(size, id).run();
+  note(`${t.name}: song uploaded, ${mb(size)} MB`, { user: t.name, job: id, mb: mb(size) });
   return json({ ok: true });
 }
 
@@ -146,6 +155,7 @@ async function start(env: Env, t: Token, id: string) {
   });
   await env.DB.prepare("UPDATE jobs SET status = 'queued', runpod_id = ?, started_at = ? WHERE id = ?")
     .bind(r.id, now(), id).run();
+  note(`${t.name}: sent to RunPod for separation`, { user: t.name, job: id, runpod: r.id });
   return json({ id, status: "queued" }, 202);
 }
 
@@ -163,8 +173,8 @@ async function status(env: Env, t: Token, id: string) {
     .bind(next, ended ? now() : null, r.executionTime ? r.executionTime / 1000 : null, error, id).run();
   if (ended) {
     await purgeInput(env, id);
-    console.log({ event: "job", id, user: t.name, status: next, gpu_s: r.executionTime / 1000 || null,
-                  wait_s: now() - j.started_at, worker: r.workerId ?? null, error });
+    note(`${t.name}: separation ${next === "done" ? "finished" : "failed"}`, { user: t.name, job: id, status: next,
+      gpu_s: r.executionTime / 1000 || null, wait_s: now() - j.started_at, worker: r.workerId ?? null, error });
   }
   if (next === "done") {
     await env.DB.prepare(`INSERT INTO songs (token_hash, song_hash, created_at, accessed_at) VALUES (?, ?, ?, ?)
@@ -181,6 +191,7 @@ async function stem(env: Env, t: Token, id: string, name: string) {
   if (!j || j.status !== "done") return fail(404, "no such job");
   const o = await env.AUDIO.get(stemKey(t.hash, j.song_hash, name));
   if (!o) return fail(404, "no such file");
+  note(`${t.name}: downloaded ${name}`, { user: t.name, job: id, part: name, mb: mb(o.size) });
   return new Response(o.body, { headers: { "content-type": "audio/flac", "content-length": String(o.size) } });
 }
 
@@ -200,6 +211,7 @@ async function workerFile(env: Env, req: Request, url: URL, id: string, name: st
   if (!(await verified(env, req, url))) return fail(403, "bad or expired signature");
   if (req.method === "GET") {
     const o = await env.AUDIO.get(`jobs/${id}/${name}`);
+    if (o) note("RunPod fetched the song", { job: id, mb: mb(o.size) });
     return o ? new Response(o.body, { headers: { "content-length": String(o.size) } }) : fail(404, "no such file");
   }
   const j = await env.DB.prepare("SELECT token_hash, song_hash FROM jobs WHERE id = ?").bind(id)
@@ -208,6 +220,7 @@ async function workerFile(env: Env, req: Request, url: URL, id: string, name: st
   const size = Number(req.headers.get("content-length"));
   if (!size || size > MAX_INPUT_BYTES) return fail(413, "file too large");
   await env.AUDIO.put(stemKey(j.token_hash, j.song_hash, name), req.body);
+  note(`RunPod stored ${name}`, { job: id, part: name, mb: mb(size) });
   return json({ ok: true });
 }
 
@@ -221,7 +234,10 @@ export default {
       }
       if (p[0] !== "v1") return fail(404, "not found");
       const t = await auth(env, req);
-      if (!t) return fail(401, "invalid or revoked key");
+      if (!t) {
+        note("refused: invalid or revoked key", { path: url.pathname });
+        return fail(401, "invalid or revoked key");
+      }
       if (p[1] === "me" && req.method === "GET") return await me(env, t);
       if (p[1] !== "jobs") return fail(404, "not found");
       if (p.length === 2 && req.method === "POST") return await create(env, t, req);
