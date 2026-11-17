@@ -7,14 +7,15 @@ COPY --from=ghcr.io/astral-sh/uv:0.9.5 /uv /usr/local/bin/uv
 WORKDIR /app
 ENV UV_COMPILE_BYTECODE=1 UV_LINK_MODE=copy COUNTIN_ASSETS=/app/models PYTHONUNBUFFERED=1
 
-# Dependencies first, so code changes do not reinstall torch. The GUI and the Mac/Windows backends stay out.
+# Dependencies first, so code changes do not reinstall torch. The GUI and the beat tracker (a git
+# dependency, and the worker only separates) stay out.
 COPY pyproject.toml uv.lock README.md ./
-RUN uv sync --locked --no-dev --no-install-project --no-install-package pyside6-essentials \
+RUN uv sync --locked --no-dev --no-install-project --no-install-package pyside6-essentials --no-install-package beat-this \
     && uv pip install runpod==2.2.1
 
 COPY models/separator /app/models/separator
 COPY src ./src
 COPY runpod/handler.py ./
-RUN uv sync --locked --no-dev --no-install-package pyside6-essentials
+RUN uv sync --locked --no-dev --no-install-package pyside6-essentials --no-install-package beat-this
 
 CMD ["uv", "run", "--no-sync", "python", "handler.py"]
