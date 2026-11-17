@@ -13,6 +13,7 @@ export interface Env {
   SIGNING_KEY: string;
   PUBLIC_URL: string;
   MAX_SECONDS: string;
+  OVERLAP: string;
 }
 
 const STEMS = ["guitar", "vocals", "bass", "drums", "piano"];
@@ -98,8 +99,8 @@ async function me(env: Env, t: Token) {
 async function create(env: Env, t: Token, req: Request) {
   const body = await req.json<{ duration_s?: number; hash?: string }>().catch(() => ({} as Record<string, never>));
   const dur = Number(body.duration_s);
-  const hash = String(body.hash ?? "");
-  if (!(dur > 0) || !HASH.test(hash)) return fail(400, "duration_s and a hex hash are required");
+  if (!(dur > 0) || !HASH.test(String(body.hash ?? ""))) return fail(400, "duration_s and a hex hash are required");
+  const hash = `${body.hash}-o${env.OVERLAP}`; // parts made with another overlap are another song for the cache
   const id = crypto.randomUUID();
   const kept = await env.DB.prepare("SELECT 1 FROM songs WHERE token_hash = ? AND song_hash = ?").bind(t.hash, hash).first();
   if (kept) {
@@ -136,7 +137,7 @@ async function start(env: Env, t: Token, id: string) {
   const outputs: Record<string, string> = {};
   for (const s of STEMS) outputs[s] = await signed(env, "PUT", `/w/${id}/${s}.flac`);
   const r = await runpod(env, "run", {
-    input: { input_url: await signed(env, "GET", `/w/${id}/input.flac`), outputs, stems: STEMS },
+    input: { input_url: await signed(env, "GET", `/w/${id}/input.flac`), outputs, stems: STEMS, overlap: Number(env.OVERLAP) },
   });
   await env.DB.prepare("UPDATE jobs SET status = 'queued', runpod_id = ?, started_at = ? WHERE id = ?")
     .bind(r.id, now(), id).run();

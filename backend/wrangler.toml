@@ -21,6 +21,8 @@ crons = ["17 * * * *"]
 [vars]
 RUNPOD_BASE = "https://api.runpod.ai/v2"
 MAX_SECONDS = "720"
+# Windows per chunk on the GPU: 8 against the app's 2, the parts differ by about -35 dB.
+OVERLAP = "8"
 
 # Secrets (wrangler secret put, or .dev.vars locally):
 # RUNPOD_API_KEY, RUNPOD_ENDPOINT, SIGNING_KEY, PUBLIC_URL

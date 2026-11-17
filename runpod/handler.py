@@ -1,6 +1,6 @@
 """RunPod serverless handler: separate one song into parts.
 
-Input: {"input_url": signed GET of a FLAC, "outputs": {stem: signed PUT}, "stems": [names]}.
+Input: {"input_url": signed GET of a FLAC, "outputs": {stem: signed PUT}, "stems": [names], "overlap": windows per chunk}.
 Output: {"seconds": separation time, "device": "cuda" or "cpu"}. Progress goes out as {"progress": {"done", "total"}}.
 The parts go up as 16-bit FLAC clipped to full scale, the same as the app's own stem cache.
 """
@@ -29,16 +29,17 @@ def put(url: str, data: bytes) -> None:
 def run(job_input: dict, progress=lambda done, total: None) -> dict:
     pcm, sr = sf.read(io.BytesIO(fetch(job_input["input_url"])), dtype="float32", always_2d=True)
     began = time.monotonic()
+    stems.OVERLAP = int(job_input.get("overlap", stems.OVERLAP))  # the GPU affords more overlap than a laptop
     parts = stems.separate(pcm, sr, progress, only=tuple(job_input["stems"]))
     seconds = round(time.monotonic() - began, 1)
-    print(f"separated {len(pcm) / sr:.0f} s of audio in {seconds} s on {stems._device()}", flush=True)
+    print(f"separated {len(pcm) / sr:.0f} s of audio in {seconds} s on {stems._device()}, overlap {stems.OVERLAP}", flush=True)
     for name, x in parts.items():
         if name not in job_input.get("outputs", {}):  # a speed test sends no outputs
             continue
         buf = io.BytesIO()
         sf.write(buf, np.clip(x, -1.0, 1.0), sr, format="FLAC", subtype="PCM_16")
         put(job_input["outputs"][name], buf.getvalue())
-    return {"seconds": seconds, "device": stems._device()}
+    return {"seconds": seconds, "device": stems._device(), "overlap": stems.OVERLAP}
 
 
 def handler(job: dict) -> dict:
