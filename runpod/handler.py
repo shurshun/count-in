@@ -31,7 +31,10 @@ def run(job_input: dict, progress=lambda done, total: None) -> dict:
     began = time.monotonic()
     parts = stems.separate(pcm, sr, progress, only=tuple(job_input["stems"]))
     seconds = round(time.monotonic() - began, 1)
+    print(f"separated {len(pcm) / sr:.0f} s of audio in {seconds} s on {stems._device()}", flush=True)
     for name, x in parts.items():
+        if name not in job_input.get("outputs", {}):  # a speed test sends no outputs
+            continue
         buf = io.BytesIO()
         sf.write(buf, np.clip(x, -1.0, 1.0), sr, format="FLAC", subtype="PCM_16")
         put(job_input["outputs"][name], buf.getvalue())
