@@ -846,3 +846,18 @@ def test_changes_newest_first_and_since():
     assert [r[0] for r in changes.since("0.8.2", "0.9.1")] == ["0.9.1"]
     assert changes.since("0.10.0", "0.10.0rc1") == []
     assert changes.rich("**a<b** c") == "<b>a&lt;b</b> c"
+def test_eq_match_brings_one_spectrum_to_the_other():
+    from countin.core import eqmatch
+
+    sr = 44100
+    rng = np.random.default_rng(1)
+    noise = lambda: rng.standard_normal(sr * 4) * 0.1
+    gaps = np.repeat(rng.random(16) > 0.3, sr // 4)  # the original guitar rests in a third of the song
+    true = [eqmatch.Move(250, 5.0, 1.0), eqmatch.Move(2500, -4.0, 1.4), eqmatch.Move(6000, 3.0, 0.8)]
+    target = eqmatch.apply(noise(), sr, true, level_db=-6.0) * gaps
+    source = noise()
+    moves, level = eqmatch.match(source, target, sr)
+    assert 1 <= len(moves) <= 6 and all(abs(m.gain_db) <= 6 for m in moves)
+    assert abs(level + 6.0) < 1.0
+    left = eqmatch.bands(target, sr) - eqmatch.bands(eqmatch.apply(source, sr, moves, level), sr)
+    assert np.abs(left).max() < 1.5
