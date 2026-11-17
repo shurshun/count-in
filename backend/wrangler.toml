@@ -1,4 +1,5 @@
 name = "count-in-api"
+account_id = "ae7a145014f74c55a18cfff734ae8896"
 main = "src/index.ts"
 compatibility_date = "2026-10-01"
 
@@ -8,7 +9,7 @@ routes = [{ pattern = "api.count-in.app", custom_domain = true }]
 [[d1_databases]]
 binding = "DB"
 database_name = "count-in"
-database_id = "00000000-0000-0000-0000-000000000000"  # set after `wrangler d1 create count-in`
+database_id = "cba615f3-3657-4ec4-9685-148ddbccd6c5"
 
 [[r2_buckets]]
 binding = "AUDIO"

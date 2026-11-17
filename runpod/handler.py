@@ -15,13 +15,17 @@ import soundfile as sf
 from countin.core import stems
 
 
+# Cloudflare's bot check answers Python's default User-Agent with 403.
+UA = {"User-Agent": "Count-In-Worker"}
+
+
 def fetch(url: str) -> bytes:
-    with urllib.request.urlopen(url, timeout=300) as r:
+    with urllib.request.urlopen(urllib.request.Request(url, headers=UA), timeout=300) as r:
         return r.read()
 
 
 def put(url: str, data: bytes) -> None:
-    req = urllib.request.Request(url, data=data, method="PUT", headers={"content-type": "audio/flac"})
+    req = urllib.request.Request(url, data=data, method="PUT", headers={"content-type": "audio/flac", **UA})
     with urllib.request.urlopen(req, timeout=300) as r:
         r.read()
 
