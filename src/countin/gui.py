@@ -653,13 +653,16 @@ class Player:
 
         self.stop()
         self.base, self.stems, self.sr, self.pos, self.done = base, stems, sr, max(0, start), False
+        self.dry = self.bad = 0
 
         # A large buffer keeps audio smooth while the GUI thread holds the interpreter.
         self.stream = sd.OutputStream(samplerate=sr, channels=base.shape[1], dtype="float32",
                                       blocksize=2048, latency="high", callback=self._fill)
         self.stream.start()
 
-    def _fill(self, out, frames, _time, _status):
+    def _fill(self, out, frames, _time, status):
+        if status.output_underflow:
+            self.dry += 1
         a = self.pos
         b = min(a + frames, len(self.base))
         x = self.base[a:b].copy()
@@ -668,6 +671,9 @@ class Player:
             if g != 1.0:
                 x -= (1.0 - g) * st[a:b]
         x *= self.volume
+        if not np.isfinite(x).all():  # one NaN makes Core Audio click and fall silent for the rest of the stream
+            self.bad += 1
+            np.nan_to_num(x, copy=False, nan=0.0, posinf=1.0, neginf=-1.0)
         np.clip(x, -1.0, 1.0, out=x)
         out[: b - a] = x
         out[b - a :] = 0
@@ -685,6 +691,8 @@ class Player:
             self.stream.stop()
             self.stream.close()
             self.stream = None
+            if self.dry or self.bad:
+                log.warning("preview audio ran dry in %d blocks, %d blocks had NaN or inf", self.dry, self.bad)
 
 
 # --- widgets ---
@@ -3285,7 +3293,7 @@ class Window(QMainWindow):
         if not ensure_assets(self):
             self.status.setText(_("Без моделей трек не разобрать"))
             return
-        if not self.models_warm:
+        if not self.models_warm and not cloud_on():  # with the cloud the local model only starts when the cloud fails
             self.models_warm = True
             warm_models()
         self._reset_track()
