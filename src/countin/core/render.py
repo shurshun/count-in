@@ -230,6 +230,30 @@ def stretch_many(parts: list[np.ndarray], sr: int, speed: float, semis: float = 
         return [stretch(x, sr, speed, semis) for x in parts]
 
 
+def safe_volume_db(pcm: np.ndarray, sr: int, clicks: list[Click], samples: tuple[np.ndarray, np.ndarray],
+                   ceiling_db: float = -1.0, top_db: float = 0.0) -> float:
+    """The loudest click volume, at most top_db, that keeps song plus clicks under ceiling_db.
+
+    Song samples already over the ceiling get skipped: the song is never touched, only the clicks get quieter.
+    Clicks before the song start land in silence. Speed is ignored, stretching keeps the peaks about where they are.
+    """
+    c_lin = 10 ** (ceiling_db / 20)
+    g = 10 ** (top_db / 20)
+    for c in clicks:
+        pair = samples if c.voice == "stick" else voice_samples(c.voice, sr)
+        x = (pair[0] if c.accent else pair[1]) * c.gain
+        s = int(round(c.time * sr))
+        y = np.zeros((len(x), pcm.shape[1]), dtype=np.float32)
+        a, b = max(0, s), min(len(pcm), s + len(x))
+        if b > a:
+            y[a - s:b - s] = pcm[a:b]
+        xs = x[:, None] * np.ones((1, pcm.shape[1]))
+        m = (np.abs(xs) > 1e-4) & (np.abs(y) <= c_lin)
+        if m.any():
+            g = min(g, float(((c_lin - np.sign(xs) * y)[m] / np.abs(xs)[m]).min()))
+    return 20 * np.log10(max(g, 1e-6))
+
+
 def render(pcm: np.ndarray, sr: int, clicks: list[Click], first_downbeat: float,
            pre_roll: str = "keep", volume_db: float = 0.0,
            samples: tuple[np.ndarray, np.ndarray] | None = None, speed: float = 1.0, semis: float = 0.0) -> Rendered:
