@@ -1,0 +1,51 @@
+"""RunPod serverless handler: separate one song into parts.
+
+Input: {"input_url": signed GET of a FLAC, "outputs": {stem: signed PUT}, "stems": [names]}.
+Output: {"seconds": separation time, "device": "cuda" or "cpu"}. Progress goes out as {"progress": {"done", "total"}}.
+The parts go up as 16-bit FLAC clipped to full scale, the same as the app's own stem cache.
+"""
+
+import io
+import time
+import urllib.request
+
+import numpy as np
+import soundfile as sf
+
+from countin.core import stems
+
+
+def fetch(url: str) -> bytes:
+    with urllib.request.urlopen(url, timeout=300) as r:
+        return r.read()
+
+
+def put(url: str, data: bytes) -> None:
+    req = urllib.request.Request(url, data=data, method="PUT", headers={"content-type": "audio/flac"})
+    with urllib.request.urlopen(req, timeout=300) as r:
+        r.read()
+
+
+def run(job_input: dict, progress=lambda done, total: None) -> dict:
+    pcm, sr = sf.read(io.BytesIO(fetch(job_input["input_url"])), dtype="float32", always_2d=True)
+    began = time.monotonic()
+    parts = stems.separate(pcm, sr, progress, only=tuple(job_input["stems"]))
+    seconds = round(time.monotonic() - began, 1)
+    for name, x in parts.items():
+        buf = io.BytesIO()
+        sf.write(buf, np.clip(x, -1.0, 1.0), sr, format="FLAC", subtype="PCM_16")
+        put(job_input["outputs"][name], buf.getvalue())
+    return {"seconds": seconds, "device": stems._device()}
+
+
+def handler(job: dict) -> dict:
+    import runpod
+
+    return run(job["input"], lambda d, n: runpod.serverless.progress_update(job, {"progress": {"done": d, "total": n}}))
+
+
+if __name__ == "__main__":
+    import runpod
+
+    stems._model()  # load the weights before the first job, while the worker starts
+    runpod.serverless.start({"handler": handler})

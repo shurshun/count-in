@@ -1,0 +1,14 @@
+{
+  "name": "count-in-api",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "dev": "wrangler dev --local",
+    "db:init": "wrangler d1 execute count-in --local --file schema.sql",
+    "token": "node scripts/token.mjs"
+  },
+  "devDependencies": {
+    "@cloudflare/workers-types": "4.20261001.0",
+    "wrangler": "4.129.0"
+  }
+}

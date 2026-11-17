@@ -1,0 +1,26 @@
+name = "count-in-api"
+main = "src/index.ts"
+compatibility_date = "2026-10-01"
+
+# Production route, used only by `wrangler deploy`.
+routes = [{ pattern = "api.count-in.app", custom_domain = true }]
+
+[[d1_databases]]
+binding = "DB"
+database_name = "count-in"
+database_id = "00000000-0000-0000-0000-000000000000"  # set after `wrangler d1 create count-in`
+
+[[r2_buckets]]
+binding = "AUDIO"
+bucket_name = "count-in-audio"
+
+# Songs and parts live at most a day; the R2 lifecycle rule does the same in production.
+[triggers]
+crons = ["17 * * * *"]
+
+[vars]
+RUNPOD_BASE = "https://api.runpod.ai/v2"
+MAX_SECONDS = "720"
+
+# Secrets (wrangler secret put, or .dev.vars locally):
+# RUNPOD_API_KEY, RUNPOD_ENDPOINT, SIGNING_KEY, PUBLIC_URL
