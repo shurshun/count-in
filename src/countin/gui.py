@@ -120,6 +120,7 @@ QPushButton#tool:disabled { color: gray; }
 QPushButton#small { border: 1px solid rgba(127,127,127,0.3); border-radius: 6px; padding: 2px 8px;
                     background: rgba(127,127,127,0.06); min-width: 26px; }
 QSlider::groove:horizontal { height: 4px; background: rgba(127,127,127,0.3); border-radius: 2px; }
+QCheckBox#rowCheck { margin-left: 2px; }  /* the box lines up with the row icons above */
 QSlider::sub-page:horizontal { background: @ACCENT@; border-radius: 2px; }
 QSlider::handle:horizontal { width: 16px; height: 16px; margin: -6px 0; border-radius: 8px;
                              background: white; border: 1px solid rgba(0,0,0,0.25); }
@@ -2933,13 +2934,9 @@ class Window(QMainWindow):
         self.fill = QCheckBox(_("Заполнять паузы хай-хэтом"), checked=pref_bool(FILL_KEY, True))
         self.fill.setToolTip(_("Такты, где без убранных дорожек тихо, получают хай-хэт на каждую долю. "
                                "Правый щелчок по паузе убирает её, рядом с паузой добавляет такт, края паузы тянутся мышью."))
-        h = QHBoxLayout()
-        h.setSpacing(8)
-        for w in (self.fill,):
-            h.addWidget(w)
-        h.addStretch()
-        g.addLayout(h, g.rowCount(), 0, 1, 2)
-        self.fill_build = QCheckBox(_("Нарастание к концу паузы"), checked=pref_bool(FILL_BUILD_KEY, True))
+        self.fill.setObjectName("rowCheck")
+        g.addWidget(self.fill, g.rowCount(), 0, 1, 2, Qt.AlignLeft | Qt.AlignVCenter)
+        self.fill_build = QCheckBox(_("Нарастание к концу паузы"), checked=pref_bool(FILL_BUILD_KEY, True), objectName="rowCheck")
         self.fill_build.setToolTip(_("Последний такт паузы ведёт к вступлению: вторая половина такта звучит восьмыми, "
                                      "последние три удара громче, как в отсчёте «Нарастание»."))
         self.fill_build.toggled.connect(lambda on: QSettings().setValue(FILL_BUILD_KEY, on))
@@ -2954,7 +2951,7 @@ class Window(QMainWindow):
                                     "На волне этот уровень показан пунктиром."))
         self.threshold_l = QLabel(minimumWidth=80)
         row(g, icon_label("threshold", _("Порог тишины")), self.threshold, self.threshold_l)
-        self.trim = QCheckBox(_("Обрезать тишину в начале"))
+        self.trim = QCheckBox(_("Обрезать тишину в начале"), objectName="rowCheck")
         g.addWidget(self.trim, g.rowCount(), 0, 1, 2, Qt.AlignLeft | Qt.AlignVCenter)
 
         for w in (self.volume, *self.parts.values()):
@@ -4072,7 +4069,8 @@ def main() -> int:
     app.setFont(font)
     app.setStyleSheet(style_sheet(app))
     w = app.window = Window()
-    w.open_files([Path(a) for a in sys.argv[1:]])
+    # Only real files: the system may pass its own arguments at launch, and those are no reason for an error.
+    w.open_files([p for p in map(Path, sys.argv[1:]) if p.is_file()])
     w.showMaximized()
 
     # CI smoke test: start, show the window, quit; a missing bundled icon fails it.
