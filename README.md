@@ -76,6 +76,10 @@ On start, the app checks GitHub for a newer version and downloads it in the back
 
 The app updates itself only from a folder it can write to. Run from Downloads on macOS without moving it, or from a protected folder, the badge opens the download page instead.
 
+### Reporting a problem
+
+Help → Report a Problem… sends your description to the author. You choose whether details about the computer and the app log go with it; no audio is sent, though the log may name the songs you opened.
+
 ---
 
 ## Development
@@ -219,6 +223,10 @@ Count-In находит темп и первую сильную долю пес�
 При запуске приложение проверяет, нет ли новой версии на GitHub, и в фоне скачивает её, сверяя SHA-256 с релизом. Когда загрузка готова, справа внизу слева от версии появляется круглый голубой значок, а в меню — пункт «Перезапустить и обновить». Если не перезапускать, обновление установится при выходе. «Проверить обновления…» находится в меню приложения на macOS и в меню «Справка» на Windows.
 
 Само обновляется только приложение из папки, куда можно писать. Если на macOS запускать его прямо из «Загрузок», не перенося, или из защищённой папки, значок открывает страницу загрузки.
+
+#### Сообщить о проблеме
+
+«Справка → Сообщить о проблеме…» отправляет автору ваше описание. Вы сами решаете, приложить ли сведения о компьютере и журнал программы; звук не уходит, а в журнале могут быть названия открытых песен.
 
 ---
 

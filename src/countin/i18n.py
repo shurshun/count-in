@@ -104,6 +104,8 @@ EN = {
     "Разделение": "Separation",
     "Последнее разделение": "Last separation",
     "Сообщить о проблеме": "Report a Problem",
+    "Если что-то пошло не так": "If something goes wrong",
+    "«Справка → Сообщить о проблеме…» отправляет автору ваше описание. По желанию к нему прилагаются сведения о компьютере и журнал программы, звук не уходит, а в журнале могут быть названия открытых песен.": "Help → Report a Problem… sends your description to the author. If you agree, details about the computer and the app log go with it; no audio is sent, though the log may name the songs you opened.",
     "Сообщить о проблеме…": "Report a Problem…",
     "Что случилось? Что вы делали перед этим?": "What happened? What were you doing just before?",
     "Например: после нажатия «Сохранить» программа зависла на 40%": "For example: after pressing Save the app froze at 40%",
