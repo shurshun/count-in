@@ -62,7 +62,7 @@ function monthStart(): number {
 }
 
 async function used(env: Env, t: Token): Promise<number> {
-  const r = await env.DB.prepare("SELECT COUNT(*) AS n FROM jobs WHERE token_hash = ? AND started_at >= ?")
+  const r = await env.DB.prepare("SELECT COUNT(*) AS n FROM jobs WHERE token_hash = ? AND started_at >= ? AND status != 'failed'")
     .bind(t.hash, monthStart()).first<{ n: number }>();
   return r?.n ?? 0;
 }
