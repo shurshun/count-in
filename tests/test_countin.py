@@ -776,3 +776,21 @@ def test_clicks_turn_down_to_fit_a_loud_song_and_leave_it_untouched():
     assert r.pcm[a, 0] == pytest.approx(rd.CEILING)  # turned down to the ceiling
     assert r.pcm[b, 0] == pytest.approx(rd.CEILING)  # 1.0 over silence is above the ceiling too
     assert r.pcm[a + 20, 0] == pytest.approx(0.5)  # the song itself stays as it was
+
+
+def test_player_loops_mixes_offset_stems_and_live_clicks():
+    from types import SimpleNamespace
+    from countin.gui import Player
+
+    base = np.arange(20, dtype=np.float32)[:, None] / 100
+    stem = np.full((5, 1), 0.01, dtype=np.float32)
+    pl = Player()
+    pl.src, pl.sr, pl.gains = (base, {"guitar": (stem, 4)}), 10, {"guitar": 0.0}
+    pl.dry = pl.bad = 0
+    pl.loop, pl.pos = (2, 8), 6
+    pl.ticks = [(7, np.array([0.5], dtype=np.float32))]
+    out = np.zeros((6, 1), dtype=np.float32)
+    pl._fill(out, 6, None, SimpleNamespace(output_underflow=False))
+    # 6 and 7 (muted stem sits at 4..8, click at 7), then back to the loop start: 2, 3, 4, 5
+    assert out[:, 0] == pytest.approx([0.05, 0.56, 0.02, 0.03, 0.03, 0.04])
+    assert pl.pos == 6 and pl.ticks == []  # a wrap drops the lead-in clicks

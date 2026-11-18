@@ -12,10 +12,10 @@ from pathlib import Path
 
 import numpy as np
 from PySide6.QtCore import QEvent, QLocale, QObject, QSettings, QStandardPaths, QUrl, QPointF, QRectF, QRunnable, QSize, Qt, QThreadPool, QTimer, Signal
-from PySide6.QtGui import QAction, QDesktopServices, QFont, QIcon, QImage, QKeySequence, QColor, QPainter, QPainterPath, QPen, QPalette, QPixmap, QPolygonF
+from PySide6.QtGui import QAction, QCursor, QDesktopServices, QFont, QIcon, QImage, QKeySequence, QColor, QPainter, QPainterPath, QPen, QPalette, QPixmap, QPolygonF
 from PySide6.QtWidgets import (
     QAbstractSpinBox, QApplication, QButtonGroup, QCheckBox, QComboBox, QDialog, QDoubleSpinBox, QFileDialog, QFrame,
-    QGridLayout, QHBoxLayout, QLabel, QLayout, QLineEdit, QPlainTextEdit, QMainWindow, QMessageBox, QProgressBar, QPushButton, QRadioButton, QScrollArea,
+    QGridLayout, QHBoxLayout, QLabel, QLayout, QLineEdit, QMenu, QPlainTextEdit, QMainWindow, QMessageBox, QProgressBar, QPushButton, QRadioButton, QScrollArea,
     QGraphicsDropShadowEffect, QSlider, QSpinBox, QStackedWidget, QStatusBar, QVBoxLayout, QWidget,
 )
 
@@ -486,21 +486,23 @@ def _covers(cached, i0: int, i1: int) -> bool:
 
 def preview_job(job: Job, track: Track, s: Settings, pcm: np.ndarray, sr: int, cached, separate: bool,
                 at: float | None = None):
-    """From the count-in, or from song time `at` (play from here), to the song end, with stems kept apart so the
-    player can mix them live, rendered at s.speed. Only when the parts have yet to be separated for it, it stops
-    PREVIEW_AFTER seconds after the downbeat or PREVIEW_FROM seconds after `at`.
+    """The whole song from the count-in, with stems kept apart so the player can mix them live, rendered at
+    s.speed; the player then jumps anywhere in it at once. Only when the parts have yet to be separated for it,
+    it runs from song time `at` (or the count-in) and stops PREVIEW_FROM seconds after `at` (PREVIEW_AFTER after
+    the downbeat).
 
-    Returns (song with clicks, {stem: aligned array}, sr, original-song time of the first sample, new stem cache,
-    clipped samples). Output time runs at s.speed: song time = start + output time * speed.
+    Returns (song with clicks, {stem: (array, output offset)}, sr, original-song time of the first sample, new
+    stem cache, clipped samples). Output time runs at s.speed: song time = start + output time * speed.
     """
     clicks = clicks_for(track, s)
     dur = len(pcm) / sr
-    first = min(c.time for c in clicks) if at is None else at
-    i0 = int(max(0.0, first - 0.5) * sr)
-    if not separate or _covers(cached, i0, len(pcm)):
-        end = dur
+    count_in = min(c.time for c in clicks)
+    if not separate or _covers(cached, int(max(0.0, min(count_in, at or count_in) - 0.5) * sr), len(pcm)):
+        first, end = min(count_in, at if at is not None else count_in), dur
     else:
+        first = count_in if at is None else at
         end = track.t0 + PREVIEW_AFTER if at is None else at + PREVIEW_FROM
+    i0 = int(max(0.0, first - 0.5) * sr)
     i1 = int(min(end, dur) * sr)
     part, new_cache = None, None
     if _covers(cached, i0, i1):
@@ -526,15 +528,9 @@ def preview_job(job: Job, track: Track, s: Settings, pcm: np.ndarray, sr: int, c
     r = rd.render(song, sr, win, 0.0, "keep", s.volume_db, rd.load_samples(sr))
     base = r.pcm
 
-    # Stems go to the same output positions as the song samples they came from.
-    aligned = {}
+    # Stems play at the output positions of the song samples they came from.
     a = int(round(r.offset * sr))
-    for k, v in part.items():
-        z = np.zeros_like(base)
-        lo, hi = max(a, 0), min(a + len(v), len(base))
-        z[lo:hi] = v[lo - a : hi - a]
-        aligned[k] = z
-    return track, base, aligned, sr, lo_t - r.offset * s.speed, new_cache, r.clipped
+    return track, base, {k: (v, a) for k, v in part.items()}, sr, lo_t - r.offset * s.speed, new_cache, r.clipped
 
 
 def target_path(song: Path, s: Settings, info: io.AudioInfo) -> Path:
@@ -671,22 +667,30 @@ def keep(slider_value: int) -> float:
 
 
 class Player:
-    """Mixes the song and its stems block by block, so stem levels change while it plays."""
+    """Mixes the song and its stems block by block, so stem levels change while it plays. Stems come as
+    (array, offset): stem sample 0 sits at output sample `offset`, so the cache needs no aligned copies."""
 
     streams = 0  # open streams of all players
 
     def __init__(self):
         self.stream = None
+        self.src: tuple[np.ndarray, dict] = (np.zeros((0, 2), np.float32), {})
         self.pos = 0
         self.done = False
         self.gains: dict[str, float] = {}
         self.volume = 1.0  # speaker level only; the saved file never sees it
+        self.loop: tuple[int, int] | None = None  # output samples [start, end) played round
+        self.ticks: list[tuple[int, np.ndarray]] = []  # clicks mixed live: (output sample, mono hit)
 
-    def play(self, base: np.ndarray, stems: dict[str, np.ndarray], sr: int, start: int = 0):
+    def play(self, base: np.ndarray, stems: dict, sr: int, start: int = 0):
+        """Starts playback, or swaps the buffer of a running stream so a rebuilt preview carries on gaplessly."""
         import sounddevice as sd
 
-        self.stop()
-        self.base, self.stems, self.sr, self.pos, self.done = base, stems, sr, max(0, start), False
+        if self.stream is not None and (self.sr, self.src[0].shape[1]) != (sr, base.shape[1]):
+            self.stop()
+        self.src, self.sr, self.pos, self.done, self.ticks = (base, stems), sr, max(0, start), False, []
+        if self.stream is not None:
+            return
         self.dry = self.bad = 0
 
         # PortAudio reads the devices and the system default once; reload them, so a switched or plugged-in
@@ -702,26 +706,42 @@ class Player:
         Player.streams += 1
         self.stream.start()
 
+    def _segment(self, base: np.ndarray, stems: dict, a: int, b: int) -> np.ndarray:
+        x = base[a:b].copy()
+        for k, (st, off) in stems.items():
+            g = self.gains.get(k, 1.0)
+            lo, hi = max(a, off), min(b, off + len(st))
+            if g != 1.0 and lo < hi:
+                x[lo - a : hi - a] -= (1.0 - g) * st[lo - off : hi - off]
+        for p, hit in self.ticks:
+            lo, hi = max(a, p), min(b, p + len(hit))
+            if lo < hi:
+                x[lo - a : hi - a] += hit[lo - p : hi - p, None]
+        return x
+
     def _fill(self, out, frames, _time, status):
         if status.output_underflow:
             self.dry += 1
-        a = self.pos
-        b = min(a + frames, len(self.base))
-        x = self.base[a:b].copy()
-        for k, st in self.stems.items():
-            g = self.gains.get(k, 1.0)
-            if g != 1.0:
-                x -= (1.0 - g) * st[a:b]
+        base, stems = self.src
+        out[:] = 0
+        n = 0
+        while n < frames and not self.done:
+            a, lp = self.pos, self.loop
+            end = lp[1] if lp and a < lp[1] else len(base)
+            b = min(a + frames - n, end, len(base))
+            out[n : n + b - a] = self._segment(base, stems, a, b)
+            n += b - a
+            self.pos = b
+            if lp and b == lp[1]:
+                self.pos, self.ticks = lp[0], []
+            elif b >= len(base):
+                self.done = True
+        x = out[:n]
         x *= self.volume
         if not np.isfinite(x).all():  # one NaN makes Core Audio click and fall silent for the rest of the stream
             self.bad += 1
             np.nan_to_num(x, copy=False, nan=0.0, posinf=1.0, neginf=-1.0)
         np.clip(x, -1.0, 1.0, out=x)
-        out[: b - a] = x
-        out[b - a :] = 0
-        self.pos = b
-        if b >= len(self.base):
-            self.done = True
 
     def position(self) -> float:
         """Seconds heard so far: samples handed to the device minus its output latency."""
@@ -812,6 +832,15 @@ def glyph(kind: str, color: QColor, size: int = 18) -> QIcon:
         lines((4, 9, 14, 9))
     elif kind == "close":
         lines((5, 5, 13, 13), (13, 5, 5, 13))
+    elif kind == "loop":  # two arrows chasing each other round
+        p.setBrush(Qt.NoBrush)
+        p.setPen(QPen(color, 1.8, Qt.SolidLine, Qt.RoundCap))
+        p.drawArc(QRectF(3, 4, 12, 10), 20 * 16, 140 * 16)
+        p.drawArc(QRectF(3, 4, 12, 10), 200 * 16, 140 * 16)
+        p.setPen(Qt.NoPen)
+        p.setBrush(color)
+        p.drawPolygon(QPolygonF([QPointF(1.2, 6.2), QPointF(5.4, 6.2), QPointF(3.3, 9.6)]))
+        p.drawPolygon(QPolygonF([QPointF(16.8, 11.8), QPointF(12.6, 11.8), QPointF(14.7, 8.4)]))
     elif kind == "fit":
         lines((2.5, 9, 15.5, 9), (2.5, 9, 5.5, 6), (2.5, 9, 5.5, 12), (15.5, 9, 12.5, 6), (15.5, 9, 12.5, 12))
     p.end()
@@ -1129,6 +1158,7 @@ class Wave(QWidget):
         self.t0 = None
         self.bars, self.zones, self.fill = [], [], True
         self.sel = None  # bars (first, last) while a span is being dragged
+        self.loop: tuple[float, float, bool] | None = None  # loop start, end and whether it plays round
         self.peak, self.ref_db, self.threshold_db = 1.0, None, None  # for the pause threshold band
         self.threshold_full = False  # band over the whole track while the slider moves
         self.labels: list[tuple[QRectF, int]] = []
@@ -1320,6 +1350,16 @@ class Wave(QWidget):
             f.setBold(True)
             p.setFont(f)
             p.drawText(QRectF(x - 9, 3, 18, 18), Qt.AlignCenter, "1")
+        if self.loop:
+            la, lb, on = self.loop
+            xa, xb = self.x_of(la), self.x_of(lb)
+            band = QColor(accent)
+            band.setAlpha(40 if on else 16)
+            p.fillRect(QRectF(xa, 0, xb - xa, wh), band)
+            band.setAlpha(230 if on else 110)
+            p.setPen(Qt.NoPen)
+            p.setBrush(band)
+            p.drawRect(QRectF(xa, wh - 4, xb - xa, 4))
         if self.sel:
             a, b = self.sel
             xa, xb = self.x_of(self.bars[a].start), self.x_of(self.bars[b].end)
@@ -1825,6 +1865,7 @@ CLOUD_KEY = "cloud/enabled"
 CLOUD_OVERLAP = "cloud/overlap"
 FILL_BUILD_KEY = "fill/buildup"
 CLICK_VOICE_KEY = "click/voice"
+PREROLL_KEY = "click/preroll"
 CLICK_DB_KEY = "click/volume"
 OUTPUT_VOLUME_KEY = "playback/volume"
 DEFAULTS = "defaults/"  # prefix for the settings saved with "Save as default"
@@ -2717,6 +2758,12 @@ class Window(QMainWindow):
         self.play_speed = 1.0  # speed of the preview now playing: song time = start + position * speed
         self.speed = 100  # playback and export speed in percent
         self.resume_at = None  # song time a rebuilt preview carries on from
+        self.preroll = False  # the pending preview starts with a bar of clicks before resume_at
+        self.want_play = False  # a preview job is on its way to the speakers; Stop cancels that
+        self.loop: tuple[float, float] | None = None  # song times played round while loop_on
+        self.loop_on = False
+        self.job_shown = False  # the progress card shows only for jobs that take a while
+        self.show_timer = QTimer(self, singleShot=True, interval=300, timeout=self._show_job)
         self.zones_pending = False  # a pause search waits for the running job
         self.models_warm = False  # the separation model starts loading with the first track
         self.backing_key, self.backing, self.wave_source = None, None, None  # see _update_backing
@@ -2747,14 +2794,19 @@ class Window(QMainWindow):
                 self._play()
                 return True
         front = QApplication.activeWindow()
-        if (e.type() == QEvent.KeyPress and e.key() in (Qt.Key_Left, Qt.Key_Right, Qt.Key_Home)
+        if (e.type() == QEvent.KeyPress and e.key() in (Qt.Key_Left, Qt.Key_Right, Qt.Key_Home, Qt.Key_L)
                 and not e.modifiers() and QApplication.activeModalWidget() is None
                 and QApplication.activePopupWidget() is None
                 and (front in (self, None) or not front.isVisible())  # not while Help is in front
                 and not any(isinstance(x, (QLineEdit, QAbstractSpinBox, QSlider, QComboBox))
                             for x in (obj, QApplication.focusWidget()))):
             # Arrows walk the pauses, Home goes back to the count-in.
-            self._to_start() if e.key() == Qt.Key_Home else self._jump_pause(-1 if e.key() == Qt.Key_Left else 1)
+            if e.key() == Qt.Key_L:
+                self._toggle_loop()
+            elif e.key() == Qt.Key_Home:
+                self._to_start()
+            else:
+                self._jump_pause(-1 if e.key() == Qt.Key_Left else 1)
             return True
         return super().eventFilter(obj, e)
 
@@ -2974,6 +3026,11 @@ class Window(QMainWindow):
                   self.play_b,
                   glyph_button("next", _("Следующая пауза (→)"), lambda: self._jump_pause(1))):
             h.addWidget(b)
+        self.loop_b = glyph_button("loop", _("Играть выделенные такты по кругу (L). Такты выделяются протяжкой с Shift"),
+                                   self._toggle_loop)
+        self.loop_b.setCheckable(True)
+        self.loop_b.setEnabled(False)
+        h.addWidget(self.loop_b)
         h.addSpacing(8)
         lcd = QFrame(objectName="lcd")
         lh = QHBoxLayout(lcd)
@@ -3263,6 +3320,11 @@ class Window(QMainWindow):
         self.click_db.setValue(int(QSettings().value(CLICK_DB_KEY, 0)))
         self.click_db_l = QLabel(minimumWidth=60)
         row(g, _("Громкость клика"), self.click_db, self.click_db_l)
+        self.preroll_cb = QCheckBox(_("Такт отсчёта перед стартом с места"), objectName="rowCheck",
+                                    checked=pref_bool(PREROLL_KEY, True))
+        self.preroll_cb.setToolTip(_("Когда песня играет с курсора или петля начинается заново, перед этим местом звучит такт клика в его темпе."))
+        self.preroll_cb.toggled.connect(lambda on: QSettings().setValue(PREROLL_KEY, on))
+        g.addWidget(self.preroll_cb, g.rowCount(), 0, 1, 2, Qt.AlignLeft | Qt.AlignVCenter)
         self.pattern: Path | None = None
 
         save_b = self._icon_button("save", _("Сохранить эти настройки как настройки по умолчанию"), self._save_defaults)
@@ -3694,7 +3756,7 @@ class Window(QMainWindow):
         # A preview started with all parts as they are has no stems to turn down: rebuild it with them. With
         # the pause fill on, the pause search separates the whole song anyway and rebuilds the preview after,
         # so a second, excerpt-only separation would only cost time.
-        if (self.play_start is not None and not self.player.stems and any(g < 1 for g in self.player.gains.values())
+        if (self.play_start is not None and not self.player.src[1] and any(g < 1 for g in self.player.gains.values())
                 and not (self._filling() and self._full_stems() is None) and not cloud_on()):
             self._restart_preview(separate=True)
 
@@ -3771,13 +3833,19 @@ class Window(QMainWindow):
         self.close_a.setEnabled(self.current is not None)
         self.open_a.setEnabled(not busy)
         self.reveal_a.setEnabled(self.last_saved is not None)
-        self.prog_panel.setVisible(busy)
+        self.prog_panel.setVisible(busy and self.job_shown)
         self._nav_changed()
         self._show_tips()
         self.wave.update()
 
+    def _show_job(self):
+        self.job_shown = self.job is not None
+        self._enable()
+
     def _run(self, fn, *args, on_done):
         self.reveal_b.hide()
+        self.job_shown = False
+        self.show_timer.start()
         self.job = Job(fn, *args)
         self.job.signals.progress.connect(self._progress)
         self.job.signals.done.connect(on_done)
@@ -3839,6 +3907,8 @@ class Window(QMainWindow):
         self.current, self.pcm, self.info, self.stem_cache, self.last_saved = None, None, None, None, None
         self.resume_at, self.zones_pending = None, False
         self.wave.play_t, self.wave.current_zone, self.wave.hover_edge = None, None, None
+        self.loop, self.loop_on = None, False
+        self._apply_loop()
         self._cancel_separation()
         self.backing_key, self.backing, self.wave_source = None, None, None
         self.wave.env, self.wave.t0, self.wave.beats, self.wave.downs, self.wave.clicks = None, None, [], [], []
@@ -3882,16 +3952,19 @@ class Window(QMainWindow):
             return
         if self.job or not (self.current and self.current.analysis and self.pcm is not None):
             return
+        if self.loop_on and self.loop:
+            return self._play_at(self.loop[0], preroll=True)
         if self.wave.play_t is not None:
-            return self._play_at(self.wave.play_t)
+            return self._play_at(self.wave.play_t, preroll=True)
         s = self.settings()
+        self.want_play = True
         self._run(preview_job, self.current, s, self.pcm, self.sr, self.stem_cache, self._separate_now(s),
                   on_done=self._preview_ready)
 
     def _preview_ready(self, result):
         self._finish()
         track, base, stems, sr, start, new_cache, clipped = result
-        if track is not self.current:
+        if track is not self.current or not self.want_play:
             return
         if new_cache:
             self.stem_cache = new_cache
@@ -3900,15 +3973,17 @@ class Window(QMainWindow):
                             else ""))
         self._gains()
         resume, self.resume_at = self.resume_at, None
+        preroll, self.preroll = self.preroll, False
         try:
-            speed = self.settings().speed
-            self.player.play(base, stems, sr, int((resume - start) / speed * sr) if resume is not None else 0)
-            self.play_speed = speed
+            self.player.play(base, stems, sr)
         except Exception as e:  # no output device, unsupported channel count
             log.exception("audio output failed")
             self.status.setText(_("Не удалось воспроизвести: {e}", e=e))
             return
-        self.play_start = start
+        self.play_start, self.play_speed = start, self.settings().speed
+        if resume is not None:
+            self._jump(resume, preroll)
+        self._apply_loop()
         self.play_timer.start()
         self._enable()
 
@@ -3927,6 +4002,7 @@ class Window(QMainWindow):
         w.update()
 
     def _stop(self):
+        self.want_play = False
         if self.play_start is None:
             return
         self.player.stop()
@@ -4274,10 +4350,25 @@ class Window(QMainWindow):
             self._restart_preview()
 
     def _span_selected(self, first: int, last: int):
-        """A dragged span becomes a pause (replacing the ones it overlaps); its tempo and meter open at once."""
+        """A dragged span plays round as a loop or becomes a pause."""
         t = self.current
         if not (t and t.bars):
             return
+        menu = QMenu(self)
+        loop = menu.addAction(_("Играть по кругу"))
+        pause = menu.addAction(_("Сделать паузой с хай-хэтом"))
+        chosen = menu.exec(QCursor.pos())
+        if chosen is loop:
+            self.loop, self.loop_on = (t.bars[first].start, t.bars[last].end), True
+            self._apply_loop()
+            if self.play_start is None or not self.loop[0] <= self.wave.cursor_t < self.loop[1]:
+                self._play_at(self.loop[0], preroll=True) if self.play_start is not None else self._play()
+        elif chosen is pause:
+            self._make_pause(first, last)
+
+    def _make_pause(self, first: int, last: int):
+        """A span becomes a pause (replacing the ones it overlaps); its tempo and meter open at once."""
+        t = self.current
         self.click_all.setChecked(False)
         if not self.fill.isChecked():
             self.fill.setChecked(True)
@@ -4323,7 +4414,7 @@ class Window(QMainWindow):
         if self.play_start is None or self.job:
             return
         self.resume_at = self.play_start + self.player.position() * self.play_speed
-        self._stop()
+        self.preroll, self.want_play = False, True  # the old buffer plays on until the new one replaces it
         s = self.settings()
         self._run(preview_job, self.current, s, self.pcm, self.sr, self.stem_cache, separate or bool(s.levels),
                   max(0.0, self.resume_at - 0.5), on_done=self._preview_ready)
@@ -4341,14 +4432,58 @@ class Window(QMainWindow):
         if self.play_start is not None and self.wave.play_t is not None:
             self._play_at(self.wave.play_t)
 
-    def _play_at(self, start: float):
-        """Plays from the song time start."""
+    def _play_at(self, start: float, preroll: bool = False):
+        """Plays from the song time start, at once when the playing buffer holds it; with preroll a bar of
+        clicks in the local tempo leads in."""
         if self.job or not (self.current and self.current.analysis and self.pcm is not None):
             return
+        if self.play_start is not None and self._jump(start, preroll):
+            return
         self._stop()
+        self.resume_at, self.preroll, self.want_play = start, preroll, True
         s = self.settings()
         self._run(preview_job, self.current, s, self.pcm, self.sr, self.stem_cache, self._separate_now(s), start,
                   on_done=self._preview_ready)
+
+    def _out(self, t: float) -> int:
+        """Output sample of song time t in the playing buffer."""
+        return int(round((t - self.play_start) / self.play_speed * self.player.sr))
+
+    def _jump(self, t: float, preroll: bool = False) -> bool:
+        """Moves playback to song time t inside the playing buffer; False when the buffer does not hold it."""
+        i = self._out(t)
+        if not 0 <= i < len(self.player.src[0]):
+            return False
+        ticks = []
+        if preroll and self.preroll_cb.isChecked() and self.current.bars:
+            bars = self.current.bars
+            bar = min(bars, key=lambda b: abs(b.start - t) if b.start <= t + 0.05 else 1e9)
+            n, period = rd.METERS[self.meter_seg.value()][0], bar.period
+            lead = [t - k * period for k in range(n, 0, -1)]
+            if self._out(lead[0]) >= 0:
+                hi, lo = rd.load_samples(self.player.sr)
+                g = 10 ** (self.volume.value() / 20)
+                ticks = [(self._out(b), (hi if k == 0 else lo) * g) for k, b in enumerate(lead)]
+                i = ticks[0][0]
+        self.player.ticks, self.player.pos, self.player.done = ticks, i, False
+        return True
+
+    def _apply_loop(self):
+        playing = self.play_start is not None
+        self.player.loop = ((self._out(self.loop[0]), self._out(self.loop[1]))
+                            if playing and self.loop_on and self.loop else None)
+        self.wave.loop = (*self.loop, self.loop_on) if self.loop else None
+        self.loop_b.setChecked(self.loop_on)
+        self.loop_b.setEnabled(self.loop is not None)
+        self.wave.update()
+
+    def _toggle_loop(self):
+        if not self.loop:
+            return
+        self.loop_on = not self.loop_on
+        self._apply_loop()
+        if self.loop_on and self.play_start is not None and not self.loop[0] <= self.wave.cursor_t < self.loop[1]:
+            self._play_at(self.loop[0], preroll=True)
 
     def _separate_now(self, s) -> bool:
         """Whether a preview separates its own excerpt: whenever a part is turned down. During the whole-song
