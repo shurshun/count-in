@@ -2891,6 +2891,10 @@ class Window(QMainWindow):
         self.show_timer = QTimer(self, singleShot=True, interval=300, timeout=self._show_job)
         self.song_timer = QTimer(self, singleShot=True, interval=800, timeout=self._save_song)
         self.restoring = False  # a remembered song is being applied; nothing to save yet
+        self.undo_stack: list = []  # earlier states of the track's edits (_edit_state), newest last
+        self.redo_stack: list = []
+        self.undo_base = None  # the state the next edit gets compared with
+        self.undo_timer = QTimer(self, singleShot=True, interval=600, timeout=self._snap_undo)  # a drag is one step
         self.zones_pending = False  # a pause search waits for the running job
         self.models_warm = False  # the separation model starts loading with the first track
         self.backing_key, self.wave_source = None, None  # see _update_backing
@@ -2963,6 +2967,10 @@ class Window(QMainWindow):
         quit_a.setMenuRole(QAction.QuitRole)  # macOS moves it into the app menu
 
         # The keys after a tab show in the menu; the window's event filter handles them, so text fields keep them.
+        edit = mb.addMenu(_("Правка"))
+        edit.addAction(_("Отменить"), QKeySequence.Undo, self._undo)
+        edit.addAction(_("Повторить"), QKeySequence.Redo, lambda: self._undo(redo=True))
+
         play = mb.addMenu(_("Воспроизведение"))
         self.play_a = play.addAction(_("Прослушать / Стоп") + "\t" + _("Пробел"), self._play)
         play.addAction(_("К отсчёту") + "\tHome", self._to_start)
@@ -3931,6 +3939,7 @@ class Window(QMainWindow):
         self.alt_b.setVisible(a.alt_downbeat is not None)
         self._restore_song(t)
         self.wave.markers = t.markers
+        self.undo_stack, self.redo_stack, self.undo_base = [], [], self._edit_state()
         self._show_track_values()
         bar = 60.0 / t.bpm * rd.METERS[self.meter_seg.value()][0]
         self.wave.show_range(t.t0 - bar * self.bars_seg.value() - 1.0, t.t0 + 6.0)
@@ -3959,6 +3968,49 @@ class Window(QMainWindow):
     def _song_changed(self, *_args):
         if self.current and self.current.analysis and not self.restoring:
             self.song_timer.start()
+            self.undo_timer.start()
+
+    def _edit_state(self) -> tuple:
+        """What undo brings back: tempo, the "1", the pauses the user made or edited, removed pauses, markers."""
+        t = self.current
+        return (t.bpm, t.bpm_manual, t.t0, tuple((z.first, z.last, z.bpm, z.beats, z.manual) for z in t.zones or [] if z.kept),
+                frozenset(t.dismissed), tuple(t.markers))
+
+    def _snap_undo(self):
+        if not (self.current and self.current.analysis):
+            return
+        now = self._edit_state()
+        if self.undo_base is not None and now != self.undo_base:
+            self.undo_stack.append(self.undo_base)
+            self.redo_stack.clear()
+        self.undo_base = now
+
+    def _undo(self, redo: bool = False):
+        if self.undo_timer.isActive():
+            self.undo_timer.stop()
+            self._snap_undo()
+        src, dst = (self.redo_stack, self.undo_stack) if redo else (self.undo_stack, self.redo_stack)
+        if not (self.current and src):
+            return
+        dst.append(self.undo_base)
+        self.undo_base = state = src.pop()
+        t = self.current
+        t.bpm, t.bpm_manual, t.t0 = state[0], state[1], state[2]
+        kept = [zn.Zone(a, b, bpm, beats, manual) for a, b, bpm, beats, manual in state[3]]
+        t.dismissed = set(state[4])
+        found = [z for z in t.zones or [] if not z.kept and not any(i in t.dismissed for i in range(z.first, z.last + 1))]
+        t.zones = zn.merge(kept, found)
+        t.covered = _bars_of(t.zones)
+        t.markers = list(state[5])
+        self.wave.markers = t.markers
+        self.restoring = True  # the views below report changes that are this very step
+        try:
+            self._show_track_values()
+            self._refresh()
+        finally:
+            self.restoring = False
+        self.song_timer.start()
+        self._restart_preview()
 
     def _flush_song(self):
         if self.song_timer.isActive():
