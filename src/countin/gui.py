@@ -2465,6 +2465,8 @@ class CloudKeyDialog(QDialog):
     def _remove(self):
         from .core import cloud
 
+        if pref_bool(CLOUD_KEY, False):
+            warm_models()
         cloud.set_key(None)
         QSettings().setValue(CLOUD_KEY, False)
         self.accept()
@@ -2546,7 +2548,7 @@ class PrefsDialog(QDialog):
         v.addWidget(look)
         v.addWidget(cache)
         if cloud_key():
-            box, g4 = card(_("Облачное разделение"))
+            box, g4 = card(_("Ключ Count-In"))
             self.cloud = QCheckBox(_("Разделять песни на сервере Count-In"), checked=pref_bool(CLOUD_KEY, False))
             self.cloud.toggled.connect(self._cloud_toggled)
             g4.addWidget(self.cloud, 0, 0, 1, 2)
@@ -2562,6 +2564,11 @@ class PrefsDialog(QDialog):
             g4.addWidget(self.overlap, 1, 1)
             self.cloud_l = QLabel(_("проверяю ключ…"), objectName="field", wordWrap=True)
             g4.addWidget(self.cloud_l, 2, 0, 1, 2)
+            self.music_l = QLabel(objectName="field", wordWrap=True)
+            g4.addWidget(self.music_l, 3, 0, 1, 2)
+            self.remove_key = QPushButton(_("Удалить ключ"), objectName="small", clicked=self._remove_key)
+            g4.addWidget(self.remove_key, 4, 0, 1, 2, Qt.AlignLeft)
+            self.key_box = box
             v.addWidget(box)
             from .core import cloud
 
@@ -2589,6 +2596,23 @@ class PrefsDialog(QDialog):
     def _cloud_info(self, i: dict):
         self.cloud_l.setText(_("Ключ {name}: {used} из {limit} песен в этом месяце", name=i["name"], used=i["used"],
                                limit=i["limit"]))
+        self.music_l.setText(_("Поиск музыки доступен: кнопка «Поиск музыки…» рядом с «Открыть…». Он работает и "
+                               "при разделении на этом компьютере.") if i.get("music_search")
+                             else _("Поиск музыки для этого ключа не включён."))
+
+    def _remove_key(self):
+        from .core import cloud
+
+        if QMessageBox.question(self, _("Удалить ключ"), _("Удалить ключ Count-In с этого компьютера? Разделение "
+                                "пойдёт на этом компьютере, поиск музыки пропадёт. Вернуть ключ можно, вставив "
+                                "его снова.")) != QMessageBox.StandardButton.Yes:
+            return
+        if pref_bool(CLOUD_KEY, False):
+            warm_models()
+        cloud.set_key(None)
+        QSettings().setValue(CLOUD_KEY, False)
+        self.key_box.hide()
+        self.parent().check_music_access()
 
     def _cloud_refused(self, error: str):
         self.cloud_l.setText(_("Ключ не принят: {e}", e=error))
@@ -2734,6 +2758,11 @@ class Window(QMainWindow):
         mb = self.menuBar()
         file = mb.addMenu(_("Файл"))
         self.open_a = file.addAction(_("Открыть…"), QKeySequence.Open, self._open_dialog)
+        self.music_a = file.addAction(_("Поиск музыки…"), self._open_music)
+        self.music_a.setVisible(False)
+        self.music_token = None
+        self.music_dialog = None
+        self.music_check = None
         self.save_a = file.addAction(_("Сохранить"), QKeySequence.Save, self._save)
         self.close_a = file.addAction(_("Закрыть трек"), QKeySequence.Close, self._close_track)
         self.reveal_a = file.addAction(_("Показать сохранённый файл"), self._reveal)
@@ -2759,7 +2788,7 @@ class Window(QMainWindow):
         help_.addAction(_("Сообщить о проблеме…"), lambda: ReportDialog(self).exec())
 
         # Not in any menu: the cloud key is for people the author gave one to.
-        key_a = QAction(self, shortcut=QKeySequence("Ctrl+Alt+K"), triggered=lambda: CloudKeyDialog(self).exec())
+        key_a = QAction(self, shortcut=QKeySequence("Ctrl+Alt+K"), triggered=self._cloud_key)
         key_a.setShortcutContext(Qt.ApplicationShortcut)
         self.addAction(key_a)
 
@@ -2789,8 +2818,9 @@ class Window(QMainWindow):
         h.addSpacing(16)
         self.open_b = QPushButton(_("Открыть…"), objectName="tool", clicked=self._open_dialog)
         self.save_b = QPushButton(_("Сохранить"), objectName="tool", clicked=self._save, toolTip="⌘S")
+        self.music_b = QPushButton(_("Поиск музыки…"), objectName="tool", clicked=self._open_music, visible=False)
         self.close_b = QPushButton(_("Закрыть"), objectName="tool", clicked=self._close_track, toolTip="⌘W")
-        for b in (self.open_b, self.close_b, self.save_b):  # Play lives in the transport bar under the waveform
+        for b in (self.open_b, self.music_b, self.close_b, self.save_b):  # Play lives in the transport bar under the waveform
             b.setFocusPolicy(Qt.NoFocus)
             h.addWidget(b)
         return head
@@ -3342,6 +3372,54 @@ class Window(QMainWindow):
 
     def _prefs(self):
         PrefsDialog(self).exec()
+        self.check_music_access()
+
+    def _cloud_key(self):
+        CloudKeyDialog(self).exec()
+        self.check_music_access()
+
+    # --- music search: shown once the server confirms the stored key allows it ---
+
+    def check_music_access(self):
+        from .core import cloud
+
+        token = cloud.key()
+        self.music_check = token
+        if not token:
+            self._music_access((None, False))
+            return
+        job = Job(lambda _job: (token, bool(cloud.me(token).get("music_search"))))
+        job.signals.done.connect(self._music_access)
+        job.signals.failed.connect(self._music_refused)
+        self.music_job = job
+        QThreadPool.globalInstance().start(job)
+
+    def _music_access(self, result):
+        token, allowed = result
+        if token != self.music_check:  # a late answer for a key replaced since
+            return
+        self.music_token = token if allowed else None
+        self.music_b.setVisible(allowed)
+        self.music_a.setVisible(allowed)
+
+    def _music_refused(self, _error: str):
+        self._music_access((self.music_check, False))
+
+    def _open_music(self):
+        if not self.music_token or self.job or self.music_dialog is not None:
+            return
+        from .music_dialog import MusicDialog
+
+        # open() rather than exec(): PySide6 crashed closing a nested exec() of this dialog
+        self.music_dialog = MusicDialog(self, self.music_token, Job)
+        self.music_dialog.finished.connect(self._music_closed)
+        self.music_dialog.open()
+
+    def _music_closed(self, result):
+        dialog, self.music_dialog = self.music_dialog, None
+        if result == QDialog.DialogCode.Accepted and dialog.path:
+            self.open_files([dialog.path])
+        dialog.deleteLater()
 
     def _about(self):
         QMessageBox.about(self, _("О программе Count-In"), (
@@ -3716,6 +3794,8 @@ class Window(QMainWindow):
         self.close_b.setEnabled(self.current is not None)
         self.close_a.setEnabled(self.current is not None)
         self.open_a.setEnabled(not busy)
+        self.music_b.setEnabled(not busy)
+        self.music_a.setEnabled(not busy)
         self.reveal_a.setEnabled(self.last_saved is not None)
         self.prog_panel.setVisible(busy)
         self._nav_changed()
@@ -4387,6 +4467,7 @@ def main() -> int:
     else:
         w.check_updates()
         QTimer.singleShot(400, lambda: ensure_assets(w))
+        w.check_music_access()
     return app.exec()
 
 
