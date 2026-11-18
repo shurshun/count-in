@@ -84,7 +84,7 @@ ARROW = '<span class="arrow">→</span>'
 # Install steps per platform: a CSS illustration, then the English and Russian text
 DOWNLOADS = {
     "mac": {
-        "os_short": "Mac", "asset": "Count-In-macos-arm64.zip", "req": "macOS 12+ · Apple Silicon",
+        "os_short": "Mac", "asset": "Count-In-macos-arm64.zip", "req": "macOS 14+ · Apple Silicon",
         "other_os": "Windows", "other_slug": "windows",
         "steps": [
             ('<div class="item"><div class="zip"></div>Count-In-macos-arm64.zip</div>' + ARROW + APP.format("Count-In.app"),

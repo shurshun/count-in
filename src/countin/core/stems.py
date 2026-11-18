@@ -4,6 +4,7 @@ One pass gives a guitar stem that keeps screamed vocals out better than Demucs h
 """
 
 import logging
+import platform
 import threading
 import time
 from functools import lru_cache
@@ -26,7 +27,8 @@ OVERLAP = 2
 def _device():
     import torch
 
-    if torch.backends.mps.is_available():
+    # torch's MPS kernels call macOS 15 APIs; on macOS 14 an Objective-C exception kills the process
+    if torch.backends.mps.is_available() and int(platform.mac_ver()[0].split(".")[0]) >= 15:
         return "mps"
     return "cuda" if torch.cuda.is_available() else "cpu"
 
