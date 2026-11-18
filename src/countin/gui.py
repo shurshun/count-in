@@ -25,6 +25,7 @@ from .help import HELP, TIPS
 from .core import analyze as an
 from .core import io
 from .core import render as rd
+from .core import songs
 from .core import zones as zn
 from .core import assets
 from .core.io import resource
@@ -225,6 +226,8 @@ class Track:
     ref_db: float | None = None  # level of the whole song (zones.level_db)
     covered: set = field(default_factory=set)  # bars under the pauses as last shown
     dismissed: set = field(default_factory=set)  # bars whose pause the user removed; a search never brings them back
+    key: str | None = None  # the file's content hash; what the user set is kept under it (core/songs.py)
+    markers: list = field(default_factory=list)  # (song time, name) of the song's sections
 
 
 @dataclass
@@ -414,6 +417,7 @@ def analyze_job(job: Job, track: Track):
         sr = info.sr
         track.duration = len(pcm) / sr
         track.analysis = an.analyze(pcm, sr)
+        track.key = songs.key(track.path)
         track.bars = zn.bars_from(track.analysis.beats, track.analysis.downbeats, track.duration)
         track.ref_db = zn.level_db(pcm)
         track.bar_db = zn.bar_levels(pcm, sr, track.bars, track.ref_db)
@@ -2810,6 +2814,8 @@ class Window(QMainWindow):
         self.loop_on = False
         self.job_shown = False  # the progress card shows only for jobs that take a while
         self.show_timer = QTimer(self, singleShot=True, interval=300, timeout=self._show_job)
+        self.song_timer = QTimer(self, singleShot=True, interval=800, timeout=self._save_song)
+        self.restoring = False  # a remembered song is being applied; nothing to save yet
         self.zones_pending = False  # a pause search waits for the running job
         self.models_warm = False  # the separation model starts loading with the first track
         self.backing_key, self.wave_source = None, None  # see _update_backing
@@ -3182,6 +3188,7 @@ class Window(QMainWindow):
         if pct == self.speed:
             return
         self.speed = pct
+        self._song_changed()
         self.speed_l.setText(f"{pct}%")
         self._speed_bpm()
         self._restart_preview()
@@ -3676,6 +3683,7 @@ class Window(QMainWindow):
             if paths and not path:
                 self.status.setText(_("Это не аудиофайл: mp3, FLAC, ALAC или WAV"))
             return
+        self._flush_song()
         self._stop()
         if self.analysis_job:
             self.analysis_job.cancelled.set()
@@ -3740,6 +3748,7 @@ class Window(QMainWindow):
         self.warning.setToolTip("; ".join(notes))
 
         self.alt_b.setVisible(a.alt_downbeat is not None)
+        self._restore_song(t)
         self._show_track_values()
         bar = 60.0 / t.bpm * rd.METERS[self.meter_seg.value()][0]
         self.wave.show_range(t.t0 - bar * self.bars_seg.value() - 1.0, t.t0 + 6.0)
@@ -3748,6 +3757,70 @@ class Window(QMainWindow):
             QApplication.focusWidget().clearFocus()  # a new track starts with plain numbers, no blinking cursor
         self._start_separation()
         self._auto_zones()
+
+    def _song_changed(self, *_args):
+        if self.current and self.current.analysis and not self.restoring:
+            self.song_timer.start()
+
+    def _flush_song(self):
+        if self.song_timer.isActive():
+            self.song_timer.stop()
+            self._save_song()
+
+    def _save_song(self):
+        t = self.current
+        if not (t and t.key):
+            return
+        state = {
+            "bpm": t.bpm, "bpm_manual": t.bpm_manual, "t0": t.t0,
+            "style": self.style_seg.value() if self.style_seg.value() != "midi" else "buildup",
+            "bars": self.bars_seg.value(), "meter": self.meter_seg.value(), "volume": self.volume.value(),
+            "parts": {k: s.value() for k, s in self.parts.items()}, "speed": self.speed,
+            "click_all": self.click_all.isChecked(), "click_voice": self.click_voice.currentData(),
+            "click_db": self.click_db.value(), "fill": self.fill.isChecked(),
+            "zones": [vars(z) for z in t.zones or [] if z.kept], "dismissed": sorted(t.dismissed),
+            "loop": list(self.loop) if self.loop else None, "markers": [list(m) for m in t.markers],
+        }
+        try:
+            songs.save(t.key, state)
+        except OSError:
+            log.exception("song settings not saved")
+
+    def _restore_song(self, t: Track):
+        """Puts back what was set for this song last time; a value that no longer fits is skipped."""
+        d = songs.load(t.key) if t.key else None
+        if not d:
+            return
+        self.restoring = True
+        try:
+            t.bpm, t.bpm_manual, t.t0 = float(d["bpm"]), bool(d.get("bpm_manual")), float(d["t0"])
+            for seg, k in ((self.style_seg, "style"), (self.bars_seg, "bars"), (self.meter_seg, "meter")):
+                if d.get(k) in seg.values:
+                    seg.set_value(d[k])
+            self.volume.setValue(int(d.get("volume", 0)))
+            for k, v in (d.get("parts") or {}).items():
+                if k in self.parts:
+                    self.parts[k].setValue(int(v))
+            self._set_speed(int(d.get("speed", 100)))
+            self.click_all.setChecked(bool(d.get("click_all")))
+            i = self.click_voice.findData(d.get("click_voice"))
+            if i >= 0:
+                self.click_voice.setCurrentIndex(i)
+            self.click_db.setValue(int(d.get("click_db", 0)))
+            self.fill.setChecked(bool(d.get("fill", True)))
+            n = len(t.bars)
+            t.zones = [zn.Zone(**z) for z in d.get("zones") or [] if 0 <= z["first"] <= z["last"] < n] or None
+            t.dismissed = {i for i in d.get("dismissed") or [] if 0 <= i < n}
+            t.covered = _bars_of(t.zones)
+            t.markers = [(float(a), str(b)) for a, b in d.get("markers") or []]
+            if d.get("loop"):
+                self.loop, self.loop_on = tuple(d["loop"]), False
+                self._apply_loop()
+            self.status.setText(_("Настройки этой песни восстановлены"))
+        except (KeyError, TypeError, ValueError):
+            log.exception("remembered song settings skipped")
+        finally:
+            self.restoring = False
 
     def _show_track_values(self):
         t = self.current
@@ -3855,6 +3928,7 @@ class Window(QMainWindow):
 
     def _gains(self):
         self.player.gains = {name: keep(s.value()) for name, s in self.parts.items()}
+        self._song_changed()
 
         # A preview started with all parts as they are has no stems to turn down: rebuild it with them. With
         # the pause fill on, the pause search separates the whole song anyway and rebuilds the preview after,
@@ -3887,6 +3961,7 @@ class Window(QMainWindow):
         )
 
     def _refresh(self, *_args):
+        self._song_changed()
         self._speed_bpm()
         t = self.current
         if not t or not t.analysis:
@@ -4026,6 +4101,7 @@ class Window(QMainWindow):
         and cut loose at once, so a new file can open right away instead of waiting for its next step."""
         if self.current is None:
             return
+        self._flush_song()
         self._stop()
         for j in (self.job, self.analysis_job):
             if j:
@@ -4583,6 +4659,7 @@ class Window(QMainWindow):
                             if playing and self.loop_on and self.loop else None)
         self.wave.loop = (*self.loop, self.loop_on) if self.loop else None
         self.loop_b.setChecked(self.loop_on)
+        self._song_changed()
         self.loop_b.setEnabled(self.loop is not None)
         self.wave.update()
 
@@ -4604,6 +4681,7 @@ class Window(QMainWindow):
             reveal(self.last_saved)
 
     def closeEvent(self, e):
+        self._flush_song()
         QSettings().setValue(GEOMETRY_KEY, self.saveGeometry())
         # A ready update installs on quit too, like Sparkle does; it just does not relaunch.
         if self.staged:

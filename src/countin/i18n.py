@@ -225,6 +225,7 @@ EN = {
     "Разделяю отрывок": "Separating the excerpt",
     "Сборка отрывка": "Building the excerpt",
     "Сборка дорожек": "Building the parts",
+    "Настройки этой песни восстановлены": "Restored your settings for this song",
     "Перетащите сюда трек или щёлкните, чтобы выбрать\n\nmp3, FLAC, ALAC, WAV, AIFF, OGG, M4A": "Drop a track here or click to choose one\n\nmp3, FLAC, ALAC, WAV, AIFF, OGG, M4A",
     "Недавние": "Recent",
     "Открыть недавние": "Open Recent",
