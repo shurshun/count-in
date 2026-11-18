@@ -121,7 +121,14 @@ def _coreml() -> Backend | None:
     if not path.is_dir():
         path = assets.data_dir() / COREML
         export_coreml(path)
-    ml = ct.models.CompiledMLModel(str(path), compute_units=ct.ComputeUnit.CPU_AND_GPU)
+    try:
+        ml = ct.models.CompiledMLModel(str(path), compute_units=ct.ComputeUnit.CPU_AND_GPU)
+    except Exception:
+        # Builds up to 0.8.1 compiled for macOS 15, which macOS 14 cannot load
+        log.warning("compiled model does not load, rebuilding it", exc_info=True)
+        path = assets.data_dir() / COREML
+        export_coreml(path)
+        ml = ct.models.CompiledMLModel(str(path), compute_units=ct.ComputeUnit.CPU_AND_GPU)
     return Backend("Core ML (GPU)", lambda x: ml.predict({"stft": x})["mask"])
 
 
@@ -204,7 +211,7 @@ def export_coreml(dest: Path) -> None:
         traced = torch.jit.trace(core, (spec,), check_trace=False)
     ml = ct.convert(traced, inputs=[ct.TensorType(name="stft", shape=tuple(spec.shape))],
                     outputs=[ct.TensorType(name="mask")], convert_to="mlprogram",
-                    compute_precision=ct.precision.FLOAT16, minimum_deployment_target=ct.target.macOS15,
+                    compute_precision=ct.precision.FLOAT16, minimum_deployment_target=ct.target.macOS14,
                     skip_model_load=True)
     dest.parent.mkdir(parents=True, exist_ok=True)
     with tempfile.TemporaryDirectory() as tmp:

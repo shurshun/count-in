@@ -26,7 +26,7 @@ Get the latest version from [Releases](https://github.com/shurshun/count-in/rele
 | System | File |
 |---|---|
 | Windows 10/11, x64 | `Count-In-windows-x64.zip` |
-| macOS 12+, Apple Silicon | `Count-In-macos-arm64.zip` |
+| macOS 14+, Apple Silicon | `Count-In-macos-arm64.zip` |
 
 The macOS build is signed and notarized by Apple. The Windows build is not signed yet, so Windows warns once.
 
@@ -174,7 +174,7 @@ Count-In находит темп и первую сильную долю пес�
 | Система | Файл |
 |---|---|
 | Windows 10/11, x64 | `Count-In-windows-x64.zip` |
-| macOS 12+, Apple Silicon | `Count-In-macos-arm64.zip` |
+| macOS 14+, Apple Silicon | `Count-In-macos-arm64.zip` |
 
 Сборка для macOS подписана и заверена Apple. Сборка для Windows пока не подписана, поэтому Windows один раз предупредит.
 
