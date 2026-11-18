@@ -2890,6 +2890,7 @@ class Window(QMainWindow):
         self.speed = 100  # playback and export speed in percent
         self.semis = 0  # transposition in semitones
         self.trainer_laps = 0  # loop passes counted for the speed trainer
+        self.setlist: list[Path] = []  # songs opened together; N and P walk them
         self.resume_at = None  # song time a rebuilt preview carries on from
         self.preroll = False  # the pending preview starts with a bar of clicks before resume_at
         self.want_play = False  # a preview job is on its way to the speakers; Stop cancels that
@@ -2934,7 +2935,8 @@ class Window(QMainWindow):
                 self._play()
                 return True
         front = QApplication.activeWindow()
-        if (e.type() == QEvent.KeyPress and (e.key() in (Qt.Key_Left, Qt.Key_Right, Qt.Key_Home, Qt.Key_L, Qt.Key_M)
+        if (e.type() == QEvent.KeyPress and (e.key() in (Qt.Key_Left, Qt.Key_Right, Qt.Key_Home, Qt.Key_L, Qt.Key_M,
+                                                         Qt.Key_N, Qt.Key_P, Qt.Key_PageUp, Qt.Key_PageDown)
                                              or Qt.Key_1 <= e.key() <= Qt.Key_9)
                 and not e.modifiers() and QApplication.activeModalWidget() is None
                 and QApplication.activePopupWidget() is None
@@ -2946,6 +2948,12 @@ class Window(QMainWindow):
                 self._toggle_loop()
             elif e.key() == Qt.Key_M:
                 self._add_marker()
+            elif e.key() in (Qt.Key_N, Qt.Key_P):
+                self._step_setlist(1 if e.key() == Qt.Key_N else -1)
+            elif e.key() == Qt.Key_PageDown:  # page-turner pedals: right plays and stops, left plays again
+                self._play()
+            elif e.key() == Qt.Key_PageUp:
+                self._replay()
             elif Qt.Key_1 <= e.key() <= Qt.Key_9:
                 self._goto_marker(e.key() - Qt.Key_1)
             elif e.key() == Qt.Key_Home:
@@ -2964,6 +2972,8 @@ class Window(QMainWindow):
         self.save_a = file.addAction(_("Сохранить"), QKeySequence.Save, self._save)
         self.close_a = file.addAction(_("Закрыть трек"), QKeySequence.Close, self._close_track)
         self.recent_m = file.addMenu(_("Открыть недавние"))
+        file.addAction(_("Следующая песня сет-листа") + "\tN", lambda: self._step_setlist(1))
+        file.addAction(_("Предыдущая песня сет-листа") + "\tP", lambda: self._step_setlist(-1))
         self.reveal_a = file.addAction(_("Показать сохранённый файл"), self._reveal)
         file.addSeparator()
         file.addAction(_("Сохранить настройки как по умолчанию"), self._save_defaults)
@@ -2986,6 +2996,7 @@ class Window(QMainWindow):
         play.addAction(_("Следующая пауза") + "\t→", lambda: self._jump_pause(1))
         play.addAction(_("Петля") + "\tL", self._toggle_loop)
         play.addSeparator()
+        play.addAction(_("Сначала") + "\tPgUp", self._replay)
         play.addAction(_("Добавить метку части") + "\tM", self._add_marker)
         play.addAction(_("Перейти к такту…"), QKeySequence("Ctrl+G"), self._goto_bar)
         self.trainer_a = play.addAction(_("Тренажёр скорости: +5% каждые два круга петли"))
@@ -3298,6 +3309,26 @@ class Window(QMainWindow):
         h.addSpacing(6)
         h.addWidget(help_b)
         return bar
+
+    def _step_setlist(self, d: int):
+        t = self.current
+        if not self.setlist:
+            self.status.setText(_("Сет-лист: откройте или перетащите несколько песен сразу"))
+            return
+        i = self.setlist.index(t.path) if t and t.path in self.setlist else -1
+        j = i + d
+        if 0 <= j < len(self.setlist) and not self.job:
+            self.open_files([self.setlist[j]])
+            self.status.setText(_("Сет-лист: песня {i} из {n}", i=j + 1, n=len(self.setlist)))
+
+    def _replay(self):
+        """From the loop start, the playhead or the count-in again, with the count-in bar before a mid-song start."""
+        at = self.loop[0] if self.loop_on and self.loop else self.wave.play_t
+        if at is None:
+            self._stop()
+            self._play()
+        else:
+            self._play_at(at, preroll=True)
 
     def _here(self) -> float | None:
         w = self.wave
@@ -3848,9 +3879,9 @@ class Window(QMainWindow):
 
     def _open_dialog(self):
         exts = " ".join(f"*{x}" for x in sorted(AUDIO_EXT))
-        f, _sel = QFileDialog.getOpenFileName(self, _("Трек"), "", _("Аудио ({exts})", exts=exts))
-        if f:
-            self.open_files([Path(f)])
+        fs, _sel = QFileDialog.getOpenFileNames(self, _("Трек"), "", _("Аудио ({exts})", exts=exts))
+        if fs:
+            self.open_files([Path(f) for f in fs])  # several files make a set list
 
     def _remember(self, path: Path):
         """Most recent first, eight at most; files that are gone drop out."""
@@ -3875,8 +3906,12 @@ class Window(QMainWindow):
         self.recent_m.setEnabled(bool(paths))
 
     def open_files(self, paths: list[Path]):
-        """Opens the first audio file; the app works on one track at a time."""
-        path = next((p for p in paths if p.is_file() and p.suffix.lower() in AUDIO_EXT), None)
+        """Opens the first audio file; the app works on one track at a time. Several files at once become a
+        set list: N and P go to the next and previous song."""
+        songs_in = [p for p in paths if p.is_file() and p.suffix.lower() in AUDIO_EXT]
+        if len(songs_in) > 1:
+            self.setlist = songs_in
+        path = songs_in[0] if songs_in else None
         if not path or self.job:
             if paths and not path:
                 self.status.setText(_("Это не аудиофайл: mp3, FLAC, ALAC или WAV"))
