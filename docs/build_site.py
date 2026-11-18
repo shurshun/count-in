@@ -92,14 +92,8 @@ DOWNLOADS = {
              "Архив лежит в «Загрузках». Дважды щёлкните по нему, рядом появится <b>Count-In.app</b>."),
             (APP.format("Count-In.app") + '<span class="arrow">- - →</span><div class="item"><div class="folder"><span>A</span></div>'
              + t("Applications", "Программы") + "</div>",
-             "Drag Count-In into Applications. From Downloads it can't update itself.",
-             "Перетащите Count-In в «Программы». Из «Загрузок» программа не сможет обновляться."),
-            ('<div class="mock settings"><div class="side"><span>' + t("General", "Основные") + '</span><span class="on">'
-             + t("Privacy &amp; Security", "Конфиденциальность") + "</span><span>" + t("Appearance", "Оформление") + "</span></div>"
-             '<div class="main"><p>' + t("“Count-In” was blocked to protect your Mac.", "«Count-In» заблокирована для защиты Mac.")
-             + '</p><span class="btn">' + t("Open Anyway", "Всё равно открыть") + "</span></div></div>",
-             "On first launch, open System Settings → Privacy &amp; Security and click <b>Open Anyway</b>.",
-             "При первом запуске откройте Системные настройки → Конфиденциальность и безопасность и нажмите <b>Всё равно открыть</b>."),
+             "Drag Count-In into Applications and open it. From Downloads it can't update itself.",
+             "Перетащите Count-In в «Программы» и откройте. Из «Загрузок» программа не сможет обновляться."),
         ],
     },
     "windows": {

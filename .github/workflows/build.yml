@@ -203,23 +203,103 @@ jobs:
           path: ${{ matrix.name }}.zip
           archive: false
 
-  release:
-    # On a tag the changes check is skipped, and a skipped ancestor would skip this job too; check build directly.
+  # Signs, notarizes and staples the macOS bundle, built here or reused from the PR run. The signing secrets live
+  # in the `release` environment, which only v* tags may use, so PR builds stay unsigned.
+  sign-macos:
     if: ${{ !cancelled() && startsWith(github.ref, 'refs/tags/v') && (needs.build.result == 'success' || needs.reuse.outputs.run != '') }}
     needs: [reuse, build]
+    runs-on: macos-latest
+    environment: release
+    permissions:
+      contents: read
+      actions: read
+    steps:
+      - uses: actions/checkout@v7
+      - uses: actions/download-artifact@v8
+        with:
+          pattern: Count-In-macos-arm64.zip
+          run-id: ${{ needs.reuse.outputs.run || github.run_id }}
+          github-token: ${{ github.token }}
+          merge-multiple: true
+          skip-decompress: true
+
+      - name: import the certificate
+        env:
+          MACOS_CERT_P12: ${{ secrets.MACOS_CERT_P12 }}
+          MACOS_CERT_PASSWORD: ${{ secrets.MACOS_CERT_PASSWORD }}
+        run: |
+          keychain="$RUNNER_TEMP/sign.keychain-db"
+          pass=$(uuidgen)
+          security create-keychain -p "$pass" "$keychain"
+          security set-keychain-settings -lut 3600 "$keychain"
+          security unlock-keychain -p "$pass" "$keychain"
+          base64 --decode <<<"$MACOS_CERT_P12" > "$RUNNER_TEMP/cert.p12"
+          security import "$RUNNER_TEMP/cert.p12" -k "$keychain" -P "$MACOS_CERT_PASSWORD" -T /usr/bin/codesign
+          rm "$RUNNER_TEMP/cert.p12"
+          security set-key-partition-list -S apple-tool:,apple: -s -k "$pass" "$keychain" > /dev/null
+          security list-keychains -d user -s "$keychain" "$HOME/Library/Keychains/login.keychain-db"
+
+      - name: sign
+        env:
+          MACOS_SIGN_IDENTITY: ${{ secrets.MACOS_SIGN_IDENTITY }}
+        run: |
+          ditto -x -k Count-In-macos-arm64.zip unpacked
+          packaging/sign_macos.sh unpacked/Count-In.app "$MACOS_SIGN_IDENTITY"
+
+      # notarytool exits 0 on a rejected submission, so the status gets checked and Apple's log printed.
+      - name: notarize and staple
+        env:
+          NOTARY_KEY_P8: ${{ secrets.NOTARY_KEY_P8 }}
+          NOTARY_KEY_ID: ${{ secrets.NOTARY_KEY_ID }}
+          NOTARY_ISSUER_ID: ${{ secrets.NOTARY_ISSUER_ID }}
+        run: |
+          key="$RUNNER_TEMP/notary.p8"
+          printf '%s\n' "$NOTARY_KEY_P8" > "$key"
+          auth=(--key "$key" --key-id "$NOTARY_KEY_ID" --issuer "$NOTARY_ISSUER_ID")
+          ditto -c -k --keepParent unpacked/Count-In.app notarize.zip
+          xcrun notarytool submit notarize.zip "${auth[@]}" --wait --timeout 1h --output-format json > result.json
+          cat result.json
+          if [ "$(jq -r .status result.json)" != Accepted ]; then
+            xcrun notarytool log "$(jq -r .id result.json)" "${auth[@]}"
+            exit 1
+          fi
+          xcrun stapler staple unpacked/Count-In.app
+          spctl --assess --type execute -vv unpacked/Count-In.app
+          mkdir signed
+          ditto -c -k --zlibCompressionLevel 1 --keepParent unpacked/Count-In.app signed/Count-In-macos-arm64.zip
+
+      - name: remove the keychain and the key
+        if: always()
+        run: |
+          security delete-keychain "$RUNNER_TEMP/sign.keychain-db" || true
+          rm -f "$RUNNER_TEMP/notary.p8"
+
+      - uses: actions/upload-artifact@v7
+        with:
+          name: signed-macos
+          path: signed/Count-In-macos-arm64.zip
+          compression-level: 0
+
+  release:
+    # On a tag the changes check is skipped, and a skipped ancestor would skip this job too; check build directly.
+    if: ${{ !cancelled() && startsWith(github.ref, 'refs/tags/v') && needs.sign-macos.result == 'success' && (needs.build.result == 'success' || needs.reuse.outputs.run != '') }}
+    needs: [reuse, build, sign-macos]
     runs-on: ubuntu-latest
     permissions:
       contents: write
       actions: read
     steps:
-      # The reused PR run's bundles, or this run's.
+      # The Windows bundle from the reused PR run or this one; the macOS bundle signed in this run.
       - uses: actions/download-artifact@v8
         with:
-          pattern: "*.zip"
+          pattern: Count-In-windows-x64.zip
           run-id: ${{ needs.reuse.outputs.run || github.run_id }}
           github-token: ${{ github.token }}
           merge-multiple: true
           skip-decompress: true
+      - uses: actions/download-artifact@v8
+        with:
+          name: signed-macos
       - uses: softprops/action-gh-release@v3
         with:
           name: Count-In ${{ github.ref_name }}

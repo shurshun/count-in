@@ -37,7 +37,7 @@ def scripts_for(main: str):
     return [s for s in a.scripts if s[0] not in other]
 
 
-# Signing: set codesign_identity and entitlements_file for notarized builds.
+# Release builds get signed and notarized after the build: packaging/sign_macos.sh, the sign-macos job.
 app_exe = EXE(pyz, scripts_for("countin_app"), [], exclude_binaries=True, name="Count-In", console=False,
               icon=str(icons / "light" / "windows" / "Count-In.ico") if sys.platform == "win32" else None)
 cli_exe = EXE(pyz, scripts_for("countin_cli"), [], exclude_binaries=True, name="countin", console=True)
