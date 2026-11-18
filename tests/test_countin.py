@@ -259,12 +259,13 @@ def test_samples_start_at_their_attack(tmp_path):
 
 
 def test_buildup_matches_the_live_count_in():
-    """2 bars of 4/4: quarters at -8..-5, eighths from -4 to -0.5, the last three louder."""
+    """2 bars of 4/4: quarters up to the middle of the last bar, eighths over its second half, getting louder."""
     b = rd.buildup_grid(10.0, 0.5, 2, "4/4")
     beats = [(x.time - 10.0) / 0.5 for x in b]
-    assert beats == pytest.approx([-8, -7, -6, -5, -4, -3.5, -3, -2.5, -2, -1.5, -1, -0.5])
-    assert [x.accent for x in b] == [True, False, False, False, True] + [False] * 7
-    assert [x.gain > 1 for x in b] == [False] * 9 + [True] * 3
+    assert beats == pytest.approx([-8, -7, -6, -5, -4, -3, -2, -1.5, -1, -0.5])
+    assert [x.accent for x in b] == [True, False, False, False, True] + [False] * 5
+    gains = [x.gain for x in b]
+    assert gains == sorted(gains) and gains[-1] == pytest.approx(rd.BUILDUP_TO)
 
 
 @pytest.mark.parametrize("meter", list(rd.METERS))
@@ -748,3 +749,30 @@ def test_accent_controls_stay_readable_with_any_system_accent(monkeypatch, dark,
     acc = gui.accent_color(app)
     assert gui.contrast(acc, gui.window_color(dark)) >= 1.6
     assert gui.contrast(gui.on_accent(app), acc) >= 3.0
+
+
+def test_song_click_keeps_quarters_where_the_detector_counts_eighths():
+    from countin.core import daw
+
+    beats = [0, 0.5, 1, 1.5, 2, 2.25, 2.5, 2.75, 3, 3.25, 3.5, 4, 4.5]  # eighths from 2 s to 3.5 s
+    clicks = daw.song_clicks(beats, 0.01, 0.5, 4, "beep")
+    assert [round(c.time, 2) for c in clicks] == [0.01, 0.5, 1, 1.5, 2, 2.5, 3, 3.5, 4, 4.5]
+    assert [c.accent for c in clicks] == [True, False, False, False] * 2 + [True, False]
+
+
+def test_clicks_turn_down_to_fit_a_loud_song_and_leave_it_untouched():
+    sr = 8000
+    song = np.full((sr, 1), 0.5, dtype=np.float32)
+    song[sr // 2 :] = 0.0
+    hit = np.ones(10, dtype=np.float32)
+    clicks = [rd.Click(0.1, True), rd.Click(0.7, True)]
+    r = rd.render(song, sr, clicks, 0.0, "keep", 0.0, (hit, hit))
+    a, b = r.click_samples
+    assert np.abs(r.pcm).max() <= rd.CEILING + 1e-6 and r.clipped == 0
+
+    # past LIMIT_DB the click stops shrinking and the overs get counted
+    hot = rd.render(song * 1.9, sr, clicks[:1], 0.0, "keep", 0.0, (hit, hit))
+    assert hot.clipped == len(hit)
+    assert r.pcm[a, 0] == pytest.approx(rd.CEILING)  # turned down to the ceiling
+    assert r.pcm[b, 0] == pytest.approx(rd.CEILING)  # 1.0 over silence is above the ceiling too
+    assert r.pcm[a + 20, 0] == pytest.approx(0.5)  # the song itself stays as it was

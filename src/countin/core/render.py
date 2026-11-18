@@ -17,8 +17,15 @@ METERS = {"4/4": (4, 1), "3/4": (3, 1), "6/8": (2, 3)}
 
 SILENCE_DB = -60.0
 
-# The closing hits of the build-up count-in, about +4 dB.
+# The closing hits of a pause build-up, about +4 dB.
 BUILDUP_GAIN = 1.6
+
+# The build-up count-in swells from -4 dB to +3 dB, where the louder stick sample reaches full scale.
+BUILDUP_FROM, BUILDUP_TO = 0.6, 1.45
+
+# Clicks fit under this peak; one gets turned down by at most LIMIT_DB to fit.
+CEILING = 0.98
+LIMIT_DB = 12.0
 
 # A sample starts at its first value above this share of the peak (-40 dB).
 ONSET_LEVEL = 0.01
@@ -29,7 +36,7 @@ class Click:
     time: float  # seconds, relative to the original song start
     accent: bool  # first click of a bar
     gain: float = 1.0
-    voice: str = "stick"  # stick for count-ins, hihat for the beats that fill pauses
+    voice: str = "stick"  # a VOICES key: stick for count-ins, hihat for the beats that fill pauses
 
 
 def click_grid(first_downbeat: float, period: float, bars: int, meter: str) -> list[Click]:
@@ -42,20 +49,19 @@ def click_grid(first_downbeat: float, period: float, bars: int, meter: str) -> l
 
 
 def buildup_grid(first_downbeat: float, period: float, bars: int, meter: str) -> list[Click]:
-    """Plain clicks over the first half, twice as dense over the second, the last three louder.
-
-    Modeled on a live count-in (2 bars of 4/4: four quarters, eight eighths), so the band hears the intro coming.
-    """
+    """Plain clicks up to the middle of the last bar, twice as dense over its second half, louder click by click
+    up to full scale on the last one, so the band hears the intro coming."""
     beats, sub = METERS[meter]
     per_bar = beats * sub
     step = period / sub
     n = bars * per_bar
-    half = n // 2
+    half = per_bar // 2
 
     # Positions in clicks before the downbeat: -n .. -(half+1) plain, then -half .. -0.5 in half steps.
     pos = [-float(k) for k in range(n, half, -1)] + [-half + j / 2 for j in range(2 * half)]
-    return [Click(first_downbeat + q * step, q.is_integer() and int(q) % per_bar == 0,
-                  BUILDUP_GAIN if i >= len(pos) - 3 else 1.0) for i, q in enumerate(pos)]
+    ramp = np.geomspace(BUILDUP_FROM, BUILDUP_TO, len(pos))
+    return [Click(first_downbeat + q * step, q.is_integer() and int(q) % per_bar == 0, float(g))
+            for q, g in zip(pos, ramp)]
 
 
 def _quantize(beat: float) -> float:
@@ -135,6 +141,35 @@ def hihat_samples(sr: int) -> tuple[np.ndarray, np.ndarray]:
     return hit(0.06, 0.55), hit(0.035, 0.42)
 
 
+def _tone(sr: int, parts: tuple[tuple[float, float], ...], decay: float, peak: float, square: bool = False) -> np.ndarray:
+    """A struck tone: (frequency, weight) partials, sine or square, with an exponential decay."""
+    t = np.arange(int(sr * decay * 6)) / sr
+    wave = (lambda f: np.sign(np.sin(2 * np.pi * f * t))) if square else (lambda f: np.sin(2 * np.pi * f * t))
+    x = sum(w * wave(f) for f, w in parts) * np.exp(-t / decay)
+    x[: int(0.001 * sr)] *= np.linspace(0, 1, int(0.001 * sr))
+    return (x / np.abs(x).max() * peak).astype(np.float32)
+
+
+@lru_cache(maxsize=16)
+def voice_samples(voice: str, sr: int) -> tuple[np.ndarray, np.ndarray]:
+    """(accent, plain) hits of a click voice. All but the stick are synthesized, so no sample license applies."""
+    if voice == "hihat":
+        return hihat_samples(sr)
+    if voice == "beep":  # electronic metronome: a higher tone on the downbeat
+        return _tone(sr, ((1760, 1),), 0.03, 0.9), _tone(sr, ((1320, 1),), 0.025, 0.8)
+    if voice == "cowbell":  # two detuned square waves, the drum-machine recipe
+        bell = ((587, 1), (845, 1))
+        return _tone(sr, bell, 0.09, 0.8, square=True), _tone(sr, bell, 0.06, 0.6, square=True)
+    if voice == "clave":
+        return _tone(sr, ((2500, 1),), 0.03, 0.9), _tone(sr, ((2000, 1),), 0.025, 0.75)
+    hi, lo = load_samples(sr)
+    return hi, lo
+
+
+# Sounds the song click can use, with their names in the app.
+VOICES = {"beep": "Метроном", "stick": "Палочки", "cowbell": "Ковбелл", "clave": "Клаве", "hihat": "Хай-хэт"}
+
+
 def leading_silence(pcm: np.ndarray, sr: int) -> float:
     level = 10 ** (SILENCE_DB / 20)
     loud = np.flatnonzero(np.abs(pcm).max(axis=1) > level)
@@ -165,6 +200,28 @@ def stretch(x: np.ndarray, sr: int, speed: float) -> np.ndarray:
     return np.ascontiguousarray(y[:n] if len(y) >= n else np.pad(y, ((0, n - len(y)), (0, 0))), dtype=np.float32)
 
 
+_pool = None
+
+
+def stretch_many(parts: list[np.ndarray], sr: int, speed: float) -> list[np.ndarray]:
+    """stretch() of several signals in parallel processes: Signalsmith holds the GIL, so threads run one at a
+    time, and a whole song takes about 2 s per part. The pool starts on first use and stays."""
+    global _pool
+    if speed == 1.0 or len(parts) < 2:
+        return [stretch(x, sr, speed) for x in parts]
+    import multiprocessing as mp
+    import os
+    from concurrent.futures import ProcessPoolExecutor
+
+    try:
+        if _pool is None:
+            _pool = ProcessPoolExecutor(min(6, os.cpu_count() or 2), mp_context=mp.get_context("spawn"))
+        return list(_pool.map(stretch, parts, [sr] * len(parts), [speed] * len(parts)))
+    except Exception:
+        _pool = None
+        return [stretch(x, sr, speed) for x in parts]
+
+
 def render(pcm: np.ndarray, sr: int, clicks: list[Click], first_downbeat: float,
            pre_roll: str = "keep", volume_db: float = 0.0,
            samples: tuple[np.ndarray, np.ndarray] | None = None, speed: float = 1.0) -> Rendered:
@@ -190,16 +247,22 @@ def render(pcm: np.ndarray, sr: int, clicks: list[Click], first_downbeat: float,
     out = np.zeros((pad + len(song), pcm.shape[1]), dtype=np.float32)
     out[pad:] = song
 
-    # Loud masters decode with peaks above 1.0. Only overs the clicks add get counted, the song is never touched.
-    # ponytail: counter only; add a limiter if loud intros clip in practice.
+    # The song is never touched. A click that would push the mix past CEILING gets turned down as a whole, so
+    # its shape stays clean, by up to LIMIT_DB; overs left after that (a hot master's own peaks) get counted.
     g = 10 ** (volume_db / 20)
     clipped = 0
-    hat = hihat_samples(sr) if any(c.voice == "hihat" for c in clicks) else None
     for c, s in zip(clicks, starts):
-        pair = hat if c.voice == "hihat" else (hi, lo)
+        pair = (hi, lo) if c.voice == "stick" else voice_samples(c.voice, sr)
         x = (pair[0] if c.accent else pair[1]) * (g * c.gain)
         end = min(len(out), s + len(x))
-        before = np.abs(out[s:end]) > 1.0
-        out[s:end] += x[: end - s, None]
-        clipped += int(np.sum((np.abs(out[s:end]) > 1.0) & ~before))
+        x = x[: end - s, None]
+        y = out[s:end]
+        over = np.abs(y + x) > CEILING
+        if over.any():
+            room = np.where(np.sign(y) == np.sign(x), CEILING - np.abs(y), CEILING + np.abs(y))
+            k = np.clip(room[over] / np.abs(np.broadcast_to(x, y.shape)[over]), 0.0, 1.0).min()
+            x = x * max(k, 10 ** (-LIMIT_DB / 20))
+        before = np.abs(y) > 1.0
+        y += x
+        clipped += int(np.sum((np.abs(y) > 1.0) & ~before))
     return Rendered(out, (pad - cut / speed) / sr, starts, clipped)

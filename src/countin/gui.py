@@ -32,8 +32,8 @@ from .core.io import resource
 log = logging.getLogger("countin")
 
 AUDIO_EXT = {".mp3", ".flac", ".m4a", ".wav", ".aif", ".aiff", ".ogg"}
-PREVIEW_AFTER = 10.0  # seconds of song after the downbeat
-PREVIEW_FROM = 30.0  # seconds played by "play from here"
+PREVIEW_AFTER = 10.0  # seconds of song after the downbeat while the excerpt gets separated on its own
+PREVIEW_FROM = 30.0  # seconds played from a point in that case
 MUTE = -41  # level slider bottom means "remove"
 # Parts the backing-track card can turn down: (stem name in the model, label, icon, mute tooltip)
 PARTS = (
@@ -46,7 +46,7 @@ PARTS = (
 # Why each job runs, shown under its progress title
 JOB_WHY = {
     "zones_job": "Раскладываю песню на дорожки, чтобы найти паузы без убранных инструментов. Это делается один раз на трек.",
-    "preview_job": "Готовлю отрывок: отсчёт и первые секунды песни с вашими настройками.",
+    "preview_job": "Готовлю прослушивание: отсчёт и песню с вашими настройками.",
     "save_job": "Сохраняю трек с отсчётом и выбранным уровнем дорожек.",
     "export_job": "Сохраняю мультитрек: партии, клик и темп начинаются с первого такта.",
 }
@@ -237,6 +237,9 @@ class Settings:
     out_root: Path | None = None  # None: next to the source
     group: tuple[bool, bool, bool] | None = None  # (artist, year, album) folders under out_root
     fill: bool = True  # hi-hat in the pauses, found automatically
+    click_all: bool = False  # a click on every beat of the song; the pauses then need no fill
+    click_voice: str = "beep"  # rd.VOICES key of the song click
+    click_db: float = 0.0  # song click level on top of the count-in volume
     fill_build: bool = True  # the last bar of each pause runs into the entry in eighths
     speed: float = 1.0  # playback and export speed, pitch kept (0.8 = 20% slower)
     threshold: float = zn.QUIET_DB  # dB below the song average that counts as a pause
@@ -249,7 +252,12 @@ def clicks_for(t: Track, s: Settings) -> list[rd.Click]:
     else:
         grid = rd.buildup_grid if s.style == "buildup" else rd.click_grid
         clicks = grid(t.t0, period, s.bars, s.meter)
-    if s.fill and t.zones:
+    if s.click_all and t.bars:
+        from .core import daw
+
+        clicks += daw.song_clicks(t.analysis.beats, t.t0, period, rd.METERS[s.meter][0], s.click_voice,
+                                  10 ** (s.click_db / 20))
+    elif s.fill and t.zones:
         clicks += zn.zone_clicks(t.bars, t.zones, t.t0, t.bar_db, s.fill_build)
     return clicks
 
@@ -478,19 +486,21 @@ def _covers(cached, i0: int, i1: int) -> bool:
 
 def preview_job(job: Job, track: Track, s: Settings, pcm: np.ndarray, sr: int, cached, separate: bool,
                 at: float | None = None):
-    """Count-in plus PREVIEW_AFTER seconds, or PREVIEW_FROM seconds from song time `at` (play from here), with
-    stems kept apart so the player can mix them live. Only that excerpt gets rendered, at s.speed.
+    """From the count-in, or from song time `at` (play from here), to the song end, with stems kept apart so the
+    player can mix them live, rendered at s.speed. Only when the parts have yet to be separated for it, it stops
+    PREVIEW_AFTER seconds after the downbeat or PREVIEW_FROM seconds after `at`.
 
     Returns (song with clicks, {stem: aligned array}, sr, original-song time of the first sample, new stem cache,
     clipped samples). Output time runs at s.speed: song time = start + output time * speed.
     """
     clicks = clicks_for(track, s)
     dur = len(pcm) / sr
-    if at is None:
-        first, end = min(c.time for c in clicks), track.t0 + PREVIEW_AFTER
-    else:
-        first, end = at, at + PREVIEW_FROM
+    first = min(c.time for c in clicks) if at is None else at
     i0 = int(max(0.0, first - 0.5) * sr)
+    if not separate or _covers(cached, i0, len(pcm)):
+        end = dur
+    else:
+        end = track.t0 + PREVIEW_AFTER if at is None else at + PREVIEW_FROM
     i1 = int(min(end, dur) * sr)
     part, new_cache = None, None
     if _covers(cached, i0, i1):
@@ -510,8 +520,9 @@ def preview_job(job: Job, track: Track, s: Settings, pcm: np.ndarray, sr: int, c
         # song gets rebuilt from its slowed pieces, every stem and the rest, so the player's live subtraction
         # stays exact.
         rest = song - sum(part.values()) if part else song
-        part = {k: rd.stretch(v, sr, s.speed) for k, v in part.items()}
-        song = rd.stretch(rest, sr, s.speed) + sum(part.values()) if part else rd.stretch(song, sr, s.speed)
+        *slow, rest = rd.stretch_many([*part.values(), rest], sr, s.speed)
+        part = dict(zip(part, slow))
+        song = rest + sum(part.values()) if part else rest
     r = rd.render(song, sr, win, 0.0, "keep", s.volume_db, rd.load_samples(sr))
     base = r.pcm
 
@@ -661,6 +672,8 @@ def keep(slider_value: int) -> float:
 class Player:
     """Mixes the song and its stems block by block, so stem levels change while it plays."""
 
+    streams = 0  # open streams of all players
+
     def __init__(self):
         self.stream = None
         self.pos = 0
@@ -675,9 +688,17 @@ class Player:
         self.base, self.stems, self.sr, self.pos, self.done = base, stems, sr, max(0, start), False
         self.dry = self.bad = 0
 
+        # PortAudio reads the devices and the system default once; reload them, so a switched or plugged-in
+        # output gets used. Reloading closes every stream, so only when none is open.
+        if not Player.streams:
+            sd._terminate()
+            sd._initialize()
+        log.info("audio output: %s", sd.query_devices(kind="output")["name"])
+
         # A large buffer keeps audio smooth while the GUI thread holds the interpreter.
         self.stream = sd.OutputStream(samplerate=sr, channels=base.shape[1], dtype="float32",
                                       blocksize=2048, latency="high", callback=self._fill)
+        Player.streams += 1
         self.stream.start()
 
     def _fill(self, out, frames, _time, status):
@@ -707,10 +728,11 @@ class Player:
         return max(0.0, self.pos / self.sr - lag)
 
     def stop(self):
-        if self.stream:
-            self.stream.stop()
-            self.stream.close()
+        if s := self.stream:
             self.stream = None
+            Player.streams -= 1
+            s.stop()
+            s.close()
             if self.dry or self.bad:
                 log.warning("preview audio ran dry in %d blocks, %d blocks had NaN or inf", self.dry, self.bad)
 
@@ -1281,7 +1303,7 @@ class Wave(QWidget):
             if last_x is not None and x - last_x < 5 and not c.accent:  # zoomed out: bar starts only
                 continue
             last_x = x
-            p.setBrush(GREEN if c.voice == "hihat" else accent)
+            p.setBrush(GREEN if self.t0 is not None and c.time >= self.t0 - 0.05 else accent)  # inside the song
             hgt = wh * (0.42 if c.accent else 0.28) * min(c.gain, 1.6)
             p.drawRoundedRect(QRectF(self.x_of(c.time) - 2, 28, 4, hgt), 2, 2)
 
@@ -1696,13 +1718,18 @@ def part_icon(kind: str, color: QColor, size: int = 16) -> QPixmap:
     elif kind == "tracks":  # three clips on their lanes
         for x, y, w in ((1.5, 2.5, 9), (4.5, 6.6, 10), (2.5, 10.7, 7)):
             p.drawRoundedRect(QRectF(x * s, y * s, w * s, 2.8 * s), 1.2 * s, 1.2 * s)
-    elif kind == "speaker":
+    elif kind in ("speaker", "muted"):
         p.drawPolygon(QPolygonF([QPointF(1.5 * s, 6 * s), QPointF(4.5 * s, 6 * s), QPointF(8.5 * s, 2.5 * s),
                                  QPointF(8.5 * s, 13.5 * s), QPointF(4.5 * s, 10 * s), QPointF(1.5 * s, 10 * s)]))
         p.setBrush(Qt.NoBrush)
-        p.setPen(QPen(color, 1.3 * s, Qt.SolidLine, Qt.RoundCap))
-        for r in (3.5, 6):
-            p.drawArc(QRectF(8.5 * s - r * s, 8 * s - r * s, 2 * r * s, 2 * r * s), -50 * 16, 100 * 16)
+        if kind == "muted":  # a red cross where the sound waves were
+            p.setPen(QPen(QColor(235, 64, 52), 1.6 * s, Qt.SolidLine, Qt.RoundCap))
+            p.drawLine(QPointF(10.5 * s, 5.5 * s), QPointF(15 * s, 10.5 * s))
+            p.drawLine(QPointF(10.5 * s, 10.5 * s), QPointF(15 * s, 5.5 * s))
+        else:
+            p.setPen(QPen(color, 1.3 * s, Qt.SolidLine, Qt.RoundCap))
+            for r in (3.5, 6):
+                p.drawArc(QRectF(8.5 * s - r * s, 8 * s - r * s, 2 * r * s, 2 * r * s), -50 * 16, 100 * 16)
     elif kind == "bass":
         p.save()
         p.translate(8 * s, 8 * s)
@@ -1796,6 +1823,8 @@ FILL_KEY = "fill/enabled"
 CLOUD_KEY = "cloud/enabled"
 CLOUD_OVERLAP = "cloud/overlap"
 FILL_BUILD_KEY = "fill/buildup"
+CLICK_VOICE_KEY = "click/voice"
+CLICK_DB_KEY = "click/volume"
 OUTPUT_VOLUME_KEY = "playback/volume"
 DEFAULTS = "defaults/"  # prefix for the settings saved with "Save as default"
 THRESHOLD_KEY = "fill/threshold"
@@ -2776,13 +2805,13 @@ class Window(QMainWindow):
         h.addLayout(text, 1)
 
         # Speaker level of the preview; not part of the song or the saved file
-        speaker = QLabel(toolTip=_("Громкость прослушивания"))
-        speaker.setPixmap(part_icon("speaker", QColor(127, 127, 127), 20))
+        self.speaker = speaker = QLabel(toolTip=_("Громкость прослушивания"))
         self.out_volume = QSlider(Qt.Horizontal, minimum=0, maximum=100, fixedWidth=130,
                                   toolTip=_("Громкость прослушивания"))
         self.out_volume.setValue(int(output_volume() * 100))
         self.out_volume.setFocusPolicy(Qt.NoFocus)
         self.out_volume.valueChanged.connect(self._output_volume)
+        self._speaker_icon()
         h.addWidget(speaker, 0, Qt.AlignVCenter)
         h.addWidget(QLabel(_("Громкость вывода"), objectName="headerLabel"), 0, Qt.AlignVCenter)
         h.addWidget(self.out_volume, 0, Qt.AlignVCenter)
@@ -2855,7 +2884,7 @@ class Window(QMainWindow):
         that the pauses come only after it."""
         tip = True  # music lines are off until a better set is chosen
         text = _(random.choice(TIPS))
-        if self.sep_job and self._full_stems() is None and self.fill.isChecked() and self.settings().levels:
+        if self.sep_job and self._full_stems() is None and self._filling() and self.settings().levels:
             text = _("Паузы с хай-хэтом появятся, когда закончится разделение на дорожки: их ищут без убранных инструментов")
         self.prog_phrase.setText(text)
         self.wave.busy.phrase.setText(text)
@@ -3220,6 +3249,19 @@ class Window(QMainWindow):
         self.volume = QSlider(Qt.Horizontal, minimum=-24, maximum=6, value=0, minimumWidth=90)
         self.volume_l = QLabel(minimumWidth=60)
         row(g, _("Громкость"), self.volume, self.volume_l)
+        self.click_all = QCheckBox(_("Клик на всю песню"), objectName="rowCheck")
+        self.click_all.setToolTip(_("Клик на каждую долю после отсчёта, до конца песни. Заполнение пауз при этом не нужно."))
+        g.addWidget(self.click_all, g.rowCount(), 0, 1, 2, Qt.AlignLeft | Qt.AlignVCenter)
+        self.click_voice = QComboBox()
+        for key, title in rd.VOICES.items():
+            self.click_voice.addItem(_(title), key)
+        voice = QSettings().value(CLICK_VOICE_KEY, "beep")
+        self.click_voice.setCurrentIndex(list(rd.VOICES).index(voice) if voice in rd.VOICES else 0)
+        row(g, _("Звук клика"), self.click_voice)
+        self.click_db = QSlider(Qt.Horizontal, minimum=-12, maximum=12, minimumWidth=90)
+        self.click_db.setValue(int(QSettings().value(CLICK_DB_KEY, 0)))
+        self.click_db_l = QLabel(minimumWidth=60)
+        row(g, _("Громкость клика"), self.click_db, self.click_db_l)
         self.pattern: Path | None = None
 
         save_b = self._icon_button("save", _("Сохранить эти настройки как настройки по умолчанию"), self._save_defaults)
@@ -3261,6 +3303,12 @@ class Window(QMainWindow):
             w.valueChanged.connect(self._gains)
         self.trim.toggled.connect(self._refresh)
         self.fill.toggled.connect(self._fill_toggled)
+        self.click_all.toggled.connect(self._click_all_toggled)
+        self.click_voice.currentIndexChanged.connect(self._click_sound)
+        self.click_db.valueChanged.connect(self._labels)
+        self.click_db.valueChanged.connect(self._refresh)
+        self.click_db.sliderReleased.connect(self._click_sound)
+        self.click_db.valueChanged.connect(lambda v: QSettings().setValue(CLICK_DB_KEY, v))
         self.wave.zonesEdited.connect(self._zones_edited)
         self.wave.zoneClicked.connect(self._edit_zone)
         self.wave.spanSelected.connect(self._span_selected)
@@ -3646,11 +3694,12 @@ class Window(QMainWindow):
         # the pause fill on, the pause search separates the whole song anyway and rebuilds the preview after,
         # so a second, excerpt-only separation would only cost time.
         if (self.play_start is not None and not self.player.stems and any(g < 1 for g in self.player.gains.values())
-                and not (self.fill.isChecked() and self._full_stems() is None) and not cloud_on()):
+                and not (self._filling() and self._full_stems() is None) and not cloud_on()):
             self._restart_preview(separate=True)
 
     def _labels(self):
         self.volume_l.setText(_("{v:+d} дБ", v=self.volume.value()))
+        self.click_db_l.setText(_("{v:+d} дБ", v=self.click_db.value()))
         self.threshold_l.setText(_("{v:+d} дБ", v=self.threshold.value()))
         for s, l in ((self.parts[n], self.part_l[n]) for n in self.parts):
             v = s.value()
@@ -3666,7 +3715,8 @@ class Window(QMainWindow):
             style=self.style_seg.value(), bars=self.bars_seg.value(), meter=self.meter_seg.value(),
             pattern=self.pattern, volume_db=float(self.volume.value()),
             levels=levels, pre_roll="trim" if self.trim.isChecked() else "keep", fmt=export_format(),
-            out_root=out_root, group=group, fill=self.fill.isChecked(), fill_build=self.fill_build.isChecked(),
+            out_root=out_root, group=group, fill=self._filling(), click_all=self.click_all.isChecked(),
+            click_voice=self.click_voice.currentData(), click_db=float(self.click_db.value()), fill_build=self.fill_build.isChecked(),
             threshold=float(self.threshold.value()), speed=self.speed / 100,
         )
 
@@ -3682,7 +3732,7 @@ class Window(QMainWindow):
             self.status.setText(str(e))
         self.wave.t0 = t.t0
         self.wave.zones = t.zones or []
-        self.wave.fill = self.fill.isChecked()
+        self.wave.fill = self._filling()
         self.wave.threshold_db = float(self.threshold.value())
         if self.wave.ref_db is None and self.pcm is not None:
             self.wave.ref_db = zn.level_db(self.pcm)
@@ -3709,8 +3759,11 @@ class Window(QMainWindow):
         self.play_b.setEnabled(ready and (not busy or self.play_start is not None))
         self.play_a.setEnabled(self.play_b.isEnabled())
         self.save_b.setEnabled(ready and not busy)
-        self.threshold.setEnabled(self.fill.isChecked())
-        self.fill_build.setEnabled(self.fill.isChecked())
+        self.fill.setEnabled(not self.click_all.isChecked())
+        self.click_voice.setEnabled(self.click_all.isChecked())
+        self.click_db.setEnabled(self.click_all.isChecked())
+        self.threshold.setEnabled(self._filling())
+        self.fill_build.setEnabled(self._filling())
         self.save_a.setEnabled(ready and not busy)
         self.open_b.setEnabled(not busy)
         self.close_b.setEnabled(self.current is not None)
@@ -3929,6 +3982,10 @@ class Window(QMainWindow):
     def _output_volume(self, v: int):
         QSettings().setValue(OUTPUT_VOLUME_KEY, v)
         self.player.volume = v / 100
+        self._speaker_icon()
+
+    def _speaker_icon(self):
+        self.speaker.setPixmap(part_icon("muted" if self.out_volume.value() == 0 else "speaker", QColor(127, 127, 127), 20))
 
     def _save_defaults(self):
         """The current count-in, part levels and pause settings become the start for every track."""
@@ -3941,6 +3998,7 @@ class Window(QMainWindow):
             st.setValue(DEFAULTS + "part/" + name, s.value())
         st.setValue(DEFAULTS + "trim", self.trim.isChecked())
         st.setValue(FILL_KEY, self.fill.isChecked())
+        st.setValue(DEFAULTS + "click_all", self.click_all.isChecked())
         st.setValue(THRESHOLD_KEY, self.threshold.value())
         self.status.setText(_("Настройки сохранены как настройки по умолчанию"))
 
@@ -3967,6 +4025,8 @@ class Window(QMainWindow):
             s.setValue(0)
         self.trim.setChecked(False)
         self.fill.setChecked(True)
+        self.click_all.setChecked(False)
+        self.click_db.setValue(0)
         self.threshold.setValue(int(zn.QUIET_DB))
         self.status.setText(_("Настройки сброшены"))
 
@@ -3993,8 +4053,26 @@ class Window(QMainWindow):
         for name, s in self.parts.items():
             s.setValue(num("part/" + name))
         self.trim.setChecked(st.value(DEFAULTS + "trim", False) in (True, "true"))
+        self.click_all.setChecked(st.value(DEFAULTS + "click_all", False) in (True, "true"))
 
     # --- pauses ---
+
+    def _filling(self) -> bool:
+        return self.fill.isChecked() and not self.click_all.isChecked()
+
+    def _click_sound(self, *_args):
+        QSettings().setValue(CLICK_VOICE_KEY, self.click_voice.currentData())
+        QSettings().setValue(CLICK_DB_KEY, self.click_db.value())
+        self._refresh()
+        if self.click_all.isChecked():
+            self._restart_preview()
+
+    def _click_all_toggled(self, on: bool):
+        self._refresh()
+        self._enable()
+        if not on:
+            self._auto_zones()
+        self._restart_preview()
 
     def _fill_toggled(self, on: bool):
         QSettings().setValue(FILL_KEY, on)
@@ -4199,6 +4277,7 @@ class Window(QMainWindow):
         t = self.current
         if not (t and t.bars):
             return
+        self.click_all.setChecked(False)
         if not self.fill.isChecked():
             self.fill.setChecked(True)
         before = [zn.Zone(**vars(z)) for z in (t.zones or [])]
