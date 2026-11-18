@@ -251,6 +251,7 @@ class Settings:
     speed: float = 1.0  # playback and export speed, pitch kept (0.8 = 20% slower)
     semis: float = 0.0  # transposition in semitones, tempo kept
     split: bool = False  # backing track with the click alone on the left and the music in mono on the right
+    normalize: bool = False  # the saved backing track at −14 LUFS, peaks at most −1 dB
     threshold: float = zn.QUIET_DB  # dB below the song average that counts as a pause
 
 
@@ -577,6 +578,8 @@ def save_job(job: Job, t: Track, s: Settings, cached):
     pcm_out = r.pcm
     if s.split:  # stage mix: the click alone on the left, the music in mono on the right
         pcm_out = np.stack([r.click, (r.pcm - r.click[:, None]).mean(axis=1)], axis=1)
+    if s.normalize:
+        pcm_out = rd.normalize(pcm_out, info.sr)
     io.encode(pcm_out, info, out, tags_from=t.path)
     return t, out, full, r.clipped
 
@@ -2250,7 +2253,7 @@ class ZoneDialog(QDialog):
 
 EXPORT_MODE, EXPORT_PARTS, EXPORT_CLICK, EXPORT_TEMPO, EXPORT_FORMAT = (
     "export/mode", "export/parts", "export/click", "export/tempo", "export/format")
-EXPORT_SPLIT, EXPORT_CLICKWAV = "export/split", "export/clickwav"
+EXPORT_SPLIT, EXPORT_CLICKWAV, EXPORT_NORM = "export/split", "export/clickwav", "export/normalize"
 
 
 def export_format() -> str | None:
@@ -2359,6 +2362,10 @@ class ExportDialog(QDialog):
         self.split.setToolTip(_("Клик уходит в наушники барабанщика или в ваши, музыка в зал. Музыка сводится в моно."))
         self.split.toggled.connect(self._update)
         fmt.addWidget(self.split)
+        self.norm = QCheckBox(_("Ровная громкость: −14 LUFS, как в стримингах"), checked=pref_bool(EXPORT_NORM, False))
+        self.norm.setToolTip(_("Бэктреки из разных альбомов звучат одинаково громко. Пики не поднимаются выше −1 дБ, "
+                               "поэтому динамичная песня может остаться чуть тише."))
+        fmt.addWidget(self.norm)
 
         self.boxes = {
             EXPORT_PARTS: QCheckBox(_("Партии отдельными файлами (WAV)")),
@@ -2454,6 +2461,7 @@ class ExportDialog(QDialog):
         st.setValue(EXPORT_MODE, "multi" if self.multi.on else "backing")
         st.setValue(EXPORT_FORMAT, self.fmt.value() or "")
         st.setValue(EXPORT_SPLIT, self.split.isChecked())
+        st.setValue(EXPORT_NORM, self.norm.isChecked())
         for key, box in self.boxes.items():
             st.setValue(key, box.isChecked())
         self.accept()
@@ -4209,7 +4217,7 @@ class Window(QMainWindow):
             out_root=out_root, group=group, fill=self._filling(), click_all=self.click_all.isChecked(),
             click_voice=self.click_voice.currentData(), click_db=float(self.click_db.value()), fill_build=self.fill_build.isChecked(),
             threshold=float(self.threshold.value()), speed=self.speed / 100, semis=float(self.semis),
-            split=pref_bool(EXPORT_SPLIT, False),
+            split=pref_bool(EXPORT_SPLIT, False), normalize=pref_bool(EXPORT_NORM, False),
         )
 
     def _refresh(self, *_args):

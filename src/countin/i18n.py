@@ -225,6 +225,8 @@ EN = {
     "Разделяю отрывок": "Separating the excerpt",
     "Сборка отрывка": "Building the excerpt",
     "Сборка дорожек": "Building the parts",
+    "Ровная громкость: −14 LUFS, как в стримингах": "Even loudness: −14 LUFS, as streaming services play",
+    "Бэктреки из разных альбомов звучат одинаково громко. Пики не поднимаются выше −1 дБ, поэтому динамичная песня может остаться чуть тише.": "Backing tracks from different albums play equally loud. Peaks stay at −1 dB at most, so a dynamic song may end up a little quieter.",
     "Правка": "Edit",
     "Отменить": "Undo",
     "Повторить": "Redo",

@@ -289,3 +289,52 @@ def click_track(clicks: list[Click], sr: int, start: float, length: int, volume_
             n = min(len(x), length - s)
             out[s : s + n] += x[:n]
     return out
+
+
+def _k_weight(sr: int, n: int) -> np.ndarray:
+    """|H|² of the BS.1770 K-weighting (high shelf, then high-pass) at the rfft bins of an n-sample signal."""
+    w = 2 * np.pi * np.fft.rfftfreq(n, 1 / sr) / sr
+    z = np.exp(-1j * w)
+
+    def biquad(b, a):
+        return np.abs((b[0] + b[1] * z + b[2] * z * z) / (a[0] + a[1] * z + a[2] * z * z)) ** 2
+
+    A, w0 = 10 ** (4.0 / 40), 2 * np.pi * 1500 / sr
+    al, c, r = np.sin(w0) / (2 / np.sqrt(2)), np.cos(w0), np.sqrt(10 ** (4.0 / 40))
+    shelf = biquad((A * ((A + 1) + (A - 1) * c + 2 * r * al), -2 * A * ((A - 1) + (A + 1) * c), A * ((A + 1) + (A - 1) * c - 2 * r * al)),
+                   ((A + 1) - (A - 1) * c + 2 * r * al, 2 * ((A - 1) - (A + 1) * c), (A + 1) - (A - 1) * c - 2 * r * al))
+    w0 = 2 * np.pi * 38 / sr
+    al, c = np.sin(w0) / (2 * 0.5), np.cos(w0)
+    hp = biquad(((1 + c) / 2, -(1 + c), (1 + c) / 2), (1 + al, -2 * c, 1 - al))
+    return shelf * hp
+
+
+def loudness(pcm: np.ndarray, sr: int) -> float:
+    """Integrated loudness in LUFS (BS.1770-4: K-weighting, 400 ms blocks, absolute and relative gates). The
+    filter runs in the frequency domain with zero phase, which leaves the block energies as they are."""
+    n = len(pcm)
+    if n < int(0.4 * sr):
+        return -70.0
+    gain = _k_weight(sr, n)
+    block, hop = int(0.4 * sr), int(0.1 * sr)
+    starts = np.arange(0, n - block + 1, hop)
+    z = np.zeros(len(starts))
+    for ch in range(pcm.shape[1]):
+        y = np.fft.irfft(np.fft.rfft(pcm[:, ch].astype(np.float64)) * np.sqrt(gain), n) ** 2
+        c = np.concatenate([[0.0], np.cumsum(y)])
+        z += (c[starts + block] - c[starts]) / block
+    lk = -0.691 + 10 * np.log10(z + 1e-12)
+    z = z[lk > -70]
+    if not len(z):
+        return -70.0
+    rel = -0.691 + 10 * np.log10(z.mean()) - 10
+    z = z[-0.691 + 10 * np.log10(z) > rel]
+    return float(-0.691 + 10 * np.log10(z.mean()))
+
+
+def normalize(pcm: np.ndarray, sr: int, target: float = -14.0, peak_db: float = -1.0) -> np.ndarray:
+    """pcm brought to `target` LUFS, as streaming services play songs, but never past peak_db: a dynamic song
+    stays a little quieter instead of getting squashed."""
+    gain = 10 ** ((target - loudness(pcm, sr)) / 20)
+    peak = float(np.abs(pcm).max()) or 1.0
+    return (pcm * min(gain, 10 ** (peak_db / 20) / peak)).astype(np.float32)

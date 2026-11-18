@@ -826,3 +826,13 @@ def test_render_returns_the_clicks_alone():
     music = r.pcm - r.click[:, None]
     assert np.allclose(music[:pad], 0) and np.allclose(music[pad:], 0.1)  # silence before the song, then the song
     assert r.click[r.click_samples[1]] == pytest.approx(0.5)
+
+
+def test_loudness_reads_a_full_scale_tone_at_zero_and_normalize_respects_the_peak():
+    sr = 48000
+    t = np.arange(sr * 5) / sr
+    x = np.sin(2 * np.pi * 997 * t)
+    assert rd.loudness(np.stack([x, x], 1), sr) == pytest.approx(0.0, abs=0.2)  # BS.1770 reference
+    quiet = (0.05 * np.stack([x, x], 1)).astype(np.float32)
+    y = rd.normalize(quiet, sr)
+    assert np.abs(y).max() <= 10 ** (-1 / 20) + 1e-6 and rd.loudness(y, sr) == pytest.approx(-14.0, abs=0.3)
