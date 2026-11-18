@@ -1,0 +1,9 @@
+*
+!pyproject.toml
+!uv.lock
+!README.md
+!LICENSE
+!src/
+!runpod/handler.py
+!models/separator/BS-Roformer-SW.ckpt
+!models/separator/BS-Roformer-SW.yaml

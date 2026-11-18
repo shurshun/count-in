@@ -1,0 +1,34 @@
+name = "count-in-api"
+account_id = "ae7a145014f74c55a18cfff734ae8896"
+main = "src/index.ts"
+compatibility_date = "2026-10-01"
+
+# Production route, used only by `wrangler deploy`.
+routes = [{ pattern = "api.count-in.app", custom_domain = true }]
+
+[[d1_databases]]
+binding = "DB"
+database_name = "count-in"
+database_id = "cba615f3-3657-4ec4-9685-148ddbccd6c5"
+
+[[r2_buckets]]
+binding = "AUDIO"
+bucket_name = "count-in-audio"
+
+# Songs and parts live at most a day; the R2 lifecycle rule does the same in production.
+[triggers]
+crons = ["17 * * * *"]
+
+[vars]
+RUNPOD_BASE = "https://api.runpod.ai/v2"
+MAX_SECONDS = "720"
+# Windows per chunk on the GPU: 8 against the app's 2, the parts differ by about -35 dB.
+OVERLAP = "4"
+
+# Secrets (wrangler secret put, or .dev.vars locally):
+# RUNPOD_API_KEY, RUNPOD_ENDPOINT, SIGNING_KEY, PUBLIC_URL
+
+# Workers Logs: every request and console line, kept 3 days on the free plan.
+[observability]
+enabled = true
+head_sampling_rate = 1

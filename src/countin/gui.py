@@ -7,7 +7,7 @@ import sys
 import threading
 import random
 import time
-from dataclasses import dataclass, field
+from dataclasses import dataclass, field, replace
 from pathlib import Path
 
 import numpy as np
@@ -15,7 +15,7 @@ from PySide6.QtCore import QEvent, QLocale, QObject, QSettings, QStandardPaths, 
 from PySide6.QtGui import QAction, QDesktopServices, QFont, QIcon, QImage, QKeySequence, QColor, QPainter, QPainterPath, QPen, QPalette, QPixmap, QPolygonF
 from PySide6.QtWidgets import (
     QAbstractSpinBox, QApplication, QButtonGroup, QCheckBox, QComboBox, QDialog, QDoubleSpinBox, QFileDialog, QFrame,
-    QGridLayout, QHBoxLayout, QLabel, QLineEdit, QMainWindow, QMessageBox, QProgressBar, QPushButton, QRadioButton, QScrollArea,
+    QGridLayout, QHBoxLayout, QLabel, QLayout, QLineEdit, QPlainTextEdit, QMainWindow, QMessageBox, QProgressBar, QPushButton, QRadioButton, QScrollArea,
     QGraphicsDropShadowEffect, QSlider, QSpinBox, QStackedWidget, QStatusBar, QVBoxLayout, QWidget,
 )
 
@@ -48,6 +48,7 @@ JOB_WHY = {
     "zones_job": "Раскладываю песню на дорожки, чтобы найти паузы без убранных инструментов. Это делается один раз на трек.",
     "preview_job": "Готовлю отрывок: отсчёт и первые секунды песни с вашими настройками.",
     "save_job": "Сохраняю трек с отсчётом и выбранным уровнем дорожек.",
+    "export_job": "Сохраняю мультитрек: партии, клик и темп начинаются с первого такта.",
 }
 
 # Lines that turn up while a job runs
@@ -97,13 +98,20 @@ QPushButton#iconButton:hover { background: rgba(127,127,127,0.24); }
 #drop { border: 2px dashed @BORDER@; border-radius: 18px; color: @FIELD@; font-size: 18px; }
 QFrame#card { background: @CARD@; border: 1px solid @BORDER@; border-radius: 12px; }
 #cardTitle { font-weight: 600; font-size: 16px; }
+QFrame#option { background: @CARD@; border: 1px solid @BORDER@; border-radius: 12px; margin: 1px; }
+QFrame#option:focus { border-color: @ACCENT@; }
+QFrame#option[selected="true"] { border: 2px solid @ACCENT@; margin: 0; }
+#optionTitle { font-weight: 600; font-size: 16px; }
+#optionNote { font-size: 13px; color: @FIELD@; }
+QFrame#target { background: rgba(127,127,127,0.11); border-radius: 9px; }
+#targetName { font-weight: 600; }
 #field { color: @FIELD@; }
 QPushButton[seg] { border: 1px solid rgba(127,127,127,0.35); background: rgba(127,127,127,0.06);
                    padding: 3px 11px; min-height: 18px; border-radius: 0; }
 QPushButton[seg="first"] { border-top-left-radius: 6px; border-bottom-left-radius: 6px; }
 QPushButton[seg="last"] { border-top-right-radius: 6px; border-bottom-right-radius: 6px; }
 QPushButton[seg]:checked { background: @ACCENT@; color: @ACCENT_TEXT@; border-color: @ACCENT@; }
-QPushButton#primary { background: @ACCENT@; color: white; border: none;
+QPushButton#primary { background: @ACCENT@; color: @ACCENT_TEXT@; border: none;
                       border-radius: 9px; padding: 8px 26px; font-size: 15px; font-weight: 600; min-height: 22px; }
 QPushButton#primary:disabled { background: rgba(127,127,127,0.25); }
 QPushButton#tool { border: 1px solid @BORDER@; border-radius: 9px; padding: 8px 18px; font-size: 15px;
@@ -112,6 +120,7 @@ QPushButton#tool:disabled { color: gray; }
 QPushButton#small { border: 1px solid rgba(127,127,127,0.3); border-radius: 6px; padding: 2px 8px;
                     background: rgba(127,127,127,0.06); min-width: 26px; }
 QSlider::groove:horizontal { height: 4px; background: rgba(127,127,127,0.3); border-radius: 2px; }
+QCheckBox#rowCheck { margin-left: 2px; }  /* the box lines up with the row icons above */
 QSlider::sub-page:horizontal { background: @ACCENT@; border-radius: 2px; }
 QSlider::handle:horizontal { width: 16px; height: 16px; margin: -6px 0; border-radius: 8px;
                              background: white; border: 1px solid rgba(0,0,0,0.25); }
@@ -405,11 +414,55 @@ def analyze_job(job: Job, track: Track):
     return track, pcm, sr, env
 
 
-def _stems(job: Job, pcm, sr, label: str, urgent: bool = False) -> dict[str, np.ndarray]:
+def cloud_key() -> bool:
+    from .core import cloud
+
+    return bool(cloud.key())
+
+
+def cloud_on() -> bool:
+    """Cloud separation is switched on and a key is stored."""
+    from .core import cloud
+
+    return pref_bool(CLOUD_KEY, False) and bool(cloud.key())
+
+
+def cloud_overlap() -> int:
+    from .core import cloud
+
+    try:
+        v = int(QSettings().value(CLOUD_OVERLAP, 4))
+    except (TypeError, ValueError):
+        v = 4
+    return v if v in cloud.OVERLAPS else 4
+
+
+def stem_key(song: Path) -> str:
+    """Stem cache key; cloud stems of each overlap are kept apart from local ones."""
+    from .core import stemcache
+
+    return stemcache.key(song, cloud_overlap() if cloud_on() else None)
+
+
+def _stems(job: Job, pcm, sr, label: str, urgent: bool = False, song: Path | None = None) -> dict[str, np.ndarray]:
     """Stems from the separation process (core/worker.py), so the interface and the audio keep running. An
-    urgent request, a preview excerpt, goes ahead of the whole-song separation."""
+    urgent request, a preview excerpt, goes ahead of the whole-song separation. A whole song (song given) goes
+    to the cloud when that is on; when the cloud fails, this computer separates it."""
     from .core import worker
 
+    if song is not None and cloud_on():
+        from .core import cloud, stemcache
+
+        try:
+            began = time.monotonic()
+            st = cloud.separate(pcm, sr, stem_key(song), job.report, job.cancelled.is_set, cloud_overlap())
+            worker.separator().last = (time.monotonic() - began, _("в облаке"))
+            return st
+        except cloud.Cancelled:
+            raise Cancelled
+        except cloud.CloudError as e:
+            log.warning("cloud separation failed, separating here: %s", e)
+            label = _("Облако недоступно, разделяю на этом компьютере")
     job.report(label)
     try:
         return worker.separator().separate(pcm, sr, lambda d, n: job.report(label, d, n),
@@ -444,7 +497,7 @@ def preview_job(job: Job, track: Track, s: Settings, pcm: np.ndarray, sr: int, c
     if _covers(cached, i0, i1):
         c0, st = cached
         part = {k: v[i0 - c0 : i1 - c0] for k, v in st.items()}
-    elif separate:
+    elif separate and not cloud_on():  # with the cloud the whole song is on its way; the excerpt plays as is
         part = _stems(job, pcm[i0:i1], sr, _("Разделяю отрывок"), urgent=True)
         new_cache = (i0, part)
 
@@ -492,7 +545,7 @@ def save_job(job: Job, t: Track, s: Settings, cached):
     pcm, info = io.decode(t.path)
     full = None
     if s.levels:
-        st = cached[1] if _covers(cached, 0, len(pcm)) else _stems(job, pcm, info.sr, _("{name}: разделение", name=t.path.name))
+        st = cached[1] if _covers(cached, 0, len(pcm)) else _stems(job, pcm, info.sr, _("{name}: разделение", name=t.path.name), song=t.path)
         full = (0, st)
         if s.fill and t.zones is None:
             t.zones, t.zones_key = find_zones(t, pcm, info.sr, st, s), zones_key(s)
@@ -509,6 +562,45 @@ def save_job(job: Job, t: Track, s: Settings, cached):
     return t, out, full, r.clipped
 
 
+def multitrack_dir(song: Path, s: Settings, info: io.AudioInfo) -> Path:
+    """The folder of a multitrack export, where the backing track would go."""
+    out = target_path(song, s, info)
+    tag = f"_{round(s.speed * 100)}pct" if s.speed != 1.0 else ""
+    return out.parent / f"{song.stem}_multitrack{tag}"
+
+
+def export_job(job: Job, t: Track, s: Settings, cached, what: dict):
+    """Multitrack for a DAW in one folder: the parts (or the whole song) as WAV, the click grid and the tempo
+    map as MIDI, all starting on bar 1. Parts come at full level; the whole song, when parts are off, has the
+    turned-down parts taken out. Returns (track, folder, (0, stems) when separated or None, 0)."""
+    from .core import daw, stems
+
+    job.report(_("{name}: чтение", name=t.path.name))
+    pcm, info = io.decode(t.path)
+    full, st = None, None
+    if what["parts"] or s.levels:
+        st = cached[1] if _covers(cached, 0, len(pcm)) else _stems(job, pcm, info.sr, _("{name}: разделение", name=t.path.name), song=t.path)
+        full = (0, st)
+    if s.fill and t.zones is None:
+        t.zones, t.zones_key = find_zones(t, pcm, info.sr, st, s), zones_key(s)
+    clicks = clicks_for(t, s)
+    cut = rd.leading_silence(pcm, info.sr) if s.pre_roll == "trim" else 0.0
+    g = daw.grid(t.analysis.beats, t.bars, t.zones if s.fill else None, t.t0, 60.0 / t.bpm, s.meter,
+                 min([min(t.t0, cut)] + [c.time for c in clicks]))
+    folder = multitrack_dir(t.path, s, info)
+    folder.mkdir(parents=True, exist_ok=True)
+    backing = stems.attenuate(pcm, st, s.levels) if st and s.levels else pcm
+    tracks = daw.parts(pcm, st) if what["parts"] else {t.path.stem: backing}
+    for name, x in tracks.items():
+        job.report(_("{name}: запись", name=f"{name}.wav"))
+        daw.write_wav(folder / f"{name}.wav", daw.place(x, info.sr, g, s.speed), info.sr)
+    if what["click"]:
+        daw.write_clicks(folder / "click.mid", g, clicks, s.meter, s.speed)
+    if what["tempo"]:
+        daw.write_tempo(folder / "tempo.mid", g, s.meter, s.speed)
+    return t, folder, full, 0
+
+
 def warm_models():
     """Starts the separation process and loads its models there, so the first separation does not wait for
     them; on a Mac's first run it also builds the Core ML model. They stay loaded for the life of the app."""
@@ -522,7 +614,7 @@ def warm_models():
 
 def zones_job(job: Job, t: Track, s: Settings, pcm: np.ndarray, sr: int, cached):
     """Separates the whole song when needed and finds the pauses. Returns (track, zones, key, (0, stems))."""
-    st = cached[1] if _covers(cached, 0, len(pcm)) else _stems(job, pcm, sr, _("{name}: поиск пауз", name=t.path.name))
+    st = cached[1] if _covers(cached, 0, len(pcm)) else _stems(job, pcm, sr, _("{name}: поиск пауз", name=t.path.name), song=t.path)
     job.report(_("Поиск пауз"))
     return t, find_zones(t, pcm, sr, st, s), zones_key(s), (0, st)
 
@@ -535,14 +627,14 @@ def separate_job(job: Job, t: Track, pcm: np.ndarray, sr: int):
     names = tuple(p[0] for p in PARTS)
     job.report(_("Разделение на дорожки"))
     try:
-        k = stemcache.key(t.path)
+        k = stem_key(t.path)
         st = stemcache.load(k, names, len(pcm))
     except Exception:
         log.exception("stem cache unreadable")
         k, st = None, None
     if st is not None:
         return t, (0, st), True
-    st = _stems(job, pcm, sr, _("Разделение на дорожки"))
+    st = _stems(job, pcm, sr, _("Разделение на дорожки"), song=t.path)
     if k is not None:
         def keep():
             try:
@@ -586,13 +678,16 @@ class Player:
 
         self.stop()
         self.base, self.stems, self.sr, self.pos, self.done = base, stems, sr, max(0, start), False
+        self.dry = self.bad = 0
 
         # A large buffer keeps audio smooth while the GUI thread holds the interpreter.
         self.stream = sd.OutputStream(samplerate=sr, channels=base.shape[1], dtype="float32",
                                       blocksize=2048, latency="high", callback=self._fill)
         self.stream.start()
 
-    def _fill(self, out, frames, _time, _status):
+    def _fill(self, out, frames, _time, status):
+        if status.output_underflow:
+            self.dry += 1
         a = self.pos
         b = min(a + frames, len(self.base))
         x = self.base[a:b].copy()
@@ -601,6 +696,9 @@ class Player:
             if g != 1.0:
                 x -= (1.0 - g) * st[a:b]
         x *= self.volume
+        if not np.isfinite(x).all():  # one NaN makes Core Audio click and fall silent for the rest of the stream
+            self.bad += 1
+            np.nan_to_num(x, copy=False, nan=0.0, posinf=1.0, neginf=-1.0)
         np.clip(x, -1.0, 1.0, out=x)
         out[: b - a] = x
         out[b - a :] = 0
@@ -618,6 +716,8 @@ class Player:
             self.stream.stop()
             self.stream.close()
             self.stream = None
+            if self.dry or self.bad:
+                log.warning("preview audio ran dry in %d blocks, %d blocks had NaN or inf", self.dry, self.bad)
 
 
 # --- widgets ---
@@ -1598,6 +1698,9 @@ def part_icon(kind: str, color: QColor, size: int = 16) -> QPixmap:
         p.setBrush(color)
         p.drawEllipse(QPointF(6.8 * s, 11.2 * s), 1.4 * s, 1.1 * s)  # note head
         p.drawRect(QRectF(7.6 * s, 6 * s, 0.9 * s, 5.2 * s))  # stem
+    elif kind == "tracks":  # three clips on their lanes
+        for x, y, w in ((1.5, 2.5, 9), (4.5, 6.6, 10), (2.5, 10.7, 7)):
+            p.drawRoundedRect(QRectF(x * s, y * s, w * s, 2.8 * s), 1.2 * s, 1.2 * s)
     elif kind == "speaker":
         p.drawPolygon(QPolygonF([QPointF(1.5 * s, 6 * s), QPointF(4.5 * s, 6 * s), QPointF(8.5 * s, 2.5 * s),
                                  QPointF(8.5 * s, 13.5 * s), QPointF(4.5 * s, 10 * s), QPointF(1.5 * s, 10 * s)]))
@@ -1695,6 +1798,8 @@ def stack(grid: QGridLayout, label: str, *widgets) -> None:
 OUT_DIR, OUT_GROUP = "output/dir", "output/group"
 OUT_REVEAL = "output/reveal"
 FILL_KEY = "fill/enabled"
+CLOUD_KEY = "cloud/enabled"
+CLOUD_OVERLAP = "cloud/overlap"
 FILL_BUILD_KEY = "fill/buildup"
 OUTPUT_VOLUME_KEY = "playback/volume"
 DEFAULTS = "defaults/"  # prefix for the settings saved with "Save as default"
@@ -1961,6 +2066,418 @@ class ZoneDialog(QDialog):
         self.reject()
 
 
+EXPORT_MODE, EXPORT_PARTS, EXPORT_CLICK, EXPORT_TEMPO, EXPORT_FORMAT = (
+    "export/mode", "export/parts", "export/click", "export/tempo", "export/format")
+
+
+def export_format() -> str | None:
+    """The backing-track format chosen in the save dialog; None follows the source. A format saved with the
+    defaults by an older version still counts until the dialog saves its own."""
+    st = QSettings()
+    v = st.value(EXPORT_FORMAT, st.value(DEFAULTS + "format", "")) or None
+    return v if v in FORMAT_NAMES else None
+
+
+def option_pix(kind: str | None, on: bool) -> QPixmap:
+    """The icon tile of an option card, or its radio mark when kind is None. A chosen one sits on the accent."""
+    app = QApplication.instance()
+    size = 40 if kind else 20
+    pix = QPixmap(size * 2, size * 2)
+    pix.setDevicePixelRatio(2)
+    pix.fill(Qt.transparent)
+    p = QPainter(pix)
+    p.setRenderHint(QPainter.Antialiasing)
+    p.setPen(Qt.NoPen)
+    ink = on_accent(app) if on else QColor(127, 127, 127)
+    if kind:
+        p.setBrush(accent_color(app) if on else QColor(127, 127, 127, 40))
+        p.drawRoundedRect(QRectF(0, 0, size, size), 10, 10)
+        p.drawPixmap(QPointF(9, 9), part_icon(kind, ink, 22))
+    elif on:
+        p.setBrush(accent_color(app))
+        p.drawEllipse(QRectF(0, 0, size, size))
+        p.setPen(QPen(ink, 2, Qt.SolidLine, Qt.RoundCap, Qt.RoundJoin))
+        p.drawPolyline(QPolygonF([QPointF(5.5, 10.5), QPointF(8.8, 13.6), QPointF(14.5, 6.8)]))
+    else:
+        p.setBrush(Qt.NoBrush)
+        p.setPen(QPen(QColor(127, 127, 127, 150), 1.5))
+        p.drawEllipse(QRectF(1, 1, size - 2, size - 2))
+    p.end()
+    return pix
+
+
+class OptionCard(QFrame):
+    """A selectable card: icon, title, one-line note, and the options of the choice, shown while it is chosen."""
+
+    picked = Signal()
+
+    def __init__(self, kind: str, title: str, note: str, body: QLayout):
+        super().__init__(objectName="option")
+        self.kind = kind
+        self.setFocusPolicy(Qt.StrongFocus)
+        self.setCursor(Qt.PointingHandCursor)
+        self.icon, self.mark = QLabel(), QLabel()
+        text = QVBoxLayout()
+        text.setSpacing(2)
+        text.addWidget(QLabel(title, objectName="optionTitle"))
+        text.addWidget(QLabel(note, objectName="optionNote"))
+        head = QHBoxLayout()
+        head.setSpacing(12)
+        head.addWidget(self.icon)
+        head.addLayout(text, 1)
+        head.addWidget(self.mark)
+        self.body = QWidget()
+        self.body.setCursor(Qt.ArrowCursor)
+        body.setContentsMargins(52, 2, 0, 2)  # under the title, past the icon
+        self.body.setLayout(body)
+        v = QVBoxLayout(self)
+        v.setContentsMargins(14, 12, 14, 12)
+        v.setSpacing(10)
+        v.addLayout(head)
+        v.addWidget(self.body)
+        self.set_on(False)
+
+    def set_on(self, on: bool):
+        self.on = on
+        self.setProperty("selected", on)
+        self.style().unpolish(self)
+        self.style().polish(self)
+        self.icon.setPixmap(option_pix(self.kind, on))
+        self.mark.setPixmap(option_pix(None, on))
+        self.body.setVisible(on)
+
+    def mousePressEvent(self, e):
+        self.setFocus()
+        self.picked.emit()
+
+    def keyPressEvent(self, e):
+        if e.key() == Qt.Key_Space:
+            self.picked.emit()
+        else:
+            super().keyPressEvent(e)
+
+
+class ExportDialog(QDialog):
+    """What Save writes: one backing track in a chosen format, or a multitrack for a DAW. The choice is
+    remembered. target(fmt, multi) names the file or folder a choice would write."""
+
+    def __init__(self, parent, target):
+        super().__init__(parent)
+        self.setWindowTitle(_("Сохранить"))
+        self.target = target
+
+        self.fmt = Segmented([(_(name), key) for key, name in FORMAT_NAMES.items()], export_format())
+        self.fmt.changed.connect(self._update)
+        fmt = QVBoxLayout()
+        fmt.setSpacing(6)
+        fmt.addWidget(QLabel(_("Формат"), objectName="field"))
+        fmt.addWidget(self.fmt)
+
+        self.boxes = {
+            EXPORT_PARTS: QCheckBox(_("Партии отдельными файлами (WAV)")),
+            EXPORT_CLICK: QCheckBox(_("Сетка кликов (MIDI)")),
+            EXPORT_TEMPO: QCheckBox(_("Темповая карта (MIDI)")),
+        }
+        tips = {
+            EXPORT_PARTS: _("Гитара, вокал, бас, барабаны, пианино и всё остальное, на полной громкости. Без галочки пишется один WAV с выбранными уровнями дорожек"),
+            EXPORT_CLICK: _("Отсчёт и хай-хэт в паузах нотами на 10-м канале, General MIDI"),
+            EXPORT_TEMPO: _("Темп и размер каждого такта, чтобы такты DAW совпали с песней"),
+        }
+        files = QVBoxLayout()
+        files.setSpacing(8)
+        for key, box in self.boxes.items():
+            box.setChecked(pref_bool(key, True))
+            box.setToolTip(tips[key])
+            box.toggled.connect(self._update)
+            files.addWidget(box)
+
+        self.backing = OptionCard("file", _("Бэктрек одним файлом"), _("Песня с отсчётом в одном аудиофайле"), fmt)
+        self.multi = OptionCard("tracks", _("Мультитрек для DAW"),
+                                _("Папка с WAV 32 бит float и MIDI, все файлы с первого такта"), files)
+        self.multi.setToolTip(_("Отдельная папка. Все файлы начинаются с первого такта, их можно положить в начало "
+                                "проекта Cubase, Logic или Reaper."))
+        self.cards = (self.backing, self.multi)
+        for c in self.cards:
+            c.picked.connect(lambda c=c: self._pick(c))
+
+        # What gets written and where
+        self.kind_l = QLabel(objectName="field")
+        self.name_l = QLabel(objectName="targetName")
+        self.dir_l = QLabel(objectName="optionNote")
+        box = QFrame(objectName="target", minimumWidth=544)
+        g = QGridLayout(box)
+        g.setContentsMargins(14, 9, 14, 9)
+        g.setHorizontalSpacing(10)
+        g.setVerticalSpacing(2)
+        g.addWidget(self.kind_l, 0, 0)
+        g.addWidget(self.name_l, 0, 1)
+        g.addWidget(self.dir_l, 1, 1)
+        g.setColumnStretch(1, 1)
+
+        cancel = QPushButton(_("Отмена"), objectName="tool", clicked=self.reject, autoDefault=False)
+        self.ok = QPushButton(_("Сохранить"), objectName="primary", clicked=self._accept, default=True)
+        h = QHBoxLayout()
+        h.addStretch()
+        h.addWidget(cancel)
+        h.addWidget(self.ok)
+        v = QVBoxLayout(self)
+        v.setContentsMargins(18, 18, 18, 16)
+        v.setSpacing(10)
+        v.addWidget(self.backing)
+        v.addWidget(self.multi)
+        v.addWidget(box)
+        v.addSpacing(6)
+        v.addLayout(h)
+        v.setSizeConstraint(QLayout.SetFixedSize)  # the window follows the options of the chosen card
+        self._pick(self.multi if QSettings().value(EXPORT_MODE, "backing") == "multi" else self.backing)
+
+    def _pick(self, card: OptionCard):
+        for c in self.cards:
+            c.set_on(c is card)
+        card.setFocus()
+        self._update()
+
+    def _update(self, *_args):
+        multi = self.multi.on
+        self.ok.setEnabled(not multi or any(b.isChecked() for b in self.boxes.values()))
+        out = self.target(self.fmt.value(), multi)
+        folder = str(out.parent)
+        home = str(Path.home())
+        if folder.startswith(home):
+            folder = "~" + folder[len(home):]
+        self.kind_l.setText(_("Папка") if multi else _("Файл"))
+        width = 440  # fits the target box at its narrowest
+        self.name_l.setText(self.name_l.fontMetrics().elidedText(out.name, Qt.ElideMiddle, width))
+        self.dir_l.setText(self.dir_l.fontMetrics().elidedText(folder, Qt.ElideLeft, width))
+        self.name_l.setToolTip(str(out))
+
+    def keyPressEvent(self, e):
+        if e.key() in (Qt.Key_Up, Qt.Key_Down) and isinstance(self.focusWidget(), OptionCard):
+            self._pick(self.multi if e.key() == Qt.Key_Down else self.backing)
+        elif e.key() in (Qt.Key_Left, Qt.Key_Right) and self.focusWidget() is self.backing and self.backing.on:
+            i = self.fmt.values.index(self.fmt.value()) + (1 if e.key() == Qt.Key_Right else -1)
+            self.fmt.set_value(self.fmt.values[min(max(i, 0), len(self.fmt.values) - 1)])
+            self._update()
+        else:
+            super().keyPressEvent(e)
+
+    def _accept(self):
+        st = QSettings()
+        st.setValue(EXPORT_MODE, "multi" if self.multi.on else "backing")
+        st.setValue(EXPORT_FORMAT, self.fmt.value() or "")
+        for key, box in self.boxes.items():
+            st.setValue(key, box.isChecked())
+        self.accept()
+
+    def choice(self) -> dict | None:
+        """None for the backing track, else which multitrack files to write."""
+        if not self.multi.on:
+            return None
+        return {"parts": self.boxes[EXPORT_PARTS].isChecked(), "click": self.boxes[EXPORT_CLICK].isChecked(),
+                "tempo": self.boxes[EXPORT_TEMPO].isChecked()}
+
+
+def system_info() -> dict[str, str]:
+    """What a bug report tells about this computer: no names of files, folders or the user."""
+    import platform
+
+    from .core import worker
+
+    info = {
+        _("Версия"): update.current_version(),
+        _("Система"): platform.platform(terse=True),
+        _("Архитектура"): platform.machine(),
+        _("Процессор"): _cpu_name(),
+        _("Ядер"): str(os.cpu_count()),
+        _("Память"): f"{_ram_gb():.0f} GB" if _ram_gb() else "?",
+        _("Язык"): i18n.language(),
+        # The setting alone: reading the key would touch the Keychain and could ask for access.
+        _("Разделение"): _("в облаке") if pref_bool(CLOUD_KEY, False) else _("на этом компьютере"),
+    }
+    if worker.separator().last:
+        sec, how = worker.separator().last
+        info[_("Последнее разделение")] = f"{sec:.0f} s, {how}"
+    return info
+
+
+def _cpu_name() -> str:
+    import platform
+    import subprocess
+
+    if sys.platform == "darwin":
+        try:
+            return subprocess.run(["sysctl", "-n", "machdep.cpu.brand_string"], capture_output=True, text=True,
+                                  timeout=2).stdout.strip()
+        except OSError:
+            pass
+    return platform.processor() or "?"
+
+
+def _ram_gb() -> float:
+    try:
+        return os.sysconf("SC_PAGE_SIZE") * os.sysconf("SC_PHYS_PAGES") / 1024**3
+    except (ValueError, OSError, AttributeError):  # Windows has no sysconf
+        import ctypes
+
+        class Mem(ctypes.Structure):
+            _fields_ = [("len", ctypes.c_ulong), ("load", ctypes.c_ulong), ("total", ctypes.c_ulonglong),
+                        ("rest", ctypes.c_ulonglong * 6)]
+
+        m = Mem(len=ctypes.sizeof(Mem))
+        try:
+            ctypes.windll.kernel32.GlobalMemoryStatusEx(ctypes.byref(m))
+            return m.total / 1024**3
+        except Exception:
+            return 0.0
+
+
+def log_tail(limit: int = 190 * 1024) -> str:
+    try:
+        data = log_path().read_bytes()[-limit:]
+    except OSError:
+        return ""
+    return data.decode("utf-8", "replace").replace(str(Path.home()), "~")  # paths carry the account name
+
+
+class ReportDialog(QDialog):
+    """Help → Report a problem: the user's words, and with their consent this computer's details and the app log,
+    go to the author through the Count-In server."""
+
+    def __init__(self, parent):
+        super().__init__(parent)
+        self.setWindowTitle(_("Сообщить о проблеме"))
+        self.setMinimumWidth(520)
+        v = QVBoxLayout(self)
+        v.addWidget(QLabel(_("Что случилось? Что вы делали перед этим?"), objectName="field"))
+        self.text = QPlainTextEdit(placeholderText=_("Например: после нажатия «Сохранить» программа зависла на 40%"))
+        self.text.setMinimumHeight(120)
+        v.addWidget(self.text)
+        self.contact = QLineEdit(placeholderText=_("Почта или Telegram, если хотите получить ответ (необязательно)"))
+        v.addWidget(self.contact)
+
+        self.info = system_info()
+        self.send_info = QCheckBox(_("Приложить сведения о компьютере"), checked=True)
+        v.addWidget(self.send_info)
+        shown = QLabel("\n".join(f"{k}: {val}" for k, val in self.info.items()), objectName="field")
+        shown.setTextInteractionFlags(Qt.TextSelectableByMouse)
+        shown.setContentsMargins(24, 0, 0, 0)
+        v.addWidget(shown)
+        self.send_info.toggled.connect(shown.setEnabled)
+        self.send_log = QCheckBox(_("Приложить журнал программы (ошибки и время операций, без звука)"),
+                                  checked=True)
+        v.addWidget(self.send_log)
+
+        self.note = QLabel(objectName="field", wordWrap=True)
+        v.addWidget(self.note)
+        h = QHBoxLayout()
+        h.addStretch()
+        h.addWidget(QPushButton(_("Отмена"), objectName="tool", clicked=self.reject))
+        self.ok = QPushButton(_("Отправить"), objectName="primary", clicked=self._send, default=True)
+        h.addWidget(self.ok)
+        v.addLayout(h)
+        self.pool = QThreadPool()
+
+    def _send(self):
+        from .core import cloud
+
+        text = self.text.toPlainText().strip()
+        if not text:
+            self.note.setText(_("Опишите проблему хотя бы парой слов."))
+            return
+        payload = {"text": text[:4000], "contact": self.contact.text().strip()}
+        if self.send_info.isChecked():
+            payload["system"] = self.info
+        if self.send_log.isChecked():
+            payload["log"] = log_tail()
+        self.ok.setEnabled(False)
+        self.note.setText(_("Отправляю…"))
+        self.job = Job(lambda _job: cloud.report(payload))
+        self.job.signals.done.connect(self._sent)
+        self.job.signals.failed.connect(self._failed)
+        self.pool.start(self.job)
+
+    def _sent(self, _r):
+        log.info("bug report sent")
+        self.note.setText(_("Отправлено. Спасибо!"))
+        self.ok.setText(_("Готово"))
+        self.ok.setEnabled(True)
+        self.ok.clicked.disconnect()
+        self.ok.clicked.connect(self.accept)
+
+    def _failed(self, error: str):
+        self.ok.setEnabled(True)
+        if " 429 " in f" {error} ":
+            self.note.setText(_("С этого адреса уже отправлено несколько отчётов. Попробуйте через час."))
+        else:
+            self.note.setText(_("Не отправилось: {e}", e=error.removeprefix("CloudError: ")))
+
+
+class CloudKeyDialog(QDialog):
+    """Paste a Count-In key; a valid one turns on separation in the cloud and shows it in the preferences."""
+
+    def __init__(self, parent):
+        from .core import cloud
+
+        super().__init__(parent)
+        self.setWindowTitle(_("Ключ Count-In"))
+        self.setMinimumWidth(460)
+        v = QVBoxLayout(self)
+        v.addWidget(QLabel(_("Ключ включает разделение на дорожки на сервере Count-In. Песня уходит на сервер, "
+                             "исходный файл удаляется через сутки, партии хранятся 30 дней, чтобы та же песня "
+                             "открывалась без нового разделения."), objectName="field", wordWrap=True))
+        self.edit = QLineEdit(cloud.key() or "", placeholderText="cin_…", echoMode=QLineEdit.Password)
+        v.addWidget(self.edit)
+        self.note = QLabel(objectName="field", wordWrap=True)
+        v.addWidget(self.note)
+        h = QHBoxLayout()
+        self.remove = QPushButton(_("Удалить ключ"), objectName="tool", clicked=self._remove, enabled=bool(cloud.key()))
+        h.addWidget(self.remove)
+        h.addStretch()
+        h.addWidget(QPushButton(_("Отмена"), objectName="tool", clicked=self.reject))
+        self.ok = QPushButton(_("Проверить и сохранить"), objectName="primary", clicked=self._check, default=True)
+        h.addWidget(self.ok)
+        v.addLayout(h)
+        self.pool = QThreadPool()
+
+    def _check(self):
+        from .core import cloud
+
+        token = self.edit.text().strip()
+        if not token:
+            return
+        self.ok.setEnabled(False)
+        self.note.setText(_("Проверяю…"))
+        self.job = Job(lambda _job: cloud.me(token))
+        self.job.signals.done.connect(self._checked)
+        self.job.signals.failed.connect(self._refused)
+        self.pool.start(self.job)
+
+    def _checked(self, info):
+        from .core import cloud
+
+        cloud.set_key(self.edit.text().strip())
+        QSettings().setValue(CLOUD_KEY, True)
+        self.note.setText(_("Ключ {name}: {used} из {limit} песен в этом месяце. Разделение в облаке включено.",
+                            name=info["name"], used=info["used"], limit=info["limit"]))
+        self.ok.setText(_("Готово"))
+        self.ok.setEnabled(True)
+        self.ok.clicked.disconnect()
+        self.ok.clicked.connect(self.accept)
+
+    def _refused(self, error: str):
+        self.ok.setEnabled(True)
+        self.note.setText(_("Ключ не принят: {e}", e=error))
+
+    def _remove(self):
+        from .core import cloud
+
+        if pref_bool(CLOUD_KEY, False):
+            warm_models()
+        cloud.set_key(None)
+        QSettings().setValue(CLOUD_KEY, False)
+        self.accept()
+
+
 class PrefsDialog(QDialog):
     """Output folder and layout, app icon. Every change is saved at once."""
 
@@ -2036,12 +2553,75 @@ class PrefsDialog(QDialog):
         v.addWidget(out)
         v.addWidget(look)
         v.addWidget(cache)
+        if cloud_key():
+            box, g4 = card(_("Ключ Count-In"))
+            self.cloud = QCheckBox(_("Разделять песни на сервере Count-In"), checked=pref_bool(CLOUD_KEY, False))
+            self.cloud.toggled.connect(self._cloud_toggled)
+            g4.addWidget(self.cloud, 0, 0, 1, 2)
+            g4.addWidget(QLabel(_("Перекрытие"), objectName="field"), 1, 0)
+            self.overlap = QComboBox()
+            for n, text in ((2, _("2 · быстрее")), (4, "4"), (8, _("8 · чище"))):
+                self.overlap.addItem(text, n)
+            self.overlap.setCurrentIndex(self.overlap.findData(cloud_overlap()))
+            self.overlap.setToolTip(_("Сколько раз модель слушает каждый момент песни. Больше даёт чуть чище партии "
+                                      "и дольше разделение. Новое значение действует на песни, открытые после "
+                                      "смены; партии каждого значения хранятся отдельно."))
+            self.overlap.currentIndexChanged.connect(lambda _i: QSettings().setValue(CLOUD_OVERLAP, self.overlap.currentData()))
+            g4.addWidget(self.overlap, 1, 1)
+            self.cloud_l = QLabel(_("проверяю ключ…"), objectName="field", wordWrap=True)
+            g4.addWidget(self.cloud_l, 2, 0, 1, 2)
+            self.music_l = QLabel(objectName="field", wordWrap=True)
+            g4.addWidget(self.music_l, 3, 0, 1, 2)
+            self.remove_key = QPushButton(_("Удалить ключ"), objectName="small", clicked=self._remove_key)
+            g4.addWidget(self.remove_key, 4, 0, 1, 2, Qt.AlignLeft)
+            self.key_box = box
+            v.addWidget(box)
+            from .core import cloud
+
+            self.cloud_job = Job(lambda _job: cloud.me())
+            self.cloud_job.signals.done.connect(self._cloud_info)
+            self.cloud_job.signals.failed.connect(self._cloud_refused)
+            self.pool.start(self.cloud_job)
         v.addWidget(close, 0, Qt.AlignRight)
         self._update()
 
     def _save(self, key, value):
         QSettings().setValue(key, value)
         self._update()
+
+    def _cloud_toggled(self, on: bool):
+        """Takes effect at once: the cloud frees the local model, the local mode loads it again."""
+        from .core import worker
+
+        QSettings().setValue(CLOUD_KEY, on)
+        if on:
+            worker.separator().stop()
+        else:
+            warm_models()
+
+    def _cloud_info(self, i: dict):
+        self.cloud_l.setText(_("Ключ {name}: {used} из {limit} песен в этом месяце", name=i["name"], used=i["used"],
+                               limit=i["limit"]))
+        self.music_l.setText(_("Поиск музыки доступен: кнопка «Поиск музыки…» рядом с «Открыть…». Он работает и "
+                               "при разделении на этом компьютере.") if i.get("music_search")
+                             else _("Поиск музыки для этого ключа не включён."))
+
+    def _remove_key(self):
+        from .core import cloud
+
+        if QMessageBox.question(self, _("Удалить ключ"), _("Удалить ключ Count-In с этого компьютера? Разделение "
+                                "пойдёт на этом компьютере, поиск музыки пропадёт. Вернуть ключ можно, вставив "
+                                "его снова.")) != QMessageBox.StandardButton.Yes:
+            return
+        if pref_bool(CLOUD_KEY, False):
+            warm_models()
+        cloud.set_key(None)
+        QSettings().setValue(CLOUD_KEY, False)
+        self.key_box.hide()
+        self.parent().check_music_access()
+
+    def _cloud_refused(self, error: str):
+        self.cloud_l.setText(_("Ключ не принят: {e}", e=error))
 
     def _count_cache(self):
         from .core import stemcache
@@ -2184,6 +2764,11 @@ class Window(QMainWindow):
         mb = self.menuBar()
         file = mb.addMenu(_("Файл"))
         self.open_a = file.addAction(_("Открыть…"), QKeySequence.Open, self._open_dialog)
+        self.music_a = file.addAction(_("Поиск музыки…"), self._open_music)
+        self.music_a.setVisible(False)
+        self.music_token = None
+        self.music_dialog = None
+        self.music_check = None
         self.save_a = file.addAction(_("Сохранить"), QKeySequence.Save, self._save)
         self.close_a = file.addAction(_("Закрыть трек"), QKeySequence.Close, self._close_track)
         self.reveal_a = file.addAction(_("Показать сохранённый файл"), self._reveal)
@@ -2206,6 +2791,13 @@ class Window(QMainWindow):
         self.update_a.setMenuRole(QAction.ApplicationSpecificRole)
         help_.addAction(_("Справка Count-In"), QKeySequence.HelpContents, self._help)
         help_.addAction(_("Страница проекта"), lambda: QDesktopServices.openUrl(QUrl(site_url())))
+        help_.addSeparator()
+        help_.addAction(_("Сообщить о проблеме…"), lambda: ReportDialog(self).exec())
+
+        # Not in any menu: the cloud key is for people the author gave one to.
+        key_a = QAction(self, shortcut=QKeySequence("Ctrl+Alt+K"), triggered=self._cloud_key)
+        key_a.setShortcutContext(Qt.ApplicationShortcut)
+        self.addAction(key_a)
 
     def _header(self) -> QWidget:
         head = QWidget(objectName="header")
@@ -2233,8 +2825,9 @@ class Window(QMainWindow):
         h.addSpacing(16)
         self.open_b = QPushButton(_("Открыть…"), objectName="tool", clicked=self._open_dialog)
         self.save_b = QPushButton(_("Сохранить"), objectName="tool", clicked=self._save, toolTip="⌘S")
+        self.music_b = QPushButton(_("Поиск музыки…"), objectName="tool", clicked=self._open_music, visible=False)
         self.close_b = QPushButton(_("Закрыть"), objectName="tool", clicked=self._close_track, toolTip="⌘W")
-        for b in (self.open_b, self.close_b, self.save_b):  # Play lives in the transport bar under the waveform
+        for b in (self.open_b, self.music_b, self.close_b, self.save_b):  # Play lives in the transport bar under the waveform
             b.setFocusPolicy(Qt.NoFocus)
             h.addWidget(b)
         return head
@@ -2382,7 +2975,7 @@ class Window(QMainWindow):
         h = QHBoxLayout(bar)
         h.setContentsMargins(10, 6, 10, 6)
         h.setSpacing(4)
-        self.play_b = glyph_button("play", _("Пробел"), self._play, "tplay", QColor(255, 255, 255))
+        self.play_b = glyph_button("play", _("Пробел"), self._play, "tplay", on_accent(QApplication.instance()))
         for b in (glyph_button("start", _("К отсчёту (Home)"), self._to_start),
                   glyph_button("prev", _("Предыдущая пауза (←)"), lambda: self._jump_pause(-1)),
                   self.play_b,
@@ -2485,7 +3078,7 @@ class Window(QMainWindow):
         icon = "stop" if self.play_start is not None else "play"
         if icon != self.play_b.property("icon"):  # this runs on every playback tick
             self.play_b.setProperty("icon", icon)
-            self.play_b.setIcon(glyph(icon, QColor(255, 255, 255)))
+            self.play_b.setIcon(glyph(icon, on_accent(QApplication.instance())))
         self.pause_l.setText(_("{i} из {n}", i=w.current_zone + 1, n=len(w.zones)) if w.current_zone is not None
                              else str(len(w.zones)))  # the group title already says what it counts
         w.overview.update()
@@ -2687,13 +3280,9 @@ class Window(QMainWindow):
         self.fill = QCheckBox(_("Заполнять паузы хай-хэтом"), checked=pref_bool(FILL_KEY, True))
         self.fill.setToolTip(_("Такты, где без убранных дорожек тихо, получают хай-хэт на каждую долю. "
                                "Правый щелчок по паузе убирает её, рядом с паузой добавляет такт, края паузы тянутся мышью."))
-        h = QHBoxLayout()
-        h.setSpacing(8)
-        for w in (self.fill,):
-            h.addWidget(w)
-        h.addStretch()
-        g.addLayout(h, g.rowCount(), 0, 1, 2)
-        self.fill_build = QCheckBox(_("Нарастание к концу паузы"), checked=pref_bool(FILL_BUILD_KEY, True))
+        self.fill.setObjectName("rowCheck")
+        g.addWidget(self.fill, g.rowCount(), 0, 1, 2, Qt.AlignLeft | Qt.AlignVCenter)
+        self.fill_build = QCheckBox(_("Нарастание к концу паузы"), checked=pref_bool(FILL_BUILD_KEY, True), objectName="rowCheck")
         self.fill_build.setToolTip(_("Последний такт паузы ведёт к вступлению: вторая половина такта звучит восьмыми, "
                                      "последние три удара громче, как в отсчёте «Нарастание»."))
         self.fill_build.toggled.connect(lambda on: QSettings().setValue(FILL_BUILD_KEY, on))
@@ -2708,12 +3297,8 @@ class Window(QMainWindow):
                                     "На волне этот уровень показан пунктиром."))
         self.threshold_l = QLabel(minimumWidth=80)
         row(g, icon_label("threshold", _("Порог тишины")), self.threshold, self.threshold_l)
-        self.trim = QCheckBox(_("Обрезать тишину в начале"))
+        self.trim = QCheckBox(_("Обрезать тишину в начале"), objectName="rowCheck")
         g.addWidget(self.trim, g.rowCount(), 0, 1, 2, Qt.AlignLeft | Qt.AlignVCenter)
-        self.fmt = QComboBox()
-        for key, name in FORMAT_NAMES.items():
-            self.fmt.addItem(_(name), key)
-        row(g, icon_label("file", _("Выходной формат")), self.fmt)
 
         for w in (self.volume, *self.parts.values()):
             w.valueChanged.connect(self._labels)
@@ -2802,6 +3387,54 @@ class Window(QMainWindow):
 
     def _prefs(self):
         PrefsDialog(self).exec()
+        self.check_music_access()
+
+    def _cloud_key(self):
+        CloudKeyDialog(self).exec()
+        self.check_music_access()
+
+    # --- music search: shown once the server confirms the stored key allows it ---
+
+    def check_music_access(self):
+        from .core import cloud
+
+        token = cloud.key()
+        self.music_check = token
+        if not token:
+            self._music_access((None, False))
+            return
+        job = Job(lambda _job: (token, bool(cloud.me(token).get("music_search"))))
+        job.signals.done.connect(self._music_access)
+        job.signals.failed.connect(self._music_refused)
+        self.music_job = job
+        QThreadPool.globalInstance().start(job)
+
+    def _music_access(self, result):
+        token, allowed = result
+        if token != self.music_check:  # a late answer for a key replaced since
+            return
+        self.music_token = token if allowed else None
+        self.music_b.setVisible(allowed)
+        self.music_a.setVisible(allowed)
+
+    def _music_refused(self, _error: str):
+        self._music_access((self.music_check, False))
+
+    def _open_music(self):
+        if not self.music_token or self.job or self.music_dialog is not None:
+            return
+        from .music_dialog import MusicDialog
+
+        # open() rather than exec(): PySide6 crashed closing a nested exec() of this dialog
+        self.music_dialog = MusicDialog(self, self.music_token, Job)
+        self.music_dialog.finished.connect(self._music_closed)
+        self.music_dialog.open()
+
+    def _music_closed(self, result):
+        dialog, self.music_dialog = self.music_dialog, None
+        if result == QDialog.DialogCode.Accepted and dialog.path:
+            self.open_files([dialog.path])
+        dialog.deleteLater()
 
     def _about(self):
         QMessageBox.about(self, _("О программе Count-In"), (
@@ -2931,7 +3564,7 @@ class Window(QMainWindow):
         if not ensure_assets(self):
             self.status.setText(_("Без моделей трек не разобрать"))
             return
-        if not self.models_warm:
+        if not self.models_warm and not cloud_on():  # with the cloud the local model only starts when the cloud fails
             self.models_warm = True
             warm_models()
         self._reset_track()
@@ -3106,7 +3739,7 @@ class Window(QMainWindow):
         # the pause fill on, the pause search separates the whole song anyway and rebuilds the preview after,
         # so a second, excerpt-only separation would only cost time.
         if (self.play_start is not None and not self.player.stems and any(g < 1 for g in self.player.gains.values())
-                and not (self.fill.isChecked() and self._full_stems() is None)):
+                and not (self.fill.isChecked() and self._full_stems() is None) and not cloud_on()):
             self._restart_preview(separate=True)
 
     def _labels(self):
@@ -3125,7 +3758,7 @@ class Window(QMainWindow):
         return Settings(
             style=self.style_seg.value(), bars=self.bars_seg.value(), meter=self.meter_seg.value(),
             pattern=self.pattern, volume_db=float(self.volume.value()),
-            levels=levels, pre_roll="trim" if self.trim.isChecked() else "keep", fmt=self.fmt.currentData(),
+            levels=levels, pre_roll="trim" if self.trim.isChecked() else "keep", fmt=export_format(),
             out_root=out_root, group=group, fill=self.fill.isChecked(), fill_build=self.fill_build.isChecked(),
             threshold=float(self.threshold.value()), speed=self.speed / 100,
         )
@@ -3197,6 +3830,8 @@ class Window(QMainWindow):
         self.close_b.setEnabled(self.current is not None)
         self.close_a.setEnabled(self.current is not None)
         self.open_a.setEnabled(not busy)
+        self.music_b.setEnabled(not busy)
+        self.music_a.setEnabled(not busy)
         self.reveal_a.setEnabled(self.last_saved is not None)
         self.match_b.setEnabled(ready)
         self.match_a.setEnabled(ready)
@@ -3369,14 +4004,27 @@ class Window(QMainWindow):
         if not self.save_b.isEnabled():
             return
         self._stop()
-        s = self.settings()
-        if self._wait_for_stems(self._save, bool(s.levels) or s.fill):
+        s, info, song = self.settings(), self.info or io.probe(self.current.path), self.current.path
+        d = ExportDialog(self, lambda fmt, multi: (multitrack_dir if multi else target_path)(song, replace(s, fmt=fmt), info))
+        if d.exec() != QDialog.Accepted:
             return
-        out = target_path(self.current.path, s, self.info or io.probe(self.current.path))
-        if out.exists() and QMessageBox.question(
-                self, "Count-In", _("Файл {name} уже есть. Заменить?", name=out.name)) != QMessageBox.Yes:
+        self.export = d.choice()
+        self._write()
+
+    def _write(self):
+        """Writes what the export dialog chose; waits for the background separation when it needs the stems."""
+        s, what = self.settings(), self.export
+        if self._wait_for_stems(self._write, bool(s.levels) or s.fill or bool(what and what["parts"])):
             return
-        self._run(save_job, self.current, s, self.stem_cache, on_done=self._saved)
+        info = self.info or io.probe(self.current.path)
+        out = target_path(self.current.path, s, info) if what is None else multitrack_dir(self.current.path, s, info)
+        ask = _("Файл {name} уже есть. Заменить?") if what is None else _("Папка {name} уже есть. Заменить файлы в ней?")
+        if out.exists() and QMessageBox.question(self, "Count-In", ask.format(name=out.name)) != QMessageBox.Yes:
+            return
+        if what is None:
+            self._run(save_job, self.current, s, self.stem_cache, on_done=self._saved)
+        else:
+            self._run(export_job, self.current, s, self.stem_cache, what, on_done=self._saved)
 
     def _saved(self, result):
         track, out, full, clipped = result
@@ -3401,7 +4049,7 @@ class Window(QMainWindow):
         self.player.volume = v / 100
 
     def _save_defaults(self):
-        """The current count-in, part levels, pause and output settings become the start for every track."""
+        """The current count-in, part levels and pause settings become the start for every track."""
         st = QSettings()
         st.setValue(DEFAULTS + "style", self.style_seg.value() if self.style_seg.value() != "midi" else "buildup")
         st.setValue(DEFAULTS + "bars", self.bars_seg.value())
@@ -3410,7 +4058,6 @@ class Window(QMainWindow):
         for name, s in self.parts.items():
             st.setValue(DEFAULTS + "part/" + name, s.value())
         st.setValue(DEFAULTS + "trim", self.trim.isChecked())
-        st.setValue(DEFAULTS + "format", self.fmt.currentData() or "")
         st.setValue(FILL_KEY, self.fill.isChecked())
         st.setValue(THRESHOLD_KEY, self.threshold.value())
         self.status.setText(_("Настройки сохранены как настройки по умолчанию"))
@@ -3437,13 +4084,12 @@ class Window(QMainWindow):
         for s in self.parts.values():
             s.setValue(0)
         self.trim.setChecked(False)
-        self.fmt.setCurrentIndex(0)
         self.fill.setChecked(True)
         self.threshold.setValue(int(zn.QUIET_DB))
         self.status.setText(_("Настройки сброшены"))
 
     def _load_defaults(self):
-        """Saved defaults; a value that no longer fits (an old meter, a removed format) is skipped."""
+        """Saved defaults; a value that no longer fits (an old meter) is skipped."""
         st = QSettings()
         if st.value(DEFAULTS + "style") is None:
             return
@@ -3465,9 +4111,6 @@ class Window(QMainWindow):
         for name, s in self.parts.items():
             s.setValue(num("part/" + name))
         self.trim.setChecked(st.value(DEFAULTS + "trim", False) in (True, "true"))
-        i = self.fmt.findData(st.value(DEFAULTS + "format", "") or None)
-        if i >= 0:
-            self.fmt.setCurrentIndex(i)
 
     # --- pauses ---
 
@@ -3495,7 +4138,7 @@ class Window(QMainWindow):
         self.sep_job.signals.progress.connect(self._sep_progress)
         self.sep_job.signals.done.connect(self._separated)
         self.sep_job.signals.failed.connect(self._sep_failed)
-        self.sep_started = None
+        self.sep_started, self.sep_stage = None, None
         self.show_busy(_("Разделяю на дорожки"), _(BUSY_WHY["separation"]), None, _("Готовлю модель…"))
         self.dock_timer.start()
         self.wave._place_overlay()
@@ -3512,8 +4155,15 @@ class Window(QMainWindow):
                     pass
         self.hide_busy()
 
-    def _sep_progress(self, _text: str, done: int, total: int):
+    def _sep_progress(self, text: str, done: int, total: int):
+        # The cloud goes through stages (upload, queue, separation, download), each named and counted from zero.
+        local = text == _("Разделение на дорожки")
+        title = _("Разделяю на дорожки") if local else text
+        if text != self.sep_stage:
+            self.sep_stage, self.sep_started = text, None
         if not total:
+            if not local:
+                self.show_busy(title, _(BUSY_WHY["separation"]), None, "", self.busy_docked)
             return
         # Time left from the chunks after the first; the first one carries model loading.
         if self.sep_started is None:
@@ -3522,7 +4172,7 @@ class Window(QMainWindow):
         left = (total - done) * (time.monotonic() - t0) / (done - d0) if done > d0 else None
         rest = (_("осталось ~{m}:{s:02d}", m=int(left // 60), s=int(left % 60)) if left is not None
                 else _("считаю время…"))
-        self.show_busy(_("Разделяю на дорожки"), _(BUSY_WHY["separation"]), done / total, rest, self.busy_docked)
+        self.show_busy(title, _(BUSY_WHY["separation"]), done / total, rest, self.busy_docked)
 
     def _separated(self, result):
         t, full, cached = result
@@ -3754,7 +4404,7 @@ class Window(QMainWindow):
     def _separate_now(self, s) -> bool:
         """Whether a preview separates its own excerpt: whenever a part is turned down. During the whole-song
         separation the excerpt goes ahead of it in the separation process, so playback starts in seconds."""
-        return bool(s.levels)
+        return bool(s.levels) and not cloud_on()
 
     def _reveal(self):
         if self.last_saved:
@@ -3793,10 +4443,37 @@ def is_dark(app: QApplication) -> bool:
     return scheme == Qt.ColorScheme.Dark
 
 
+def luminance(c: QColor) -> float:
+    """WCAG relative luminance, 0 for black, 1 for white."""
+    def lin(v: float) -> float:
+        return v / 12.92 if v <= 0.04045 else ((v + 0.055) / 1.055) ** 2.4
+    return 0.2126 * lin(c.redF()) + 0.7152 * lin(c.greenF()) + 0.0722 * lin(c.blueF())
+
+
+def contrast(a: QColor, b: QColor) -> float:
+    la, lb = sorted((luminance(a), luminance(b)), reverse=True)
+    return (la + 0.05) / (lb + 0.05)
+
+
+def window_color(dark: bool) -> QColor:
+    return QColor("#1e1e20" if dark else "#f5f5f7")
+
+
 def accent_color(app: QApplication) -> QColor:
-    """Selection blue in dark mode; in light mode that blue is too pale, so the system accent."""
-    pal = app.palette()
-    return pal.color(QPalette.Active, QPalette.Highlight) if is_dark(app) else pal.color(QPalette.Accent)
+    """Selection blue in dark mode; in light mode that blue is too pale, so the system accent. An accent that
+    blends into the window (white in the light theme, near-black in the dark one) falls back to system blue."""
+    pal, dark = app.palette(), is_dark(app)
+    c = pal.color(QPalette.Active, QPalette.Highlight) if dark else pal.color(QPalette.Accent)
+    if contrast(c, window_color(dark)) < 1.6:
+        c = QColor("#0a84ff" if dark else "#007aff")
+    return c
+
+
+def on_accent(app: QApplication) -> QColor:
+    """Text and icons on the accent: white, as the system draws them, unless the accent is too light for it
+    (a white, light grey or yellow accent), then near-black."""
+    acc = accent_color(app)
+    return QColor(255, 255, 255) if contrast(acc, QColor(255, 255, 255)) >= 3.0 else QColor(28, 28, 30)
 
 
 def style_sheet(app: QApplication) -> str:
@@ -3808,7 +4485,7 @@ def style_sheet(app: QApplication) -> str:
                "@FIELD@": "#6e6e73", "@WARN@": "#a35a00", "@TIP_CARD@": "rgba(255,255,255,0.82)"})
 
     colors["@ACCENT@"] = accent_color(app).name()
-    colors["@ACCENT_TEXT@"] = "palette(highlighted-text)" if dark else "white"
+    colors["@ACCENT_TEXT@"] = on_accent(app).name()
     out = STYLE
     for k, v in colors.items():
         out = out.replace(k, v)
@@ -3831,7 +4508,8 @@ def main() -> int:
     app.setFont(font)
     app.setStyleSheet(style_sheet(app))
     w = app.window = Window()
-    w.open_files([Path(a) for a in sys.argv[1:]])
+    # Only real files: the system may pass its own arguments at launch, and those are no reason for an error.
+    w.open_files([p for p in map(Path, sys.argv[1:]) if p.is_file()])
     w.showMaximized()
 
     # CI smoke test: start, show the window, quit; a missing bundled icon fails it.
@@ -3840,6 +4518,7 @@ def main() -> int:
     else:
         w.check_updates()
         QTimer.singleShot(400, lambda: ensure_assets(w))
+        w.check_music_access()
     return app.exec()
 
 
