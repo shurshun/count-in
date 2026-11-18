@@ -804,3 +804,14 @@ def test_transpose_shifts_pitch_and_keeps_length():
     assert len(y) == len(x)
     spec = np.abs(np.fft.rfft(y[sr // 2 : sr // 2 + sr, 0]))
     assert np.argmax(spec) == pytest.approx(440 * 2 ** (2 / 12), abs=3)  # 1 Hz bins over one second
+
+
+def test_key_of_a_minor_progression():
+    from countin.core import analyze as an
+
+    sr = 22050
+    t = np.arange(sr * 2) / sr
+    chords = [(220, 261.6, 329.6), (146.8, 174.6, 220), (164.8, 207.7, 246.9), (220, 261.6, 329.6)]
+    x = np.concatenate([sum(np.sin(2 * np.pi * f * t) for f in c) for c in chords]) * 0.2
+    tonic, minor, _conf = an.detect_key(np.stack([x, x], 1).astype(np.float32), sr)
+    assert an.key_name(tonic, minor) == "Am" and an.key_name(tonic, minor, 2) == "Bm"

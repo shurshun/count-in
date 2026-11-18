@@ -226,6 +226,7 @@ class Track:
     ref_db: float | None = None  # level of the whole song (zones.level_db)
     covered: set = field(default_factory=set)  # bars under the pauses as last shown
     dismissed: set = field(default_factory=set)  # bars whose pause the user removed; a search never brings them back
+    tonal: tuple | None = None  # (tonic pitch class, minor, confidence) from analyze.detect_key
     key: str | None = None  # the file's content hash; what the user set is kept under it (core/songs.py)
     markers: list = field(default_factory=list)  # (song time, name) of the song's sections
 
@@ -419,6 +420,7 @@ def analyze_job(job: Job, track: Track):
         track.duration = len(pcm) / sr
         track.analysis = an.analyze(pcm, sr)
         track.key = songs.key(track.path)
+        track.tonal = an.detect_key(pcm, sr)
         track.bars = zn.bars_from(track.analysis.beats, track.analysis.downbeats, track.duration)
         track.ref_db = zn.level_db(pcm)
         track.bar_db = zn.bar_levels(pcm, sr, track.bars, track.ref_db)
@@ -3216,6 +3218,7 @@ class Window(QMainWindow):
         self.semis = n
         self._song_changed()
         self.semis_l.setText(f"{n:+d}".replace("-", "−") if n else "0")
+        self._show_detector()
         self._restart_preview()
 
     def _set_speed(self, pct: int):
@@ -3775,8 +3778,7 @@ class Window(QMainWindow):
         a = t.analysis
         self.wave.set_env(env, len(pcm) / sr)
         self.wave.beats, self.wave.downs, self.wave.bars = list(a.beats), list(a.downbeats), t.bars
-        self.detector.setText(_("Детектор: {bpm:.2f} BPM · «1» на {t} · уверенность {conf:.0%}",
-                                bpm=a.bpm, t=fmt_time(a.first_downbeat), conf=a.confidence))
+        self._show_detector()
         notes = [translate(n) for n in a.notes]
         if a.confidence < 0.4:
             notes.insert(0, _("детектор не уверен, проверьте маркер «1» на слух"))
@@ -3793,6 +3795,22 @@ class Window(QMainWindow):
             QApplication.focusWidget().clearFocus()  # a new track starts with plain numbers, no blinking cursor
         self._start_separation()
         self._auto_zones()
+
+    def _show_detector(self):
+        """Tempo, the "1", confidence and the key; with a transposition the key it now plays in."""
+        t = self.current
+        if not (t and t.analysis):
+            return
+        a = t.analysis
+        text = _("Детектор: {bpm:.2f} BPM · «1» на {t} · уверенность {conf:.0%}",
+                 bpm=a.bpm, t=fmt_time(a.first_downbeat), conf=a.confidence)
+        if t.tonal:
+            key = an.key_name(*t.tonal[:2])
+            if self.semis:
+                key += " → " + an.key_name(*t.tonal[:2], self.semis)
+            text += " · " + _("тональность {key}", key=key)
+        self.detector.setText(text)
+        self.detector.setToolTip(_("Тональность — оценка по спектру всей песни, проверьте её на слух") if t.tonal else "")
 
     def _song_changed(self, *_args):
         if self.current and self.current.analysis and not self.restoring:

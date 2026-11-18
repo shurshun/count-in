@@ -225,6 +225,8 @@ EN = {
     "Разделяю отрывок": "Separating the excerpt",
     "Сборка отрывка": "Building the excerpt",
     "Сборка дорожек": "Building the parts",
+    "тональность {key}": "key {key}",
+    "Тональность — оценка по спектру всей песни, проверьте её на слух": "The key is estimated from the whole song's spectrum; check it by ear",
     "Тон": "Key",
     "На полтона ниже": "A semitone down",
     "На полтона выше": "A semitone up",
