@@ -21,7 +21,30 @@ on:
   workflow_dispatch:
 
 jobs:
+  # A push that only bumps the version leaves every cache key as it was.
+  changes:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+    outputs:
+      run: ${{ steps.diff.outputs.run }}
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          fetch-depth: 0
+      - id: diff
+        env:
+          BASE: ${{ github.event_name == 'push' && github.event.before || '' }}
+        run: |
+          run=true
+          [ -z "$BASE" ] || run=$(.github/scripts/changed.sh "$BASE" "$GITHUB_SHA" packaging/build_ffmpeg.sh \
+            packaging/fetch_models.sh packaging/countin.spec uv.lock src/countin/core/accel.py \
+            src/countin/core/stems.py src/countin/core/roformer .github/workflows/cache.yml)
+          echo "run=$run" >> "$GITHUB_OUTPUT"
+
   warm:
+    needs: changes
+    if: needs.changes.outputs.run == 'true'
     strategy:
       fail-fast: false
       matrix:
@@ -57,13 +80,18 @@ jobs:
         if: runner.os == 'macOS'
         id: image
         run: echo "image=$ImageOS-$ImageVersion" >> "$GITHUB_OUTPUT"
+      # uv.lock without the project's own version, so a release bump keeps the key.
+      - name: lock hash (macOS)
+        if: runner.os == 'macOS'
+        id: lock
+        run: echo "hash=$(awk 'skip && /^version = /{skip=0; next} /^name = "countin"$/{skip=1} 1' uv.lock | shasum -a 256 | cut -c1-16)" >> "$GITHUB_OUTPUT"
       - name: Core ML cache (macOS)
         if: runner.os == 'macOS'
         id: coreml-cache
         uses: actions/cache@v6
         with:
           path: ~/Library/Application Support/Count-In/assets/separator/BS-Roformer-SW-core.mlmodelc
-          key: coreml-${{ steps.image.outputs.image }}-${{ hashFiles('uv.lock', 'packaging/countin.spec', 'src/countin/core/accel.py', 'src/countin/core/stems.py', 'src/countin/core/roformer/**') }}
+          key: coreml-${{ steps.image.outputs.image }}-${{ steps.lock.outputs.hash }}-${{ hashFiles('packaging/countin.spec', 'src/countin/core/accel.py', 'src/countin/core/stems.py', 'src/countin/core/roformer/**') }}
       - uses: astral-sh/setup-uv@v10.3.3
         if: runner.os == 'macOS' && steps.coreml-cache.outputs.cache-hit != 'true'
         with:
