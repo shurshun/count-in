@@ -224,6 +224,7 @@ EN = {
     "{name}: загрузка модели": "{name}: loading the model",
     "Разделяю отрывок": "Separating the excerpt",
     "Сборка отрывка": "Building the excerpt",
+    "Сборка дорожек": "Building the parts",
     "{name}: чтение": "{name}: reading",
     "{name}: разделение": "{name}: separating",
     "{name}: запись": "{name}: writing",

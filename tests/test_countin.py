@@ -700,7 +700,7 @@ def test_multitrack_click_and_audio_land_on_the_same_bar_grid(tmp_path, speed):
 
     x = np.zeros((int(16 * SR), 1), np.float32)
     x[int(round(bars[5].beats[2] * SR))] = 1.0
-    y = daw.place(x, SR, g, speed)
+    y = daw.place([x], SR, g, speed)[0]
     at = np.argmax(np.abs(y[:, 0])) / SR
     assert abs(at - (bars[5].beats[2] - g.start) / speed) < 2e-3
 

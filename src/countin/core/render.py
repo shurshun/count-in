@@ -204,11 +204,12 @@ _pool = None
 
 
 def stretch_many(parts: list[np.ndarray], sr: int, speed: float) -> list[np.ndarray]:
-    """stretch() of several signals in parallel processes: Signalsmith holds the GIL, so threads run one at a
-    time, and a whole song takes about 2 s per part. The pool starts on first use and stays."""
+    """stretch() in a pool of processes, several signals in parallel. Signalsmith holds the GIL for about 2 s per
+    part of a whole song, which froze the window when it ran in the app's process. The pool starts on first use
+    and stays."""
     global _pool
-    if speed == 1.0 or len(parts) < 2:
-        return [stretch(x, sr, speed) for x in parts]
+    if speed == 1.0 or not parts:
+        return list(parts)
     import multiprocessing as mp
     import os
     from concurrent.futures import ProcessPoolExecutor
@@ -243,7 +244,7 @@ def render(pcm: np.ndarray, sr: int, clicks: list[Click], first_downbeat: float,
     pad = max(0, -math.floor((earliest * sr - cut) / speed))
     starts = [int(round((c.time * sr - cut) / speed)) + pad for c in clicks]
 
-    song = stretch(pcm[cut:], sr, speed)
+    song = stretch_many([pcm[cut:]], sr, speed)[0]
     out = np.zeros((pad + len(song), pcm.shape[1]), dtype=np.float32)
     out[pad:] = song
 

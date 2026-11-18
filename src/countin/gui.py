@@ -597,9 +597,10 @@ def export_job(job: Job, t: Track, s: Settings, cached, what: dict):
     folder.mkdir(parents=True, exist_ok=True)
     backing = stems.attenuate(pcm, st, s.levels) if st and s.levels else pcm
     tracks = daw.parts(pcm, st) if what["parts"] else {t.path.stem: backing}
-    for name, x in tracks.items():
+    job.report(_("Сборка дорожек"))
+    for name, x in zip(tracks, daw.place(list(tracks.values()), info.sr, g, s.speed)):
         job.report(_("{name}: запись", name=f"{name}.wav"))
-        daw.write_wav(folder / f"{name}.wav", daw.place(x, info.sr, g, s.speed), info.sr)
+        daw.write_wav(folder / f"{name}.wav", x, info.sr)
     if what["click"]:
         daw.write_clicks(folder / "click.mid", g, clicks, s.meter, s.speed)
     if what["tempo"]:
