@@ -96,6 +96,8 @@ QPushButton#iconButton:hover { background: rgba(127,127,127,0.24); }
 #subtitle { color: @FIELD@; }
 #warning { color: @WARN@; }
 #drop { border: 2px dashed @BORDER@; border-radius: 18px; color: @FIELD@; font-size: 18px; }
+QPushButton#recent { border: none; background: transparent; color: @ACCENT@; padding: 2px 0; text-align: left; }
+QPushButton#recent:hover { text-decoration: underline; }
 QFrame#card { background: @CARD@; border: 1px solid @BORDER@; border-radius: 12px; }
 #cardTitle { font-weight: 600; font-size: 16px; }
 QFrame#option { background: @CARD@; border: 1px solid @BORDER@; border-radius: 12px; margin: 1px; }
@@ -609,9 +611,8 @@ def warm_models():
     """Starts the separation process and loads its models there, so the first separation does not wait for
     them; on a Mac's first run it also builds the Core ML model. They stay loaded for the life of the app.
     PortAudio loads here too, so the first Play does not wait about 0.3 s for it."""
+    threading.Thread(target=lambda: __import__("sounddevice"), name="portaudio", daemon=True).start()
     try:
-        import sounddevice  # noqa: F401
-
         from .core import worker
 
         worker.separator().warm()
@@ -849,6 +850,20 @@ def glyph(kind: str, color: QColor, size: int = 18) -> QIcon:
         lines((2.5, 9, 15.5, 9), (2.5, 9, 5.5, 6), (2.5, 9, 5.5, 12), (15.5, 9, 12.5, 6), (15.5, 9, 12.5, 12))
     p.end()
     return QIcon(pix)
+
+
+class ClickLabel(QLabel):
+    clicked = Signal()
+
+    def mouseReleaseEvent(self, e):
+        if e.button() == Qt.LeftButton and self.rect().contains(e.position().toPoint()):
+            self.clicked.emit()
+
+
+def add_buttons(h: QHBoxLayout, cancel: QPushButton, ok: QPushButton) -> None:
+    """Cancel and the main button in the platform's order: the main one first on Windows, last on a Mac."""
+    for b in (ok, cancel) if sys.platform == "win32" else (cancel, ok):
+        h.addWidget(b)
 
 
 def keys(text: str) -> str:
@@ -1900,6 +1915,8 @@ CLOUD_OVERLAP = "cloud/overlap"
 FILL_BUILD_KEY = "fill/buildup"
 CLICK_VOICE_KEY = "click/voice"
 PREROLL_KEY = "click/preroll"
+GEOMETRY_KEY = "window/geometry"
+RECENT_KEY = "recent/files"
 CLICK_DB_KEY = "click/volume"
 OUTPUT_VOLUME_KEY = "playback/volume"
 DEFAULTS = "defaults/"  # prefix for the settings saved with "Save as default"
@@ -2060,11 +2077,9 @@ class TapDialog(QDialog):
         v.addWidget(self.hint)
         h = QHBoxLayout()
         h.addStretch()
-        for text, slot, name in ((_("Отмена"), self.reject, "tool"), (_("Применить"), self.accept, "primary")):
-            b = QPushButton(text, objectName=name, clicked=slot)
-            b.setFocusPolicy(Qt.TabFocus)
-            b.setAutoDefault(False)
-            h.addWidget(b)
+        pair = [QPushButton(text, objectName=name, clicked=slot, focusPolicy=Qt.TabFocus, autoDefault=False)
+                for text, slot, name in ((_("Отмена"), self.reject, "tool"), (_("Применить"), self.accept, "primary"))]
+        add_buttons(h, *pair)
         v.addLayout(h)
         self._show_hint()
 
@@ -2152,8 +2167,7 @@ class ZoneDialog(QDialog):
             h.addWidget(b)
         h.addStretch()
         ok = QPushButton(_("Готово"), objectName="primary", clicked=self.accept, default=True)
-        h.addWidget(QPushButton(_("Отмена"), objectName="tool", clicked=self.reject))
-        h.addWidget(ok)
+        add_buttons(h, QPushButton(_("Отмена"), objectName="tool", clicked=self.reject), ok)
         g.addLayout(h, 2, 0, 1, 2)
 
     def _remove(self):
@@ -2317,8 +2331,7 @@ class ExportDialog(QDialog):
         self.ok = QPushButton(_("Сохранить"), objectName="primary", clicked=self._accept, default=True)
         h = QHBoxLayout()
         h.addStretch()
-        h.addWidget(cancel)
-        h.addWidget(self.ok)
+        add_buttons(h, cancel, self.ok)
         v = QVBoxLayout(self)
         v.setContentsMargins(18, 18, 18, 16)
         v.setSpacing(10)
@@ -2470,9 +2483,8 @@ class ReportDialog(QDialog):
         v.addWidget(self.note)
         h = QHBoxLayout()
         h.addStretch()
-        h.addWidget(QPushButton(_("Отмена"), objectName="tool", clicked=self.reject))
         self.ok = QPushButton(_("Отправить"), objectName="primary", clicked=self._send, default=True)
-        h.addWidget(self.ok)
+        add_buttons(h, QPushButton(_("Отмена"), objectName="tool", clicked=self.reject), self.ok)
         v.addLayout(h)
         self.pool = QThreadPool()
 
@@ -2532,9 +2544,8 @@ class CloudKeyDialog(QDialog):
         self.remove = QPushButton(_("Удалить ключ"), objectName="tool", clicked=self._remove, enabled=bool(cloud.key()))
         h.addWidget(self.remove)
         h.addStretch()
-        h.addWidget(QPushButton(_("Отмена"), objectName="tool", clicked=self.reject))
         self.ok = QPushButton(_("Проверить и сохранить"), objectName="primary", clicked=self._check, default=True)
-        h.addWidget(self.ok)
+        add_buttons(h, QPushButton(_("Отмена"), objectName="tool", clicked=self.reject), self.ok)
         v.addLayout(h)
         self.pool = QThreadPool()
 
@@ -2674,7 +2685,8 @@ class PrefsDialog(QDialog):
             self.cloud_job.signals.done.connect(self._cloud_info)
             self.cloud_job.signals.failed.connect(self._cloud_refused)
             self.pool.start(self.cloud_job)
-        v.addWidget(close, 0, Qt.AlignRight)
+        if sys.platform != "darwin":  # Mac settings windows save at once and close by the title bar
+            v.addWidget(close, 0, Qt.AlignRight)
         self._update()
 
     def _save(self, key, value):
@@ -2811,6 +2823,7 @@ class Window(QMainWindow):
         self.updateReady.connect(self._update_ready)
         self._build_menu()
         self._build_body()
+        self._show_recent()
         self._build_status()
         self._load_defaults()
         self._labels()
@@ -2852,15 +2865,37 @@ class Window(QMainWindow):
         self.open_a = file.addAction(_("Открыть…"), QKeySequence.Open, self._open_dialog)
         self.save_a = file.addAction(_("Сохранить"), QKeySequence.Save, self._save)
         self.close_a = file.addAction(_("Закрыть трек"), QKeySequence.Close, self._close_track)
+        self.recent_m = file.addMenu(_("Открыть недавние"))
         self.reveal_a = file.addAction(_("Показать сохранённый файл"), self._reveal)
         file.addSeparator()
         file.addAction(_("Сохранить настройки как по умолчанию"), self._save_defaults)
         file.addAction(_("Вернуть настройки по умолчанию"), self._reset_settings)
         prefs = file.addAction(_("Настройки…"), QKeySequence.Preferences, self._prefs)
         prefs.setMenuRole(QAction.PreferencesRole)
+        file.addSeparator()
+        quit_a = file.addAction(_("Выход"), QKeySequence.Quit, QApplication.instance().quit)
+        quit_a.setMenuRole(QAction.QuitRole)  # macOS moves it into the app menu
 
+        # The keys after a tab show in the menu; the window's event filter handles them, so text fields keep them.
         play = mb.addMenu(_("Воспроизведение"))
-        self.play_a = play.addAction(_("Прослушать / Стоп (Пробел)"), self._play)
+        self.play_a = play.addAction(_("Прослушать / Стоп") + "\t" + _("Пробел"), self._play)
+        play.addAction(_("К отсчёту") + "\tHome", self._to_start)
+        play.addAction(_("Предыдущая пауза") + "\t←", lambda: self._jump_pause(-1))
+        play.addAction(_("Следующая пауза") + "\t→", lambda: self._jump_pause(1))
+        play.addAction(_("Петля") + "\tL", self._toggle_loop)
+        play.addSeparator()
+        play.addAction(_("Медленнее"), QKeySequence("Ctrl+["), lambda: self._set_speed(self.speed - 5))
+        play.addAction(_("Быстрее"), QKeySequence("Ctrl+]"), lambda: self._set_speed(self.speed + 5))
+
+        view = mb.addMenu(_("Вид"))
+        view.addAction(_("Приблизить"), QKeySequence.ZoomIn, lambda: self._zoom(0.5))
+        view.addAction(_("Отдалить"), QKeySequence.ZoomOut, lambda: self._zoom(2.0))
+        view.addAction(_("Весь трек"), QKeySequence("Ctrl+0"), self._zoom_fit)
+
+        if sys.platform == "darwin":
+            win = mb.addMenu(_("Окно"))
+            win.addAction(_("Свернуть"), QKeySequence("Ctrl+M"), self.showMinimized)
+            win.addAction(_("Изменить масштаб окна"), lambda: self.showNormal() if self.isMaximized() else self.showMaximized())
 
         help_ = mb.addMenu(_("Справка"))
         about = help_.addAction(_("О программе Count-In"), self._about)
@@ -2918,8 +2953,15 @@ class Window(QMainWindow):
         drop_page = QWidget()
         dv = QVBoxLayout(drop_page)
         dv.setContentsMargins(40, 20, 40, 40)
-        drop = QLabel(_("Перетащите сюда трек\n\nmp3, FLAC, ALAC, WAV"), objectName="drop", alignment=Qt.AlignCenter)
-        dv.addWidget(drop)
+        drop = ClickLabel(_("Перетащите сюда трек или щёлкните, чтобы выбрать\n\nmp3, FLAC, ALAC, WAV, AIFF, OGG, M4A"),
+                          objectName="drop", alignment=Qt.AlignCenter, cursor=Qt.PointingHandCursor)
+        drop.clicked.connect(self._open_dialog)
+        dv.addWidget(drop, 1)
+        self.recent_box = QWidget()
+        self.recent_v = QVBoxLayout(self.recent_box)
+        self.recent_v.setContentsMargins(0, 12, 0, 0)
+        self.recent_v.setSpacing(2)
+        dv.addWidget(self.recent_box)
         self.stack.addWidget(drop_page)
         self.stack.addWidget(self._editor())
 
@@ -3605,6 +3647,28 @@ class Window(QMainWindow):
         if f:
             self.open_files([Path(f)])
 
+    def _remember(self, path: Path):
+        """Most recent first, eight at most; files that are gone drop out."""
+        st = QSettings()
+        old = [p for p in st.value(RECENT_KEY, []) or [] if isinstance(p, str)]
+        st.setValue(RECENT_KEY, [str(path)] + [p for p in old if p != str(path)][:7])
+        self._show_recent()
+
+    def _show_recent(self):
+        paths = [Path(p) for p in QSettings().value(RECENT_KEY, []) or [] if isinstance(p, str) and Path(p).is_file()]
+        while self.recent_v.count():
+            self.recent_v.takeAt(0).widget().deleteLater()
+        self.recent_m.clear()
+        if paths:
+            self.recent_v.addWidget(QLabel(_("Недавние"), objectName="field"))
+        for p in paths:
+            b = QPushButton(p.stem, objectName="recent", toolTip=str(p), cursor=Qt.PointingHandCursor,
+                            clicked=lambda _c=False, p=p: self.open_files([p]))
+            self.recent_v.addWidget(b, 0, Qt.AlignLeft)
+            self.recent_m.addAction(p.name, lambda p=p: self.open_files([p]))
+        self.recent_box.setVisible(bool(paths))
+        self.recent_m.setEnabled(bool(paths))
+
     def open_files(self, paths: list[Path]):
         """Opens the first audio file; the app works on one track at a time."""
         path = next((p for p in paths if p.is_file() and p.suffix.lower() in AUDIO_EXT), None)
@@ -3626,6 +3690,9 @@ class Window(QMainWindow):
         t = self.current = Track(path)
         self.stack.setCurrentIndex(1)
         self.title.setText(path.stem)
+        self._remember(path)
+        self.setWindowTitle(path.name)
+        self.setWindowFilePath(str(path))  # the file's icon in the macOS title bar
         self.subtitle.setText("")
         self.detector.setText(_("Анализ…"))
         self.show_busy(_("Анализирую трек"), _(BUSY_WHY["analysis"]), None, _("Пожалуйста, подождите…"))
@@ -3973,6 +4040,8 @@ class Window(QMainWindow):
             self.tip_timer.stop()
         self._reset_track()
         self.title.setText("Count-In")
+        self.setWindowTitle("Count-In")
+        self.setWindowFilePath("")
         self.stack.setCurrentIndex(0)
         self._enable()
 
@@ -4066,8 +4135,13 @@ class Window(QMainWindow):
         info = self.info or io.probe(self.current.path)
         out = target_path(self.current.path, s, info) if what is None else multitrack_dir(self.current.path, s, info)
         ask = _("Файл {name} уже есть. Заменить?") if what is None else _("Папка {name} уже есть. Заменить файлы в ней?")
-        if out.exists() and QMessageBox.question(self, "Count-In", ask.format(name=out.name)) != QMessageBox.Yes:
-            return
+        if out.exists():
+            box = QMessageBox(QMessageBox.Question, "Count-In", ask.format(name=out.name), parent=self)
+            replace_b = box.addButton(_("Заменить"), QMessageBox.AcceptRole)
+            box.setDefaultButton(box.addButton(QMessageBox.Cancel))
+            box.exec()
+            if box.clickedButton() is not replace_b:
+                return
         if what is None:
             self._run(save_job, self.current, s, self.stem_cache, on_done=self._saved)
         else:
@@ -4530,6 +4604,7 @@ class Window(QMainWindow):
             reveal(self.last_saved)
 
     def closeEvent(self, e):
+        QSettings().setValue(GEOMETRY_KEY, self.saveGeometry())
         # A ready update installs on quit too, like Sparkle does; it just does not relaunch.
         if self.staged:
             update.install_on_exit(update.installed_bundle(), self.staged, relaunch=False)
@@ -4579,10 +4654,10 @@ def window_color(dark: bool) -> QColor:
 
 
 def accent_color(app: QApplication) -> QColor:
-    """Selection blue in dark mode; in light mode that blue is too pale, so the system accent. An accent that
-    blends into the window (white in the light theme, near-black in the dark one) falls back to system blue."""
+    """The system accent, as the system's own checkboxes draw it. An accent that blends into the window (white in
+    the light theme, near-black in the dark one) falls back to system blue."""
     pal, dark = app.palette(), is_dark(app)
-    c = pal.color(QPalette.Active, QPalette.Highlight) if dark else pal.color(QPalette.Accent)
+    c = pal.color(QPalette.Accent)
     if contrast(c, window_color(dark)) < 1.6:
         c = QColor("#0a84ff" if dark else "#007aff")
     return c
@@ -4622,14 +4697,15 @@ def main() -> int:
 
     # The window restyles with the system appearance.
     app.styleHints().colorSchemeChanged.connect(lambda _scheme: app.setStyleSheet(style_sheet(app)))
-    font = app.font()
-    font.setPointSizeF(font.pointSizeF() + 1.5)
-    app.setFont(font)
     app.setStyleSheet(style_sheet(app))
     w = app.window = Window()
     # Only real files: the system may pass its own arguments at launch, and those are no reason for an error.
     w.open_files([p for p in map(Path, sys.argv[1:]) if p.is_file()])
-    w.showMaximized()
+    # Size and place from the last session; the first start fills the screen.
+    if not w.restoreGeometry(QSettings().value(GEOMETRY_KEY, b"")):
+        w.showMaximized()
+    else:
+        w.show()
 
     # CI smoke test: start, show the window, quit; a missing bundled icon fails it.
     if os.environ.get("COUNTIN_SMOKE"):
