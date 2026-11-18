@@ -15,7 +15,8 @@ from .render import METERS, Click, stretch
 
 TPB = 480  # MIDI ticks per quarter note
 DRUMS = 9  # GM drum channel (10 counted from 1)
-NOTES = {"stick": (76, 77), "hihat": (42, 42)}  # voice -> (accent, plain): hi/low wood block, closed hi-hat
+# voice -> GM drum notes (accent, plain)
+NOTES = {"stick": (76, 77), "hihat": (42, 42), "beep": (34, 33), "cowbell": (56, 56), "clave": (75, 75)}
 
 
 @dataclass
@@ -42,6 +43,11 @@ def song_beats(beats, downbeat: float, period: float) -> np.ndarray:
             target = float(near)
         out.append(target)
     return np.array(out)
+
+
+def song_clicks(beats, downbeat: float, period: float, per_bar: int, voice: str, gain: float = 1.0) -> list[Click]:
+    """A click on every song beat (song_beats) from the "1" to the end, accented on each bar's first beat."""
+    return [Click(float(t), i % per_bar == 0, gain, voice) for i, t in enumerate(song_beats(beats, downbeat, period))]
 
 
 def _bars(b: np.ndarray, n: int, period: float) -> list[zn.Bar]:

@@ -7,7 +7,8 @@
 Count-In finds a song's tempo and first downbeat and puts a drum count-in in front of it. The last click lands exactly one beat before the "one". The same song can become a backing track with the guitar and vocals removed or turned down.
 
 - Count-in of 1 or 2 bars in 4/4, 3/4 or 6/8.
-- Patterns: even, build-up (twice as dense in the second half, the last hits louder) or your own from a MIDI file.
+- Patterns: even, build-up (eighths over the second half of the last bar, louder hit by hit) or your own from a MIDI file.
+- Click through the whole song: a metronome beep, sticks, cowbell, clave or hi-hat on every beat after the count-in, with its own level.
 - A neural network separates the song into guitar, vocals, bass, drums and piano in one pass; each has its own level and a mute button.
 - Pauses: bars that go quiet once parts are removed get a hi-hat on every beat, as loud as the music around them, with an optional build-up into the band's entry.
 - Speed: slow the song down to 80% with the pitch kept; the count-in and the hi-hat land on the slowed grid.
@@ -158,7 +159,8 @@ Count-In is released under the [MIT License](LICENSE). The bundled third-party c
 Count-In находит темп и первую сильную долю песни и вставляет перед ней барабанный отсчёт. Последний клик звучит ровно за долю до «раз». Из той же песни можно сделать бэктрек: убрать или приглушить гитару и вокал.
 
 - Отсчёт на 1 или 2 такта, размер 4/4, 3/4 или 6/8.
-- Рисунок: ровный, «нарастание» (во второй половине вдвое чаще, последние удары громче) или свой из MIDI-файла.
+- Рисунок: ровный, «нарастание» (восьмые во второй половине последнего такта, каждый удар громче предыдущего) или свой из MIDI-файла.
+- Клик на всю песню: метроном, палочки, ковбелл, клаве или хай-хэт на каждую долю после отсчёта, со своей громкостью.
 - Нейросеть за один проход разделяет песню на гитару, вокал, бас, барабаны и пианино; у каждой дорожки свой уровень и кнопка отключения.
 - Паузы: такты, где без убранных инструментов тихо, получают хай-хэт на каждую долю, громкостью как музыка вокруг, и по желанию нарастание к вступлению группы.
 - Скорость: песню можно замедлить до 80% без смены тона, отсчёт и хай-хэт встают на замедленную сетку.

@@ -37,7 +37,7 @@ Count-In inserts a drum count-in before a song's first downbeat and can turn gui
 
 - The last click lands exactly one click before the downbeat. `countin-verify` checks it: "vs planned" must stay at 0.00 ms.
 - Stems come back sample-aligned with the input and of its shape. `test_stems_sum_back_to_the_mix_without_shift` guards it.
-- Clicks never clip the song. `render` only counts overs the clicks add.
+- Clicks never touch the song. A click that would push the mix past `CEILING` (0.98) gets turned down as a whole, by up to `LIMIT_DB` (12 dB); `render` counts the overs left after that.
 - Models download once into the data folder (or come from an `assets` folder). The only other network traffic is the update check and the update download.
 
 ## Why these technologies
