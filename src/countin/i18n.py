@@ -78,7 +78,7 @@ EN = {
     "Палочки": "Sticks",
     "Метроном": "Metronome",
     "Ковбелл": "Cowbell",
-    "Клаве": "Clave",
+    "Пинг": "Ping",
     "Хай-хэт": "Hi-hat",
     "Такты, где без убранных дорожек тихо, получают хай-хэт на каждую долю. Правый щелчок по паузе убирает её, рядом с паузой добавляет такт, края паузы тянутся мышью.": "Bars that go quiet without the removed parts get a hi-hat on every beat. Right-click a pause to remove it, next to one to add a bar; drag a pause edge to move it.",
     "Пауза {a}–{b}": "Pause {a}–{b}",
