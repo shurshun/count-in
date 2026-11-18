@@ -208,6 +208,7 @@ EN = {
     "Разделяю отрывок": "Separating the excerpt",
     "Сборка отрывка": "Building the excerpt",
     "Сборка дорожек": "Building the parts",
+    "Паузы": "Pauses",
     "Чтобы собрать сет-лист, откройте или перетащите несколько песен сразу": "To make a set list, open or drop several songs at once",
     "Сет-лист: песня {i} из {n}": "Set list: song {i} of {n}",
     "Играть сначала": "Play Again",

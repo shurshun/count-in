@@ -141,7 +141,7 @@ QFrame#busyPill { background: @SEP_CARD@; border: 1px solid @BORDER@; border-rad
 #pillText { font-size: 14px; font-weight: 600; }
 #pillNote { font-size: 14px; font-weight: 600; color: @WARN@; }
 QFrame#transport { background: @CARD@; border: 1px solid @BORDER@; border-radius: 12px; }
-QPushButton#tbtn { border: none; border-radius: 8px; background: transparent; min-width: 34px; min-height: 30px; padding: 0 6px; }
+QPushButton#tbtn { border: none; border-radius: 8px; background: transparent; min-width: 32px; min-height: 30px; padding: 0; }
 QPushButton#tbtn:hover { background: rgba(127,127,127,0.18); }
 QPushButton#tplay { border: none; border-radius: 17px; background: @ACCENT@; padding: 0;
                     min-width: 34px; max-width: 34px; min-height: 34px; max-height: 34px; }
@@ -3236,10 +3236,10 @@ class Window(QMainWindow):
             line = QFrame(objectName="vsep", fixedWidth=1, fixedHeight=24)  # short of the bar's edges
             return line
 
-        h.addSpacing(10)
+        h.addSpacing(6)
         h.addWidget(vsep())
-        h.addSpacing(10)
-        h.addWidget(QLabel(_("Заполнение пауз"), objectName="groupTitle"))
+        h.addSpacing(6)
+        h.addWidget(QLabel(_("Паузы"), objectName="groupTitle", toolTip=_("Заполнение пауз")))
         h.addSpacing(4)
 
         # − count + as in the tempo card: minus removes the current pause, plus makes one at the play position
@@ -3256,9 +3256,9 @@ class Window(QMainWindow):
         help_b.setFocusPolicy(Qt.TabFocus)
 
         # Speed: − percent +, slower with the pitch kept; steps of 5% from 50% to 100%; below 80% the stretch smears the sound
-        h.addSpacing(10)
+        h.addSpacing(6)
         h.addWidget(vsep())
-        h.addSpacing(10)
+        h.addSpacing(6)
         h.addWidget(QLabel(_("Скорость"), objectName="groupTitle"))
         h.addSpacing(4)
         h.addWidget(glyph_button("minus", _("Медленнее на 5%, тон не меняется"), lambda: self._set_speed(self.speed - 5), "round"))
@@ -3276,9 +3276,9 @@ class Window(QMainWindow):
         h.addWidget(self.speed_bpm_l)
 
         # Key: semitones up or down, tempo kept
-        h.addSpacing(10)
+        h.addSpacing(6)
         h.addWidget(vsep())
-        h.addSpacing(10)
+        h.addSpacing(6)
         h.addWidget(QLabel(_("Тон"), objectName="groupTitle"))
         h.addSpacing(4)
         h.addWidget(glyph_button("minus", _("На полтона ниже"), lambda: self._set_semis(self.semis - 1), "round"))
