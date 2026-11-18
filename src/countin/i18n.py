@@ -131,6 +131,18 @@ EN = {
     "Ключ включает разделение на дорожки на сервере Count-In. Песня уходит на сервер, исходный файл удаляется через сутки, дорожки хранятся 30 дней, чтобы та же песня открывалась без нового разделения.":
         "The key turns on separation on the Count-In server. The song goes to the server; the uploaded file is deleted after a day, and the parts are kept for 30 days so the same song opens without a new separation.",
     "Удалить ключ": "Remove key",
+    "Поиск музыки…": "Music search…",
+    "Поиск музыки доступен: кнопка «Поиск музыки…» рядом с «Открыть…». Он работает и при разделении на этом компьютере.":
+        "Music search is on: the Music search… button next to Open…. It works with separation on this computer too.",
+    "Поиск музыки для этого ключа не включён.": "Music search is not enabled for this key.",
+    "Удалить ключ Count-In с этого компьютера? Разделение пойдёт на этом компьютере, поиск музыки пропадёт. Вернуть ключ можно, вставив его снова.":
+        "Remove the Count-In key from this computer? Separation will run on this computer and music search goes away. Paste the key again to bring it back.",
+    "В очереди…": "Waiting…",
+    "Ищу источники…": "Finding sources…",
+    "Проверяю запись…": "Checking the recording…",
+    "Скачиваю аудио…": "Downloading audio…",
+    "Отменено": "Cancelled",
+    "Получаю аудио…": "Receiving audio…",
     "Проверить и сохранить": "Check and save",
     "Проверяю…": "Checking…",
     "Ключ {name}: {used} из {limit} песен в этом месяце. Разделение в облаке включено.":

@@ -98,7 +98,8 @@ def _call(method: str, path: str, token: str, body: bytes | dict | None = None, 
             return bytes(raw)
     except urllib.error.HTTPError as e:
         try:
-            msg = json.loads(e.read()).get("error", "")
+            payload = json.loads(e.read())
+            msg = payload.get("error") or payload.get("detail", "")
         except Exception:
             msg = ""
         raise CloudError(f"{e.code} {msg}".strip()) from None
@@ -107,7 +108,7 @@ def _call(method: str, path: str, token: str, body: bytes | dict | None = None, 
 
 
 def me(token: str | None = None) -> dict:
-    """{"name", "used", "limit", "max_seconds"} for the key; CloudError when it is invalid or revoked."""
+    """{"name", "used", "limit", "max_seconds", "music_search"} for the key; CloudError when it is invalid or revoked."""
     token = token or key()
     if not token:
         raise CloudError("no key")
