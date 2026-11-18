@@ -159,12 +159,12 @@ def write_clicks(path: Path, g: Grid, clicks: list[Click], meter: str, speed: fl
     mid.save(str(path))
 
 
-def place(xs: list[np.ndarray], sr: int, g: Grid, speed: float = 1.0) -> list[np.ndarray]:
+def place(xs: list[np.ndarray], sr: int, g: Grid, speed: float = 1.0, semis: float = 0.0) -> list[np.ndarray]:
     """Audio of the whole song (song time 0 at sample 0) moved to output time, with bar 1 at sample 0.
     Silence fills the bars before the song starts; audio before bar 1 (trimmed silence) gets cut."""
     if g.start > 0:
-        return stretch_many([x[round(g.start * sr):] for x in xs], sr, speed)
-    out = stretch_many(xs, sr, speed)
+        return stretch_many([x[round(g.start * sr):] for x in xs], sr, speed, semis)
+    out = stretch_many(xs, sr, speed, semis)
     return [np.concatenate([np.zeros((round(-g.start / speed * sr), x.shape[1]), dtype=np.float32), x]) for x in out]
 
 

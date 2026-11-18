@@ -248,6 +248,7 @@ class Settings:
     click_db: float = 0.0  # song click level on top of the count-in volume
     fill_build: bool = True  # the last bar of each pause runs into the entry in eighths
     speed: float = 1.0  # playback and export speed, pitch kept (0.8 = 20% slower)
+    semis: float = 0.0  # transposition in semitones, tempo kept
     threshold: float = zn.QUIET_DB  # dB below the song average that counts as a pause
 
 
@@ -524,12 +525,12 @@ def preview_job(job: Job, track: Track, s: Settings, pcm: np.ndarray, sr: int, c
     win = [rd.Click((c.time - lo_t) / s.speed, c.accent, c.gain, c.voice)
            for c in clicks if first - 0.35 <= c.time < end]
     song, part = pcm[i0:i1], dict(part or {})
-    if s.speed != 1.0:
+    if s.speed != 1.0 or s.semis:
         # Stretching shifts phases, so a stretched song minus a stretched stem no longer cancels. The slowed
         # song gets rebuilt from its slowed pieces, every stem and the rest, so the player's live subtraction
         # stays exact.
         rest = song - sum(part.values()) if part else song
-        *slow, rest = rd.stretch_many([*part.values(), rest], sr, s.speed)
+        *slow, rest = rd.stretch_many([*part.values(), rest], sr, s.speed, s.semis)
         part = dict(zip(part, slow))
         song = rest + sum(part.values()) if part else rest
     r = rd.render(song, sr, win, 0.0, "keep", s.volume_db, rd.load_samples(sr))
@@ -545,7 +546,7 @@ def target_path(song: Path, s: Settings, info: io.AudioInfo) -> Path:
     folder = s.out_root
     if folder and s.group:
         folder = io.organized_dir(folder, info.tags, *s.group)
-    return io.output_path(song, s.fmt or info.format, s.levels, folder, s.speed)
+    return io.output_path(song, s.fmt or info.format, s.levels, folder, s.speed, s.semis)
 
 
 def save_job(job: Job, t: Track, s: Settings, cached):
@@ -562,9 +563,10 @@ def save_job(job: Job, t: Track, s: Settings, cached):
             t.zones, t.zones_key = find_zones(t, pcm, info.sr, st, s), zones_key(s)
         pcm = stems.attenuate(pcm, st, s.levels)
     job.report(_("{name}: запись", name=t.path.name))
-    if s.speed != 1.0:
+    if s.speed != 1.0 or s.semis:
         job.report(_("{name}: замедление", name=t.path.name))
-    r = rd.render(pcm, info.sr, clicks_for(t, s), t.t0, s.pre_roll, s.volume_db, rd.load_samples(info.sr), s.speed)
+    r = rd.render(pcm, info.sr, clicks_for(t, s), t.t0, s.pre_roll, s.volume_db, rd.load_samples(info.sr), s.speed,
+                  s.semis)
     out = target_path(t.path, s, info)
     out.parent.mkdir(parents=True, exist_ok=True)
     io.encode(r.pcm, info, out, tags_from=t.path)
@@ -574,7 +576,7 @@ def save_job(job: Job, t: Track, s: Settings, cached):
 def multitrack_dir(song: Path, s: Settings, info: io.AudioInfo) -> Path:
     """The folder of a multitrack export, where the backing track would go."""
     out = target_path(song, s, info)
-    tag = f"_{round(s.speed * 100)}pct" if s.speed != 1.0 else ""
+    tag = (f"_{round(s.speed * 100)}pct" if s.speed != 1.0 else "") + (f"_{s.semis:+g}st" if s.semis else "")
     return out.parent / f"{song.stem}_multitrack{tag}"
 
 
@@ -601,7 +603,7 @@ def export_job(job: Job, t: Track, s: Settings, cached, what: dict):
     backing = stems.attenuate(pcm, st, s.levels) if st and s.levels else pcm
     tracks = daw.parts(pcm, st) if what["parts"] else {t.path.stem: backing}
     job.report(_("Сборка дорожек"))
-    for name, x in zip(tracks, daw.place(list(tracks.values()), info.sr, g, s.speed)):
+    for name, x in zip(tracks, daw.place(list(tracks.values()), info.sr, g, s.speed, s.semis)):
         job.report(_("{name}: запись", name=f"{name}.wav"))
         daw.write_wav(folder / f"{name}.wav", x, info.sr)
     if what["click"]:
@@ -690,6 +692,7 @@ class Player:
         self.volume = 1.0  # speaker level only; the saved file never sees it
         self.loop: tuple[int, int] | None = None  # output samples [start, end) played round
         self.ticks: list[tuple[int, np.ndarray]] = []  # clicks mixed live: (output sample, mono hit)
+        self.laps = 0  # times the loop came round
 
     def play(self, base: np.ndarray, stems: dict, sr: int, start: int = 0):
         """Starts playback, or swaps the buffer of a running stream so a rebuilt preview carries on gaplessly."""
@@ -743,6 +746,7 @@ class Player:
             self.pos = b
             if lp and b == lp[1]:
                 self.pos, self.ticks = lp[0], []
+                self.laps += 1
             elif b >= len(base):
                 self.done = True
         x = out[:n]
@@ -1921,6 +1925,7 @@ CLICK_VOICE_KEY = "click/voice"
 PREROLL_KEY = "click/preroll"
 GEOMETRY_KEY = "window/geometry"
 RECENT_KEY = "recent/files"
+TRAINER_LAPS = 2  # loop passes before the speed trainer adds 5%
 CLICK_DB_KEY = "click/volume"
 OUTPUT_VOLUME_KEY = "playback/volume"
 DEFAULTS = "defaults/"  # prefix for the settings saved with "Save as default"
@@ -2807,6 +2812,8 @@ class Window(QMainWindow):
         self.play_start = None
         self.play_speed = 1.0  # speed of the preview now playing: song time = start + position * speed
         self.speed = 100  # playback and export speed in percent
+        self.semis = 0  # transposition in semitones
+        self.trainer_laps = 0  # loop passes counted for the speed trainer
         self.resume_at = None  # song time a rebuilt preview carries on from
         self.preroll = False  # the pending preview starts with a bar of clicks before resume_at
         self.want_play = False  # a preview job is on its way to the speakers; Stop cancels that
@@ -2890,6 +2897,9 @@ class Window(QMainWindow):
         play.addAction(_("Следующая пауза") + "\t→", lambda: self._jump_pause(1))
         play.addAction(_("Петля") + "\tL", self._toggle_loop)
         play.addSeparator()
+        self.trainer_a = play.addAction(_("Тренажёр скорости: +5% каждые два круга петли"))
+        self.trainer_a.setCheckable(True)
+        self.trainer_a.toggled.connect(lambda _on: setattr(self.player, "laps", 0))
         play.addAction(_("Медленнее"), QKeySequence("Ctrl+["), lambda: self._set_speed(self.speed - 5))
         play.addAction(_("Быстрее"), QKeySequence("Ctrl+]"), lambda: self._set_speed(self.speed + 5))
 
@@ -3150,7 +3160,7 @@ class Window(QMainWindow):
         help_b = QPushButton("?", objectName="tbtn", clicked=self._help, toolTip=_("Справка Count-In"))
         help_b.setFocusPolicy(Qt.TabFocus)
 
-        # Speed: − percent +, slower with the pitch kept; steps of 5% from 80% to 100%; slower than that the stretch smears the sound
+        # Speed: − percent +, slower with the pitch kept; steps of 5% from 50% to 100%; below 80% the stretch smears the sound
         h.addSpacing(10)
         h.addWidget(vsep())
         h.addSpacing(10)
@@ -3161,7 +3171,7 @@ class Window(QMainWindow):
         sh = QHBoxLayout(schip)
         sh.setContentsMargins(10, 3, 10, 3)
         self.speed_l = QLabel("100%", objectName="chipText", alignment=Qt.AlignCenter, minimumWidth=48)
-        self.speed_l.setToolTip(_("Скорость прослушивания и сохранения. Тон не меняется, отсчёт и хай-хэт встают на замедленную сетку."))
+        self.speed_l.setToolTip(_("Скорость прослушивания и сохранения. Тон не меняется, отсчёт и хай-хэт встают на замедленную сетку. Ниже 80% звук заметно размывается, для разбора нот это не мешает."))
         sh.addWidget(self.speed_l)
         h.addWidget(schip)
         h.addWidget(glyph_button("plus", _("Быстрее на 5%"), lambda: self._set_speed(self.speed + 5), "round"))
@@ -3169,6 +3179,22 @@ class Window(QMainWindow):
         self.speed_bpm_l.setToolTip(_("Темп с учётом скорости"))
         h.addSpacing(6)
         h.addWidget(self.speed_bpm_l)
+
+        # Key: semitones up or down, tempo kept
+        h.addSpacing(10)
+        h.addWidget(vsep())
+        h.addSpacing(10)
+        h.addWidget(QLabel(_("Тон"), objectName="groupTitle"))
+        h.addSpacing(4)
+        h.addWidget(glyph_button("minus", _("На полтона ниже"), lambda: self._set_semis(self.semis - 1), "round"))
+        tchip = QFrame(objectName="lcd")
+        th = QHBoxLayout(tchip)
+        th.setContentsMargins(10, 3, 10, 3)
+        self.semis_l = QLabel("0", objectName="chipText", alignment=Qt.AlignCenter, minimumWidth=32)
+        self.semis_l.setToolTip(_("Сдвиг тона в полутонах, темп не меняется: −1 для строя Eb, −2 для D. Действует и на сохранение."))
+        th.addWidget(self.semis_l)
+        h.addWidget(tchip)
+        h.addWidget(glyph_button("plus", _("На полтона выше"), lambda: self._set_semis(self.semis + 1), "round"))
         h.addStretch()
         h.addWidget(vsep())
         h.addSpacing(6)
@@ -3182,9 +3208,19 @@ class Window(QMainWindow):
         h.addWidget(help_b)
         return bar
 
+    def _set_semis(self, n: int):
+        """Transposition in semitones, −6..+6; a playing preview carries on in the new key."""
+        n = int(np.clip(n, -6, 6))
+        if n == self.semis:
+            return
+        self.semis = n
+        self._song_changed()
+        self.semis_l.setText(f"{n:+d}".replace("-", "−") if n else "0")
+        self._restart_preview()
+
     def _set_speed(self, pct: int):
-        """Playback and export speed in percent, 80..100; a playing preview carries on at the new speed."""
-        pct = int(np.clip(pct, 80, 100))
+        """Playback and export speed in percent, 50..100; a playing preview carries on at the new speed."""
+        pct = int(np.clip(pct, 50, 100))
         if pct == self.speed:
             return
         self.speed = pct
@@ -3775,7 +3811,7 @@ class Window(QMainWindow):
             "bpm": t.bpm, "bpm_manual": t.bpm_manual, "t0": t.t0,
             "style": self.style_seg.value() if self.style_seg.value() != "midi" else "buildup",
             "bars": self.bars_seg.value(), "meter": self.meter_seg.value(), "volume": self.volume.value(),
-            "parts": {k: s.value() for k, s in self.parts.items()}, "speed": self.speed,
+            "parts": {k: s.value() for k, s in self.parts.items()}, "speed": self.speed, "semis": self.semis,
             "click_all": self.click_all.isChecked(), "click_voice": self.click_voice.currentData(),
             "click_db": self.click_db.value(), "fill": self.fill.isChecked(),
             "zones": [vars(z) for z in t.zones or [] if z.kept], "dismissed": sorted(t.dismissed),
@@ -3802,6 +3838,7 @@ class Window(QMainWindow):
                 if k in self.parts:
                     self.parts[k].setValue(int(v))
             self._set_speed(int(d.get("speed", 100)))
+            self._set_semis(int(d.get("semis", 0)))
             self.click_all.setChecked(bool(d.get("click_all")))
             i = self.click_voice.findData(d.get("click_voice"))
             if i >= 0:
@@ -3957,7 +3994,7 @@ class Window(QMainWindow):
             levels=levels, pre_roll="trim" if self.trim.isChecked() else "keep", fmt=export_format(),
             out_root=out_root, group=group, fill=self._filling(), click_all=self.click_all.isChecked(),
             click_voice=self.click_voice.currentData(), click_db=float(self.click_db.value()), fill_build=self.fill_build.isChecked(),
-            threshold=float(self.threshold.value()), speed=self.speed / 100,
+            threshold=float(self.threshold.value()), speed=self.speed / 100, semis=float(self.semis),
         )
 
     def _refresh(self, *_args):
@@ -4171,6 +4208,10 @@ class Window(QMainWindow):
         if self.player.done:
             self._stop()
             return
+        if self.trainer_a.isChecked() and self.player.laps >= TRAINER_LAPS and self.speed < 100:
+            self.player.laps = 0
+            self._set_speed(self.speed + 5)
+            self.status.setText(_("Тренажёр: скорость {pct}%", pct=self.speed))
         w = self.wave
         w.cursor_t = self.play_start + self.player.position() * self.play_speed
 

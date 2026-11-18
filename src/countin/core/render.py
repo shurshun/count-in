@@ -184,17 +184,19 @@ class Rendered:
     clipped: int  # samples that hit full scale
 
 
-def stretch(x: np.ndarray, sr: int, speed: float) -> np.ndarray:
-    """(n, channels) audio played at speed (0.8 = 20% slower) with its pitch kept, through Signalsmith
-    Stretch (MIT). Transients stay on time within about a millisecond. The result has round(n / speed)
-    samples."""
-    if speed == 1.0 or not len(x):
+def stretch(x: np.ndarray, sr: int, speed: float, semis: float = 0.0) -> np.ndarray:
+    """(n, channels) audio played at speed (0.8 = 20% slower) with its pitch kept, shifted by semis semitones
+    without changing its length, through Signalsmith Stretch (MIT). Transients stay on time within about a
+    millisecond. The result has round(n / speed) samples."""
+    if (speed == 1.0 and not semis) or not len(x):
         return x
     import python_stretch as ps
 
     st = ps.Signalsmith.Stretch()
     st.preset(x.shape[1], sr)
     st.setTimeFactor(speed)
+    if semis:
+        st.setTransposeSemitones(semis)
     y = np.asarray(st.process(np.ascontiguousarray(x.T, dtype=np.float32))).T
     n = int(round(len(x) / speed))
     return np.ascontiguousarray(y[:n] if len(y) >= n else np.pad(y, ((0, n - len(y)), (0, 0))), dtype=np.float32)
@@ -203,12 +205,12 @@ def stretch(x: np.ndarray, sr: int, speed: float) -> np.ndarray:
 _pool = None
 
 
-def stretch_many(parts: list[np.ndarray], sr: int, speed: float) -> list[np.ndarray]:
+def stretch_many(parts: list[np.ndarray], sr: int, speed: float, semis: float = 0.0) -> list[np.ndarray]:
     """stretch() in a pool of processes, several signals in parallel. Signalsmith holds the GIL for about 2 s per
     part of a whole song, which froze the window when it ran in the app's process. The pool starts on first use
     and stays."""
     global _pool
-    if speed == 1.0 or not parts:
+    if (speed == 1.0 and not semis) or not parts:
         return list(parts)
     import multiprocessing as mp
     import os
@@ -217,15 +219,16 @@ def stretch_many(parts: list[np.ndarray], sr: int, speed: float) -> list[np.ndar
     try:
         if _pool is None:
             _pool = ProcessPoolExecutor(min(6, os.cpu_count() or 2), mp_context=mp.get_context("spawn"))
-        return list(_pool.map(stretch, parts, [sr] * len(parts), [speed] * len(parts)))
+        n = len(parts)
+        return list(_pool.map(stretch, parts, [sr] * n, [speed] * n, [semis] * n))
     except Exception:
         _pool = None
-        return [stretch(x, sr, speed) for x in parts]
+        return [stretch(x, sr, speed, semis) for x in parts]
 
 
 def render(pcm: np.ndarray, sr: int, clicks: list[Click], first_downbeat: float,
            pre_roll: str = "keep", volume_db: float = 0.0,
-           samples: tuple[np.ndarray, np.ndarray] | None = None, speed: float = 1.0) -> Rendered:
+           samples: tuple[np.ndarray, np.ndarray] | None = None, speed: float = 1.0, semis: float = 0.0) -> Rendered:
     """Mix clicks into the song. Audio before the downbeat stays and gets the clicks on top.
 
     trim cuts leading silence first, never past the downbeat.
@@ -244,7 +247,7 @@ def render(pcm: np.ndarray, sr: int, clicks: list[Click], first_downbeat: float,
     pad = max(0, -math.floor((earliest * sr - cut) / speed))
     starts = [int(round((c.time * sr - cut) / speed)) + pad for c in clicks]
 
-    song = stretch_many([pcm[cut:]], sr, speed)[0]
+    song = stretch_many([pcm[cut:]], sr, speed, semis)[0]
     out = np.zeros((pad + len(song), pcm.shape[1]), dtype=np.float32)
     out[pad:] = song
 

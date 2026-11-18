@@ -794,3 +794,13 @@ def test_player_loops_mixes_offset_stems_and_live_clicks():
     # 6 and 7 (muted stem sits at 4..8, click at 7), then back to the loop start: 2, 3, 4, 5
     assert out[:, 0] == pytest.approx([0.05, 0.56, 0.02, 0.03, 0.03, 0.04])
     assert pl.pos == 6 and pl.ticks == []  # a wrap drops the lead-in clicks
+
+
+def test_transpose_shifts_pitch_and_keeps_length():
+    sr = 22050
+    t = np.arange(sr * 2) / sr
+    x = (0.5 * np.sin(2 * np.pi * 440 * t)).astype(np.float32)[:, None]
+    y = rd.stretch(x, sr, 1.0, 2)
+    assert len(y) == len(x)
+    spec = np.abs(np.fft.rfft(y[sr // 2 : sr // 2 + sr, 0]))
+    assert np.argmax(spec) == pytest.approx(440 * 2 ** (2 / 12), abs=3)  # 1 Hz bins over one second
