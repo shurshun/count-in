@@ -220,6 +220,7 @@ class Track:
     search_levels: dict | None = None  # each part's lowest level on this track; pauses are searched with these
     auto_done: bool = False  # the silence threshold was fitted to this track's separated backing
     bar_db: list | None = None  # level of each bar against the song (zones.bar_levels); sets the hi-hat level
+    ref_db: float | None = None  # level of the whole song (zones.level_db)
     covered: set = field(default_factory=set)  # bars under the pauses as last shown
     dismissed: set = field(default_factory=set)  # bars whose pause the user removed; a search never brings them back
 
@@ -287,7 +288,7 @@ def find_zones(t: Track, pcm: np.ndarray, sr: int, st: dict[str, np.ndarray] | N
 
     if backing is None:
         backing = stems.attenuate(pcm, st, s.levels) if s.levels and st else pcm
-    return zn.zones_from(zn.quiet_bars(backing, sr, t.bars, zn.level_db(pcm), s.threshold))
+    return zn.zones_from(zn.quiet_bars(backing, sr, t.bars, t.ref_db, s.threshold))
 
 
 def mix_job(job: "Job", seq: int, pcm: np.ndarray, sr: int, st, levels: dict, search):
@@ -302,9 +303,8 @@ def mix_job(job: "Job", seq: int, pcm: np.ndarray, sr: int, st, levels: dict, se
     env = peaks_per_ms(backing, sr)
     found, used = None, None
     if search is not None:
-        bars, threshold, sl, fit = search
+        bars, threshold, sl, fit, ref = search
         mix = backing if sl == levels else stems.attenuate(pcm, st, sl) if st and sl else pcm
-        ref = zn.level_db(pcm)
         fitted = zn.auto_threshold(mix, sr, bars, ref) if fit else None
         if fitted is not None:
             threshold = float(round(fitted))
@@ -413,7 +413,8 @@ def analyze_job(job: Job, track: Track):
         track.duration = len(pcm) / sr
         track.analysis = an.analyze(pcm, sr)
         track.bars = zn.bars_from(track.analysis.beats, track.analysis.downbeats, track.duration)
-        track.bar_db = zn.bar_levels(pcm, sr, track.bars)
+        track.ref_db = zn.level_db(pcm)
+        track.bar_db = zn.bar_levels(pcm, sr, track.bars, track.ref_db)
         env = peaks_per_ms(pcm, sr)
     except Exception as e:
         log.exception("analysis of %s failed", track.path)
@@ -606,8 +607,11 @@ def export_job(job: Job, t: Track, s: Settings, cached, what: dict):
 
 def warm_models():
     """Starts the separation process and loads its models there, so the first separation does not wait for
-    them; on a Mac's first run it also builds the Core ML model. They stay loaded for the life of the app."""
+    them; on a Mac's first run it also builds the Core ML model. They stay loaded for the life of the app.
+    PortAudio loads here too, so the first Play does not wait about 0.3 s for it."""
     try:
+        import sounddevice  # noqa: F401
+
         from .core import worker
 
         worker.separator().warm()
@@ -656,7 +660,7 @@ def _bars_of(zones) -> set[int]:
 def peaks_per_ms(pcm: np.ndarray, sr: int) -> np.ndarray:
     """Peak of every millisecond. Bins start at exact millisecond boundaries: whole-sample bins of sr // 1000
     run short at 44.1 kHz and draw a hit 0.4 s late by the third minute."""
-    m = np.abs(pcm).max(axis=1)
+    m = np.maximum(pcm.max(axis=1), -pcm.min(axis=1))  # no full-size abs copy
     starts = (np.arange(int(len(m) * 1000 // sr)) * sr // 1000).astype(np.int64)
     return np.maximum.reduceat(m, starts) if len(starts) else m[:0]
 
@@ -2766,7 +2770,7 @@ class Window(QMainWindow):
         self.show_timer = QTimer(self, singleShot=True, interval=300, timeout=self._show_job)
         self.zones_pending = False  # a pause search waits for the running job
         self.models_warm = False  # the separation model starts loading with the first track
-        self.backing_key, self.backing, self.wave_source = None, None, None  # see _update_backing
+        self.backing_key, self.wave_source = None, None  # see _update_backing
         self.play_timer = QTimer(self, interval=30, timeout=self._tick)
         self.last_saved: Path | None = None
         self.release = None
@@ -3797,8 +3801,7 @@ class Window(QMainWindow):
         self.wave.zones = t.zones or []
         self.wave.fill = self._filling()
         self.wave.threshold_db = float(self.threshold.value())
-        if self.wave.ref_db is None and self.pcm is not None:
-            self.wave.ref_db = zn.level_db(self.pcm)
+        self.wave.ref_db = t.ref_db
         if self.wave.current_zone is not None and self.wave.current_zone >= len(self.wave.zones):
             self.wave.current_zone = None
         self._nav_changed()
@@ -3910,7 +3913,7 @@ class Window(QMainWindow):
         self.loop, self.loop_on = None, False
         self._apply_loop()
         self._cancel_separation()
-        self.backing_key, self.backing, self.wave_source = None, None, None
+        self.backing_key, self.wave_source = None, None
         self.wave.env, self.wave.t0, self.wave.beats, self.wave.downs, self.wave.clicks = None, None, [], [], []
         self.wave.bars, self.wave.zones, self.wave.ref_db = [], [], None
         self.wave._cache = (None, None)
@@ -4267,7 +4270,7 @@ class Window(QMainWindow):
         sl = search_levels(t, s) if st is not None else {}
         search = None
         if t.analysis and s.fill and t.zones_key != search_key(t, s) and (st is not None or not search_levels(t, s)):
-            search = (t.bars, s.threshold, sl, bool(sl) and not t.auto_done)
+            search = (t.bars, s.threshold, sl, bool(sl) and not t.auto_done, t.ref_db)
         if (id(st) if levels else None, tuple(sorted(levels.items()))) == self.backing_key and search is None:
             self.wave.update()
             return
@@ -4282,7 +4285,7 @@ class Window(QMainWindow):
         if seq != self.mix_seq or self.mix_wanted[0] is not self.current:
             return  # the levels moved again or the track changed
         t, key, sl = self.mix_wanted
-        self.backing_key, self.backing = key, backing
+        self.backing_key = key
         self.wave.set_env(env, len(backing) / self.sr)
         if found is None:
             return
