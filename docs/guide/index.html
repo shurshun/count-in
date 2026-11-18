@@ -5,7 +5,7 @@
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>Count-In guide — count-in, pauses and backing tracks</title>
-<meta name="description" content="How to use Count-In: set the first downbeat and tempo, choose a count-in, navigate the song, fill pauses with a hi-hat and turn parts down for a backing track.">
+<meta name="description" content="How to use Count-In: set the first downbeat and tempo, choose a count-in, loop a passage, change speed and key, fill pauses with a hi-hat and turn parts down for a backing track.">
 <link rel="canonical" href="https://count-in.app/guide/">
 <link rel="alternate" hreflang="en" href="https://count-in.app/guide/">
 <link rel="alternate" hreflang="ru" href="https://count-in.app/ru/guide/">
@@ -49,14 +49,20 @@
   <figure><img src="/guide/img/window-en.png" alt="Count-In window with a selected pause" width="1180" height="901"></figure>
   <ul class="toc">
     <li><a href="#s1">First downbeat and tempo</a></li>
-    <li><a href="#s2">Tempo by ear (Tap)</a></li>
+    <li><a href="#s2">Tap tempo</a></li>
     <li><a href="#s3">Count-in</a></li>
     <li><a href="#s4">Playback and navigation</a></li>
-    <li><a href="#s5">Pauses</a></li>
-    <li><a href="#s6">Backing track</a></li>
-    <li><a href="#s7">Saving</a></li>
-    <li><a href="#s8">Models</a></li>
-    <li><a href="#s9">If something goes wrong</a></li>
+    <li><a href="#s5">Loop and speed trainer</a></li>
+    <li><a href="#s6">Speed and key</a></li>
+    <li><a href="#s7">Section markers</a></li>
+    <li><a href="#s8">Pauses</a></li>
+    <li><a href="#s9">Backing track</a></li>
+    <li><a href="#s10">Song memory and undo</a></li>
+    <li><a href="#s11">Set list and pedal</a></li>
+    <li><a href="#s12">Saving</a></li>
+    <li><a href="#s13">Keys</a></li>
+    <li><a href="#s14">Models</a></li>
+    <li><a href="#s15">If something goes wrong</a></li>
   </ul>
   <section id="s1">
     <h2>First downbeat and tempo</h2>
@@ -64,29 +70,32 @@
       <li>The orange “1” marker sits on the first downbeat. The count-in ends right before it.</li>
       <li>If the detector got it wrong, drag the marker. It snaps to the detected beats; ⌥ turns snapping off.</li>
       <li>The arrows next to the time move the “1” one beat earlier or later.</li>
-      <li>Set the tempo with − and +, by typing a number, or with Tap: the song plays and you tap Space.</li>
+      <li>Set the tempo with − and +, by typing a number, or with Tap. With Tap the song plays and you tap Space.</li>
       <li>×2 and ÷2 help when the detector counted twice as fast or slow.</li>
       <li>The orange “The detector found another “1”” banner shows up when it is unsure. Click it to take the other candidate.</li>
+      <li>The line above the waveform shows the detected tempo, the place of the “1” and the song's key. The key is estimated from the spectrum, so check it by ear.</li>
+      <li>The round arrows in the card bring back the tempo and the “1” the detector found.</li>
     </ul>
     <figure class="small"><img src="/guide/img/tempo-en.png" alt="First downbeat and tempo" loading="lazy"></figure>
   </section>
   <section id="s2">
-    <h2>Tempo by ear (Tap)</h2>
+    <h2>Tap tempo</h2>
     <ul>
-      <li>The Tap button in the Tempo card opens the “Tempo by ear” window, and the song starts playing just before the “1”.</li>
-      <li>Tap Space along with the beat, at least three times. The taps are timed by the computer clock, not the audio buffer, so the tempo is right to a tenth of a BPM.</li>
-      <li>Stop: two beats after your last tap the song goes on with a click at the tapped tempo and phase, so you hear at once whether it matches the song.</li>
-      <li>If it drifts, just tap again: a gap of more than two seconds starts over.</li>
+      <li>The Tap button in the Tempo card opens the “Tap Tempo” window, and the song starts playing just before the “1”.</li>
+      <li>Tap Space along with the beat, at least three times. The taps are timed by the computer clock, so the tempo is right to a tenth of a BPM.</li>
+      <li>Stop, and two beats after your last tap the song carries on with a click at the tapped tempo and phase. You hear at once whether it matches the song.</li>
+      <li>If the click drifts from the song, tap again. A gap of more than two seconds starts over.</li>
       <li>Apply puts the tapped tempo into the Tempo card; Cancel or closing the window keeps the old one. Either way the music stops.</li>
     </ul>
   </section>
   <section id="s3">
     <h2>Count-in</h2>
     <ul>
-      <li>“Even” clicks on every beat, “Build-up” switches to eighths over the second half of the last bar and gets louder with every hit, MIDI takes the pattern from your file.</li>
-      <li>“Click through the whole song” carries the clicks on after the count-in, on every beat to the end of the song. The click sound and level are set under the checkbox; pause fill is not needed then.</li>
+      <li>“Even” clicks on every beat. “Build-up” switches to eighths over the second half of the last bar and gets louder with every hit. MIDI takes the pattern from your file.</li>
+      <li>“Click through the whole song” carries the click on after the count-in, on every beat to the end of the song. The click sound and volume are set under the checkbox, and pause fill is not needed then.</li>
       <li>The count-in lasts one or two bars; the meter is 4/4, 3/4 or 6/8.</li>
       <li>The count-in volume does not depend on the song's level.</li>
+      <li>“Count-in bar when starting mid-song” adds a bar of clicks before the point where playback starts and before each new loop pass. It never reaches the saved file.</li>
     </ul>
     <figure class="small"><img src="/guide/img/count-en.png" alt="Count-in" loading="lazy"></figure>
   </section>
@@ -95,28 +104,59 @@
     <ul>
       <li>Space starts and stops playback. Without a playhead it starts from the count-in.</li>
       <li>A click on the waveform sets the playhead, and playback starts from it. A double-click plays at once from the bar before that point.</li>
+      <li>While the song plays, a click on the waveform or the overview moves the sound there at once.</li>
       <li>The ◀◀ and ▶▶ buttons and the ← and → keys jump to the previous and next pause and play from the bar before it. Home goes back to the count-in.</li>
       <li>The overview under the waveform shows the whole song, the pauses and the visible part. Drag the frame to scroll; a click outside it moves the view there.</li>
       <li>The mouse wheel zooms; dragging and sideways trackpad scrolling pan the waveform.</li>
+      <li>The ruler under the waveform counts bars. Go to Bar… in the Playback menu (⌘G, Ctrl+G on Windows) puts the playhead on the bar with that number.</li>
+      <li>Play Again (PageUp) goes back to the loop start, the playhead or the count-in.</li>
       <li>The playback volume in the window header never reaches the saved file.</li>
     </ul>
     <figure><img src="/guide/img/wave-en.png" alt="Playback and navigation" loading="lazy"></figure>
   </section>
   <section id="s5">
+    <h2>Loop and speed trainer</h2>
+    <ul>
+      <li>Drag across bars with ⇧ or along the ruler under the waveform and choose Play in a Loop. The selected bars repeat while the loop is on.</li>
+      <li>The L key and the loop button under the waveform turn it on and off.</li>
+      <li>Speed Trainer in the Playback menu adds 5% of speed every two laps until it reaches 100%. Slow the song down, turn the loop on and play along.</li>
+    </ul>
+  </section>
+  <section id="s6">
+    <h2>Speed and key</h2>
+    <ul>
+      <li>Speed under the waveform slows the song down to 50% in 5% steps with the pitch kept. The count-in and hi-hat follow the slower grid.</li>
+      <li>Below 80% the sound smears, which is fine for working out notes.</li>
+      <li>Key shifts the song by semitones, up to six up or down, with the tempo kept. −1 suits Eb tuning, −2 suits D.</li>
+      <li>Speed and key apply to playback and to the saved file.</li>
+    </ul>
+  </section>
+  <section id="s7">
+    <h2>Section markers</h2>
+    <ul>
+      <li>The M key adds a section marker at the playhead and asks for its name, such as Verse or Solo.</li>
+      <li>Keys 1–9 jump to the first nine markers.</li>
+      <li>A right-click on a marker's name on the ruler renames or removes it.</li>
+      <li>In a multitrack the markers go into the tempo map tempo.mid, and the DAW shows them on its ruler.</li>
+    </ul>
+  </section>
+  <section id="s8">
     <h2>Pauses</h2>
     <ul>
       <li>A pause is a run of bars that are quiet once the removed instruments are gone. A hi-hat plays on every beat in it. The stick count-in plays only at the start of the song.</li>
       <li>With “Fill pauses with hi-hat” on, the app finds pauses by itself in the track without the parts you turned down. “Silence threshold” gets fitted to it automatically; move it and the pauses rebuild. Turning a part back on keeps the pauses.</li>
       <li>Pause edges drag along the bars. The current pause is brighter.</li>
-      <li>A new pause comes from the + button in “Pause fill” on the bar under the playhead, from selecting bars with ⇧ or from dragging along the time ruler.</li>
+      <li>The + button in “Pause fill” makes a pause of the bar under the playhead. For several bars, drag across them with ⇧ or along the ruler and choose Make a Hi-Hat Pause.</li>
       <li>The cross in its header, the − button in “Pause fill” or a right-click removes a pause.</li>
       <li>A click on a pause header opens its own tempo and meter.</li>
+      <li>“Build-up at the end of a pause” turns the last bar of a pause into a lead-in to the entry, like the build-up count-in.</li>
     </ul>
   </section>
-  <section id="s6">
+  <section id="s9">
     <h2>Backing track</h2>
     <ul>
-      <li>The guitar, vocals, bass, drums and piano sliders turn a part down or remove it. The speaker button mutes a part in one click.</li>
+      <li>The guitar, vocals, bass, drums and piano sliders turn a part down, remove it or boost it by up to 6 dB. The speaker button mutes a part in one click.</li>
+      <li>The S button plays only its own part. Several parts can be soloed at once. Solo does not change the saved file.</li>
       <li>The song separates into parts in the background after it opens. Anything that needs the parts starts by itself once they are ready.</li>
       <li>Levels can change while the song plays.</li>
       <li>The floppy disk in the card header saves the current settings as defaults, the arrow next to it restores them.</li>
@@ -124,24 +164,55 @@
     <figure><img src="/guide/img/backing-en.png" alt="Backing track" loading="lazy"></figure>
     <figure><img src="/guide/img/busy-en.png" alt="Backing track" loading="lazy"></figure>
   </section>
-  <section id="s7">
+  <section id="s10">
+    <h2>Song memory and undo</h2>
+    <ul>
+      <li>The app remembers what you set for each song (tempo, the “1”, count-in, part levels, speed, key, click, pauses, loop and markers) and brings it back the next time the song opens.</li>
+      <li>⌘Z undoes a change of the tempo, the “1”, pauses and markers, and ⇧⌘Z redoes it. On Windows these are Ctrl+Z and Ctrl+Y.</li>
+      <li>Recent songs are on the start screen and under File → Open Recent.</li>
+    </ul>
+  </section>
+  <section id="s11">
+    <h2>Set list and pedal</h2>
+    <ul>
+      <li>Open or drop several songs at once and they become a set list. The N and P keys open the next and the previous song.</li>
+      <li>A page-turner pedal sends PageDown and PageUp. PageDown starts and stops playback, PageUp plays again.</li>
+    </ul>
+  </section>
+  <section id="s12">
     <h2>Saving</h2>
     <ul>
       <li>“Save” writes the track with the count-in, the hi-hat in pauses and the chosen part levels.</li>
-      <li>Multitrack for a DAW writes a folder with the parts as WAV and the click grid and tempo map as MIDI. Every file starts on bar 1: put them at the project start and the DAW bars match the song.</li>
+      <li>Multitrack for a DAW writes a folder with the parts as WAV, the click grid and tempo map as MIDI and, if you like, the click as a WAV of its own. Every file starts on bar 1. Put them at the project start and the DAW bars match the song.</li>
       <li>By default the format matches the source. MP3 320 kbps, FLAC, ALAC and WAV are available; tags and cover art carry over.</li>
+      <li>“Even loudness” brings the file to −14 LUFS, as on streaming services, so backing tracks from different albums play equally loud. Peaks stay at −1 dB at most.</li>
+      <li>“Stage mix” puts the click in the left channel and the music, in mono, in the right. The click goes to the in-ears, the music to the front of house.</li>
       <li>“Trim leading silence” removes the empty space before the count-in.</li>
       <li>The output folder and grouping by artist, year and album are set in Settings.</li>
     </ul>
   </section>
-  <section id="s8">
+  <section id="s13">
+    <h2>Keys</h2>
+    <ul>
+      <li>Space and PageDown start and stop playback.</li>
+      <li>Home goes back to the count-in, PageUp plays again.</li>
+      <li>← and → jump to the previous and next pause.</li>
+      <li>L toggles the loop, M adds a section marker, 1–9 jump to the markers.</li>
+      <li>N and P open the next and the previous song of the set list.</li>
+      <li>⌘G goes to a bar, ⌘[ and ⌘] make it slower and faster.</li>
+      <li>⌘Z undoes a change, ⇧⌘Z redoes it.</li>
+      <li>⌘+ and ⌘− zoom the waveform, ⌘0 shows the whole track.</li>
+      <li>On Windows, Ctrl works in place of ⌘.</li>
+    </ul>
+  </section>
+  <section id="s14">
     <h2>Models</h2>
     <ul>
       <li>Analysis and separation need models, about 780 MB. The app downloads them once on first launch.</li>
       <li>An assets folder next to the app works too, so the models can travel with it on a flash drive.</li>
     </ul>
   </section>
-  <section id="s9">
+  <section id="s15">
     <h2>If something goes wrong</h2>
     <ul>
       <li>Help → Report a Problem… sends your description to the author. If you agree, details about the computer and the app log go with it; no audio is sent, though the log may name the songs you opened.</li>

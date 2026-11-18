@@ -3,11 +3,16 @@
 > Free desktop app for macOS (Apple Silicon) and Windows (x64). It finds a song's tempo and first downbeat, inserts a sample-accurate drum count-in before it and can turn guitar and vocals down to make a backing track. Everything runs offline.
 
 - Count-in: 1 or 2 bars in 4/4, 3/4 or 6/8; even, build-up or a custom MIDI pattern. The last click lands exactly one click before the downbeat.
-- Backing tracks: BS-RoFormer separates guitar, vocals, bass, drums and piano in one pass on the GPU (Core ML on macOS, DirectML on Windows); each has its own level, down to fully removed.
+- Backing tracks: BS-RoFormer separates guitar, vocals, bass, drums and piano in one pass on the GPU (Core ML on macOS, DirectML on Windows); each has its own level from fully removed to +6 dB, a mute button and a solo button.
 - Pauses: bars that go quiet without the removed parts get a hi-hat on every beat, as loud as the music around them, with an optional build-up into the entry.
-- Speed: 80–100% with the pitch kept; the count-in and hi-hat follow the slowed grid.
+- Speed and key: 50–100% speed with the pitch kept, and a shift of up to 6 semitones with the tempo kept; the count-in and hi-hat follow the slowed grid. The app shows the song's detected key.
+- Practice: an A–B loop over selected bars, a speed trainer that adds 5% every two laps, and a bar of count-in before a start from mid-song.
+- Navigation: a ruler in bars, go to a bar by number, named section markers on keys 1–9, undo and redo.
+- Set list: several songs opened at once, stepped with N and P; a page-turner pedal (PageDown, PageUp) starts, stops and restarts playback.
+- The app remembers each song's settings: tempo, first downbeat, count-in, levels, speed, key, pauses, loop and markers.
+- Saving: one file, a stage mix with the click on the left and the music in mono on the right, even loudness at −14 LUFS, or a multitrack for a DAW (parts as WAV, click as MIDI and WAV, tempo map with section markers as MIDI).
 - User guide: https://count-in.app/guide/ (Russian: https://count-in.app/ru/guide/)
-- Formats: opens mp3, FLAC, ALAC, WAV; saves MP3 320 kbps, FLAC, ALAC or WAV with tags and cover art.
+- Formats: opens mp3, FLAC, ALAC (M4A), WAV, AIFF, OGG; saves MP3 320 kbps, FLAC, ALAC or WAV with tags and cover art.
 - Interface in English and Russian. Updates itself from GitHub releases.
 - There is also a command-line tool, `countin`, in the same bundle.
 

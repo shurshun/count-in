@@ -19,7 +19,7 @@
 <meta property="og:image" content="https://count-in.app/screenshots/social-preview-ru.png">
 <meta property="og:image:width" content="1280">
 <meta property="og:image:height" content="640">
-<meta property="og:image:alt" content="Окно Count-In с волной песни и щелчками отсчёта">
+<meta property="og:image:alt" content="Окно Count-In с волной песни и кликами отсчёта">
 <meta property="og:locale" content="ru_RU">
 <meta property="og:locale:alternate" content="en_US">
 <meta name="twitter:card" content="summary_large_image">
@@ -75,10 +75,10 @@
 <div class="hero">
   <h1><span lang="ru">Отсчёт перед любой песней</span></h1>
   <p class="lead">
-    <span lang="ru">Count-In находит темп и первую долю и добавляет отсчёт палочками, который точно попадает в «раз». А ещё убирает гитару и вокал, чтобы получилась минусовка.</span>
+    <span lang="ru">Count-In находит темп и первую долю и добавляет отсчёт палочками, который точно попадает в «раз». А ещё убирает гитару и вокал, чтобы получился бэктрек (минусовка).</span>
   </p>
   <p class="phone-note">
-    <span lang="ru">Count-In — приложение для компьютера на macOS и Windows. <button type="button" data-share>Отправить ссылку на компьютер</button></span>
+    <span lang="ru">Count-In — программа для компьютера на macOS и Windows. <button type="button" data-share>Отправить ссылку на компьютер</button></span>
   </p>
   <div class="downloads">
     <a class="dl" href="../download/mac/">
@@ -110,7 +110,7 @@
     <div class="card">
       <div class="ico" aria-hidden="true">♩</div>
       <h3><span lang="ru">Отсчёт с точностью до сэмпла</span></h3>
-      <p lang="ru">Нейросеть находит темп и первую сильную долю. Каждый щелчок ставится на свой сэмпл, поэтому ритм не уплывает.</p>
+      <p lang="ru">Нейросеть находит темп и первую сильную долю. Каждый клик ставится на свой сэмпл, поэтому ритм не уплывает.</p>
     </div>
     <div class="card">
       <div class="ico" aria-hidden="true">♬</div>
@@ -119,8 +119,8 @@
     </div>
     <div class="card">
       <div class="ico" aria-hidden="true">≋</div>
-      <h3><span lang="ru">Минусовки</span></h3>
-      <p lang="ru">BS-RoFormer за один проход на видеокарте разделяет гитару, вокал, бас, барабаны и пианино. У каждой дорожки свой ползунок: приглушить на пару дБ или убрать совсем.</p>
+      <h3><span lang="ru">Бэктреки</span></h3>
+      <p lang="ru">BS-RoFormer за один проход на видеокарте разделяет гитару, вокал, бас, барабаны и пианино. У каждой дорожки есть ползунок от «убрать» до +6 дБ и кнопка соло.</p>
     </div>
     <div class="card">
       <div class="ico" aria-hidden="true">▶</div>
@@ -129,13 +129,23 @@
     </div>
     <div class="card">
       <div class="ico" aria-hidden="true">◷</div>
-      <h3><span lang="ru">Замедление</span></h3>
-      <p lang="ru">Занимайтесь на скорости 80–100% без смены тона. Отсчёт и хай-хэт идут по замедленной сетке, замедленный трек можно сохранить.</p>
+      <h3><span lang="ru">Скорость и тон</span></h3>
+      <p lang="ru">Занимайтесь на скорости 50–100% без смены тона или сдвиньте песню на полутона, до шести вверх или вниз, без смены темпа. Всё это попадает и в сохранённый трек.</p>
+    </div>
+    <div class="card">
+      <div class="ico" aria-hidden="true">⟳</div>
+      <h3><span lang="ru">Петля</span></h3>
+      <p lang="ru">Выделите несколько тактов и играйте их по кругу. Тренажёр скорости прибавляет 5% каждые два круга, а перед каждым стартом звучит такт отсчёта.</p>
+    </div>
+    <div class="card">
+      <div class="ico" aria-hidden="true">⚑</div>
+      <h3><span lang="ru">Части и сет-лист</span></h3>
+      <p lang="ru">Назовите части песни и переходите к ним клавишами 1–9. Откройте несколько песен как сет-лист и запускайте их педалью для перелистывания нот.</p>
     </div>
     <div class="card">
       <div class="ico" aria-hidden="true">♫</div>
-      <h3><span lang="ru">Форматы и теги</span></h3>
-      <p lang="ru">Открывает mp3, FLAC, ALAC и WAV. Сохраняет MP3 320 кбит/с, FLAC, ALAC или WAV с тегами и обложкой, по желанию раскладывает по папкам «Исполнитель / Альбом».</p>
+      <h3><span lang="ru">Для сцены и DAW</span></h3>
+      <p lang="ru">Открывает mp3, FLAC, ALAC, WAV, AIFF и OGG. Сохраняет MP3, FLAC, ALAC или WAV с тегами и обложкой, микс для сцены с кликом слева, ровную громкость −14 LUFS или мультитрек с темповой картой.</p>
     </div>
     <div class="card">
       <div class="ico" aria-hidden="true">↻</div>
@@ -155,11 +165,11 @@
     </div>
     <div class="card step">
       <div class="ico">2</div>
-      <p lang="ru">Проверьте оранжевую метку «1». Если детектор ошибся, перетащите её на нужную долю.</p>
+      <p lang="ru">Проверьте оранжевый маркер «1». Если детектор ошибся, перетащите его на нужную долю.</p>
     </div>
     <div class="card step">
       <div class="ico">3</div>
-      <p lang="ru">Выберите рисунок, длину и размер. Для минусовки уберите партии, которые играете сами.</p>
+      <p lang="ru">Выберите рисунок, длину и размер. Для бэктрека уберите инструменты, на которых играете сами.</p>
     </div>
     <div class="card step">
       <div class="ico">4</div>
@@ -187,7 +197,7 @@
 <div class="coffee">
   <div class="cup" aria-hidden="true">☕</div>
   <div class="txt">
-    <p lang="ru">Понравилось приложение? Автор конвертирует кофе в полезные инструменты. Можно подкинуть топлива!</p>
+    <p lang="ru">Понравилась программа? Автор конвертирует кофе в полезные инструменты. Можно подкинуть топлива!</p>
     <small><span lang="ru">Разовый донат через Boosty, без подписки.</span></small>
   </div>
   <a class="tip" href="https://boosty.to/shurshun/donate" target="_blank" rel="noopener noreferrer"><span lang="ru">Пополнить запасы кофе ☕</span><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M14 4h6v6M20 4l-9 9M18 14v6H4V6h6"/></svg></a>
