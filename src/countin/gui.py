@@ -11,7 +11,7 @@ from dataclasses import dataclass, field, replace
 from pathlib import Path
 
 import numpy as np
-from PySide6.QtCore import QEvent, QLocale, QObject, QSettings, QStandardPaths, QUrl, QPointF, QRectF, QRunnable, QSize, Qt, QThreadPool, QTimer, Signal
+from PySide6.QtCore import QEvent, QLineF, QLocale, QObject, QSettings, QStandardPaths, QUrl, QPointF, QRectF, QRunnable, QSize, Qt, QThreadPool, QTimer, Signal
 from PySide6.QtGui import QAction, QCursor, QDesktopServices, QFont, QIcon, QImage, QKeySequence, QColor, QPainter, QPainterPath, QPen, QPalette, QPixmap, QPolygonF
 from PySide6.QtWidgets import (
     QAbstractSpinBox, QApplication, QButtonGroup, QCheckBox, QComboBox, QDialog, QDoubleSpinBox, QFileDialog, QFrame,
@@ -1170,6 +1170,7 @@ class Wave(QWidget):
         self.cursor_t = None
         self.drag = None
         self._cache = (None, None)
+        self._grid: tuple = (None, None)  # beat lines and clicks layer, see _grid_pixmap
 
         self.overview: QWidget | None = None  # mini-map of the whole song, repainted with the waveform
         self.busy: QWidget | None = None  # centred progress card
@@ -1279,6 +1280,45 @@ class Wave(QWidget):
         self._cache = (key, pix)
         return pix
 
+    def _grid_pixmap(self, accent: QColor) -> QPixmap:
+        """Beat lines and clicks, cached like the waveform: playback repaints only draw this pixmap and the
+        playhead, which keeps the interpreter free for the audio callback."""
+        dpr = self.devicePixelRatioF()
+        w, wh = self.width(), self.height() - self.RULER
+        key = (w, wh, dpr, self.v0, self.v1, id(self.beats), id(self.downs), id(self.clicks), len(self.clicks),
+               self.t0, accent.rgb())
+        if self._grid[0] == key:
+            return self._grid[1]
+        pix = QPixmap(max(int(w * dpr), 1), max(int(wh * dpr), 1))
+        pix.setDevicePixelRatio(dpr)
+        pix.fill(Qt.transparent)
+        p = QPainter(pix)
+        p.setRenderHint(QPainter.Antialiasing)
+
+        # Only what is on screen, and no beat lines closer than 4 px: a whole song would be a grey wall
+        px_per_s = w / max(self.v1 - self.v0, 1e-6)
+        dense = len(self.beats) > 1 and (self.duration / len(self.beats)) * px_per_s < 4
+        p.setPen(QPen(QColor(127, 127, 127, 70), 1))
+        p.drawLines([QLineF(self.x_of(t), 0, self.x_of(t), wh) for t in ([] if dense else self._visible(self.beats))])
+        p.setPen(QPen(QColor(127, 127, 127, 160), 1, Qt.DashLine if not dense else Qt.SolidLine))
+        p.drawLines([QLineF(self.x_of(t), 0, self.x_of(t), wh) for t in self._visible(self.downs)])
+
+        p.setPen(Qt.NoPen)
+        last_x = None
+        for c in sorted(self.clicks, key=lambda c: c.time):
+            if not self.v0 - 1 <= c.time <= self.v1 + 1:
+                continue
+            x = self.x_of(c.time)
+            if last_x is not None and x - last_x < 5 and not c.accent:  # zoomed out: bar starts only
+                continue
+            last_x = x
+            p.setBrush(GREEN if self.t0 is not None and c.time >= self.t0 - 0.05 else accent)  # inside the song
+            hgt = wh * (0.42 if c.accent else 0.28) * min(c.gain, 1.6)
+            p.drawRoundedRect(QRectF(x - 2, 28, 4, hgt), 2, 2)
+        p.end()
+        self._grid = (key, pix)
+        return pix
+
     def _visible(self, times) -> list[float]:
         a = np.asarray(times)
         return a[np.searchsorted(a, self.v0) : np.searchsorted(a, self.v1, side="right")].tolist()
@@ -1318,29 +1358,7 @@ class Wave(QWidget):
             p.drawLine(QPointF(xb, 0), QPointF(xb, wh))
 
         p.drawPixmap(0, 0, self._wave_pixmap())
-
-        # Only what is on screen, and no beat lines closer than 4 px: a whole song would be a grey wall
-        px_per_s = w / max(self.v1 - self.v0, 1e-6)
-        dense = len(self.beats) > 1 and (self.duration / len(self.beats)) * px_per_s < 4
-        p.setPen(QPen(QColor(127, 127, 127, 70), 1))
-        for t in ([] if dense else self._visible(self.beats)):
-            p.drawLine(QPointF(self.x_of(t), 0), QPointF(self.x_of(t), wh))
-        p.setPen(QPen(QColor(127, 127, 127, 160), 1, Qt.DashLine))
-        for t in self._visible(self.downs):
-            p.drawLine(QPointF(self.x_of(t), 0), QPointF(self.x_of(t), wh))
-
-        p.setPen(Qt.NoPen)
-        last_x = None
-        for c in sorted(self.clicks, key=lambda c: c.time):
-            if not self.v0 - 1 <= c.time <= self.v1 + 1:
-                continue
-            x = self.x_of(c.time)
-            if last_x is not None and x - last_x < 5 and not c.accent:  # zoomed out: bar starts only
-                continue
-            last_x = x
-            p.setBrush(GREEN if self.t0 is not None and c.time >= self.t0 - 0.05 else accent)  # inside the song
-            hgt = wh * (0.42 if c.accent else 0.28) * min(c.gain, 1.6)
-            p.drawRoundedRect(QRectF(self.x_of(c.time) - 2, 28, 4, hgt), 2, 2)
+        p.drawPixmap(0, 0, self._grid_pixmap(accent))
 
         if self.t0 is not None:
             x = self.x_of(self.t0)
