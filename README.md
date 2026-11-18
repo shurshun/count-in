@@ -28,10 +28,10 @@ Get the latest version from [Releases](https://github.com/shurshun/count-in/rele
 | Windows 10/11, x64 | `Count-In-windows-x64.zip` |
 | macOS 12+, Apple Silicon | `Count-In-macos-arm64.zip` |
 
-The builds are unsigned, so the system warns on first launch.
+The macOS build is signed and notarized by Apple. The Windows build is not signed yet, so Windows warns once.
 
 - **Windows.** Unzip and run `Count-In.exe`. If SmartScreen appears, click "More info" → "Run anyway".
-- **macOS.** Unzip and drag `Count-In.app` to Applications. The first launch gets blocked. Open System Settings → Privacy & Security, scroll down and click "Open Anyway" next to Count-In.
+- **macOS.** Unzip, drag `Count-In.app` to Applications and open it.
 
 ## How to use
 
@@ -176,10 +176,10 @@ Count-In находит темп и первую сильную долю пес�
 | Windows 10/11, x64 | `Count-In-windows-x64.zip` |
 | macOS 12+, Apple Silicon | `Count-In-macos-arm64.zip` |
 
-Сборки не подписаны, поэтому система при первом запуске предупредит.
+Сборка для macOS подписана и заверена Apple. Сборка для Windows пока не подписана, поэтому Windows один раз предупредит.
 
 - **Windows.** Распакуйте архив и запустите `Count-In.exe`. Если появится SmartScreen, нажмите «Подробнее» → «Выполнить в любом случае».
-- **macOS.** Распакуйте архив и перетащите `Count-In.app` в «Программы». Первый запуск система заблокирует. Откройте «Системные настройки» → «Конфиденциальность и безопасность», прокрутите вниз и нажмите «Всё равно открыть» рядом с Count-In.
+- **macOS.** Распакуйте архив, перетащите `Count-In.app` в «Программы» и откройте.
 
 ### Как пользоваться
 
