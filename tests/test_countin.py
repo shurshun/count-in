@@ -815,3 +815,14 @@ def test_key_of_a_minor_progression():
     x = np.concatenate([sum(np.sin(2 * np.pi * f * t) for f in c) for c in chords]) * 0.2
     tonic, minor, _conf = an.detect_key(np.stack([x, x], 1).astype(np.float32), sr)
     assert an.key_name(tonic, minor) == "Am" and an.key_name(tonic, minor, 2) == "Bm"
+
+
+def test_render_returns_the_clicks_alone():
+    sr = 8000
+    song = np.full((sr, 2), 0.1, dtype=np.float32)
+    hit = np.linspace(0.5, 0.0, 40, dtype=np.float32)
+    r = rd.render(song, sr, [rd.Click(-0.25, True), rd.Click(0.5, False)], 0.0, "keep", 0.0, (hit, hit))
+    pad = int(round(r.offset * sr))  # where the song starts
+    music = r.pcm - r.click[:, None]
+    assert np.allclose(music[:pad], 0) and np.allclose(music[pad:], 0.1)  # silence before the song, then the song
+    assert r.click[r.click_samples[1]] == pytest.approx(0.5)

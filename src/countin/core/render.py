@@ -182,6 +182,7 @@ class Rendered:
     offset: float  # original-song time t maps to output time t / speed + offset
     click_samples: list[int]  # click onsets in the output
     clipped: int  # samples that hit full scale
+    click: np.ndarray | None = None  # the clicks alone, mono, as they went into pcm
 
 
 def stretch(x: np.ndarray, sr: int, speed: float, semis: float = 0.0) -> np.ndarray:
@@ -255,6 +256,7 @@ def render(pcm: np.ndarray, sr: int, clicks: list[Click], first_downbeat: float,
     # its shape stays clean, by up to LIMIT_DB; overs left after that (a hot master's own peaks) get counted.
     g = 10 ** (volume_db / 20)
     clipped = 0
+    alone = np.zeros(len(out), dtype=np.float32)
     for c, s in zip(clicks, starts):
         pair = (hi, lo) if c.voice == "stick" else voice_samples(c.voice, sr)
         x = (pair[0] if c.accent else pair[1]) * (g * c.gain)
@@ -268,5 +270,22 @@ def render(pcm: np.ndarray, sr: int, clicks: list[Click], first_downbeat: float,
             x = x * max(k, 10 ** (-LIMIT_DB / 20))
         before = np.abs(y) > 1.0
         y += x
+        alone[s:end] += x[:, 0]
         clipped += int(np.sum((np.abs(y) > 1.0) & ~before))
-    return Rendered(out, (pad - cut / speed) / sr, starts, clipped)
+    return Rendered(out, (pad - cut / speed) / sr, starts, clipped, alone)
+
+
+def click_track(clicks: list[Click], sr: int, start: float, length: int, volume_db: float = 0.0,
+                speed: float = 1.0) -> np.ndarray:
+    """The clicks alone as mono audio of `length` samples, song time `start` at sample 0, at `speed`."""
+    hi, lo = load_samples(sr)
+    out = np.zeros(length, dtype=np.float32)
+    g = 10 ** (volume_db / 20)
+    for c in clicks:
+        s = int(round((c.time - start) / speed * sr))
+        pair = (hi, lo) if c.voice == "stick" else voice_samples(c.voice, sr)
+        x = (pair[0] if c.accent else pair[1]) * (g * c.gain)
+        if 0 <= s < length:
+            n = min(len(x), length - s)
+            out[s : s + n] += x[:n]
+    return out

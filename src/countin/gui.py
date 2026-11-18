@@ -250,6 +250,7 @@ class Settings:
     fill_build: bool = True  # the last bar of each pause runs into the entry in eighths
     speed: float = 1.0  # playback and export speed, pitch kept (0.8 = 20% slower)
     semis: float = 0.0  # transposition in semitones, tempo kept
+    split: bool = False  # backing track with the click alone on the left and the music in mono on the right
     threshold: float = zn.QUIET_DB  # dB below the song average that counts as a pause
 
 
@@ -549,7 +550,8 @@ def target_path(song: Path, s: Settings, info: io.AudioInfo) -> Path:
     folder = s.out_root
     if folder and s.group:
         folder = io.organized_dir(folder, info.tags, *s.group)
-    return io.output_path(song, s.fmt or info.format, s.levels, folder, s.speed, s.semis)
+    out = io.output_path(song, s.fmt or info.format, s.levels, folder, s.speed, s.semis)
+    return out.with_name(f"{out.stem}_stage{out.suffix}") if s.split else out
 
 
 def save_job(job: Job, t: Track, s: Settings, cached):
@@ -572,7 +574,10 @@ def save_job(job: Job, t: Track, s: Settings, cached):
                   s.semis)
     out = target_path(t.path, s, info)
     out.parent.mkdir(parents=True, exist_ok=True)
-    io.encode(r.pcm, info, out, tags_from=t.path)
+    pcm_out = r.pcm
+    if s.split:  # stage mix: the click alone on the left, the music in mono on the right
+        pcm_out = np.stack([r.click, (r.pcm - r.click[:, None]).mean(axis=1)], axis=1)
+    io.encode(pcm_out, info, out, tags_from=t.path)
     return t, out, full, r.clipped
 
 
@@ -609,6 +614,9 @@ def export_job(job: Job, t: Track, s: Settings, cached, what: dict):
     for name, x in zip(tracks, daw.place(list(tracks.values()), info.sr, g, s.speed, s.semis)):
         job.report(_("{name}: запись", name=f"{name}.wav"))
         daw.write_wav(folder / f"{name}.wav", x, info.sr)
+    if what.get("clickwav"):
+        n = round(max(t.duration - g.start, 0) / s.speed * info.sr) + info.sr
+        daw.write_wav(folder / "click.wav", rd.click_track(clicks, info.sr, g.start, n, s.volume_db, s.speed)[:, None], info.sr)
     if what["click"]:
         daw.write_clicks(folder / "click.mid", g, clicks, s.meter, s.speed)
     if what["tempo"]:
@@ -2242,6 +2250,7 @@ class ZoneDialog(QDialog):
 
 EXPORT_MODE, EXPORT_PARTS, EXPORT_CLICK, EXPORT_TEMPO, EXPORT_FORMAT = (
     "export/mode", "export/parts", "export/click", "export/tempo", "export/format")
+EXPORT_SPLIT, EXPORT_CLICKWAV = "export/split", "export/clickwav"
 
 
 def export_format() -> str | None:
@@ -2346,21 +2355,27 @@ class ExportDialog(QDialog):
         fmt.setSpacing(6)
         fmt.addWidget(QLabel(_("Формат"), objectName="field"))
         fmt.addWidget(self.fmt)
+        self.split = QCheckBox(_("Для сцены: клик в левом канале, музыка в правом"), checked=pref_bool(EXPORT_SPLIT, False))
+        self.split.setToolTip(_("Клик уходит в наушники барабанщика или в ваши, музыка в зал. Музыка сводится в моно."))
+        self.split.toggled.connect(self._update)
+        fmt.addWidget(self.split)
 
         self.boxes = {
             EXPORT_PARTS: QCheckBox(_("Партии отдельными файлами (WAV)")),
             EXPORT_CLICK: QCheckBox(_("Сетка кликов (MIDI)")),
             EXPORT_TEMPO: QCheckBox(_("Темповая карта (MIDI)")),
+            EXPORT_CLICKWAV: QCheckBox(_("Клик отдельным WAV")),
         }
         tips = {
             EXPORT_PARTS: _("Гитара, вокал, бас, барабаны, пианино и всё остальное, на полной громкости. Без галочки пишется один WAV с выбранными уровнями дорожек"),
             EXPORT_CLICK: _("Отсчёт и хай-хэт в паузах нотами на 10-м канале, General MIDI"),
             EXPORT_TEMPO: _("Темп и размер каждого такта, чтобы такты DAW совпали с песней"),
+            EXPORT_CLICKWAV: _("Отсчёт и клик тем звуком, что звучит в прослушивании, с первого такта"),
         }
         files = QVBoxLayout()
         files.setSpacing(8)
         for key, box in self.boxes.items():
-            box.setChecked(pref_bool(key, True))
+            box.setChecked(pref_bool(key, key != EXPORT_CLICKWAV))
             box.setToolTip(tips[key])
             box.toggled.connect(self._update)
             files.addWidget(box)
@@ -2438,6 +2453,7 @@ class ExportDialog(QDialog):
         st = QSettings()
         st.setValue(EXPORT_MODE, "multi" if self.multi.on else "backing")
         st.setValue(EXPORT_FORMAT, self.fmt.value() or "")
+        st.setValue(EXPORT_SPLIT, self.split.isChecked())
         for key, box in self.boxes.items():
             st.setValue(key, box.isChecked())
         self.accept()
@@ -2447,7 +2463,7 @@ class ExportDialog(QDialog):
         if not self.multi.on:
             return None
         return {"parts": self.boxes[EXPORT_PARTS].isChecked(), "click": self.boxes[EXPORT_CLICK].isChecked(),
-                "tempo": self.boxes[EXPORT_TEMPO].isChecked()}
+                "tempo": self.boxes[EXPORT_TEMPO].isChecked(), "clickwav": self.boxes[EXPORT_CLICKWAV].isChecked()}
 
 
 def system_info() -> dict[str, str]:
@@ -4141,6 +4157,7 @@ class Window(QMainWindow):
             out_root=out_root, group=group, fill=self._filling(), click_all=self.click_all.isChecked(),
             click_voice=self.click_voice.currentData(), click_db=float(self.click_db.value()), fill_build=self.fill_build.isChecked(),
             threshold=float(self.threshold.value()), speed=self.speed / 100, semis=float(self.semis),
+            split=pref_bool(EXPORT_SPLIT, False),
         )
 
     def _refresh(self, *_args):
