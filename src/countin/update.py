@@ -66,12 +66,18 @@ def newer_release(data: dict, current: str) -> Release | None:
     return Release(tag.lstrip("vV"), url, digest.removeprefix("sha256:") if digest.startswith("sha256:") else "")
 
 
+# Test pre-release builds never check, show the badge or update themselves; the latest release lacks their features.
+PRERELEASE = True
+
+
 def check() -> Release | None:
     """Blocking call, run it off the UI thread. Raises on network, TLS and API errors.
 
     TLS trusts the operating system's certificate store (Keychain, Windows store) through truststore.
     The bundled Python's own OpenSSL would look in a folder that exists only where python.org Python is installed.
     """
+    if PRERELEASE:
+        return None
     req = urllib.request.Request(f"https://api.github.com/repos/{REPO}/releases/latest",
                                  headers={"Accept": "application/vnd.github+json", "User-Agent": "Count-In"})
     with urllib.request.urlopen(req, timeout=TIMEOUT, context=_tls()) as r:
