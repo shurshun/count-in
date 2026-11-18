@@ -160,14 +160,14 @@ def voice_samples(voice: str, sr: int) -> tuple[np.ndarray, np.ndarray]:
     if voice == "cowbell":  # two detuned square waves, the drum-machine recipe
         bell = ((587, 1), (845, 1))
         return _tone(sr, bell, 0.09, 0.8, square=True), _tone(sr, bell, 0.06, 0.6, square=True)
-    if voice == "clave":
+    if voice == "ping":  # a short high tone
         return _tone(sr, ((2500, 1),), 0.03, 0.9), _tone(sr, ((2000, 1),), 0.025, 0.75)
     hi, lo = load_samples(sr)
     return hi, lo
 
 
 # Sounds the song click can use, with their names in the app.
-VOICES = {"beep": "Метроном", "stick": "Палочки", "cowbell": "Ковбелл", "clave": "Клаве", "hihat": "Хай-хэт"}
+VOICES = {"beep": "Метроном", "stick": "Палочки", "cowbell": "Ковбелл", "ping": "Пинг", "hihat": "Хай-хэт"}
 
 
 def leading_silence(pcm: np.ndarray, sr: int) -> float:

@@ -16,7 +16,7 @@ from .render import METERS, Click, stretch
 TPB = 480  # MIDI ticks per quarter note
 DRUMS = 9  # GM drum channel (10 counted from 1)
 # voice -> GM drum notes (accent, plain)
-NOTES = {"stick": (76, 77), "hihat": (42, 42), "beep": (34, 33), "cowbell": (56, 56), "clave": (75, 75)}
+NOTES = {"stick": (76, 77), "hihat": (42, 42), "beep": (34, 33), "cowbell": (56, 56), "ping": (75, 75)}
 
 
 @dataclass
