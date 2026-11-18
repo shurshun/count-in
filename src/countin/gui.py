@@ -89,12 +89,12 @@ QPushButton#update:hover { background: #409cff; }
 QPushButton#iconButton { border: 1px solid @BORDER@; border-radius: 7px; background: rgba(127,127,127,0.12); padding: 0; }
 QPushButton#iconButton:hover { background: rgba(127,127,127,0.24); }
 #progOverlay { background: transparent; }
-#sepWait { color: #ff9f0a; font-weight: 600; }
+#sepWait { color: @WARN@; font-weight: 600; }
 #progTitle { font-size: 26px; font-weight: 700; }
 #progWhy, #progEta { font-size: 15px; color: @FIELD@; }
 #progPhrase { font-size: 15px; font-style: italic; color: @FIELD@; }
 #subtitle { color: @FIELD@; }
-#warning { color: #ff9f0a; }
+#warning { color: @WARN@; }
 #drop { border: 2px dashed @BORDER@; border-radius: 18px; color: @FIELD@; font-size: 18px; }
 QFrame#card { background: @CARD@; border: 1px solid @BORDER@; border-radius: 12px; }
 #cardTitle { font-weight: 600; font-size: 16px; }
@@ -136,7 +136,7 @@ QFrame#tipCard { background: @TIP_CARD@; border: 1px solid @BORDER@; border-radi
 QScrollArea#helpArea, QScrollArea#helpArea > QWidget > QWidget { background: @WINDOW@; border: none; }
 QFrame#busyPill { background: @SEP_CARD@; border: 1px solid @BORDER@; border-radius: 19px; }
 #pillText { font-size: 14px; font-weight: 600; }
-#pillNote { font-size: 14px; font-weight: 600; color: #ff9f0a; }
+#pillNote { font-size: 14px; font-weight: 600; color: @WARN@; }
 QFrame#transport { background: @CARD@; border: 1px solid @BORDER@; border-radius: 12px; }
 QPushButton#tbtn { border: none; border-radius: 8px; background: transparent; min-width: 34px; min-height: 30px; padding: 0 6px; }
 QPushButton#tbtn:hover { background: rgba(127,127,127,0.18); }
@@ -779,7 +779,7 @@ class Segmented(QWidget):
         for i, (label, _value) in enumerate(options):
             b = QPushButton(label, checkable=True)
             b.setProperty("seg", "first" if i == 0 else "last" if i == len(options) - 1 else "mid")
-            b.setFocusPolicy(Qt.NoFocus)
+            b.setFocusPolicy(Qt.TabFocus)
             self.group.addButton(b, i)
             h.addWidget(b)
         h.addStretch()
@@ -851,13 +851,22 @@ def glyph(kind: str, color: QColor, size: int = 18) -> QIcon:
     return QIcon(pix)
 
 
+def keys(text: str) -> str:
+    """Mac key symbols in a line of text, spelled the Windows way off a Mac."""
+    if sys.platform == "darwin":
+        return text
+    for mac, win in (("⌘", "Ctrl+"), ("⌥", "Alt"), ("⇧", "Shift")):
+        text = text.replace(mac, win)
+    return text
+
+
 def glyph_button(kind: str, tip: str, slot, name: str = "tbtn", color: QColor | None = None, size: int = 18) -> QPushButton:
-    b = QPushButton(objectName=name, clicked=slot, toolTip=tip)
+    b = QPushButton(objectName=name, clicked=slot, toolTip=tip, accessibleName=tip)
     b.setIcon(glyph(kind, color or QApplication.palette().text().color(), size))
     if color is None:
         b.setProperty("glyph", kind)  # redrawn in the new text colour when the appearance changes
     b.setIconSize(QSize(size, size))
-    b.setFocusPolicy(Qt.NoFocus)
+    b.setFocusPolicy(Qt.TabFocus)
     b.setCursor(Qt.PointingHandCursor)
     return b
 
@@ -1702,7 +1711,7 @@ class MuteButton(QPushButton):
     """Speaker toggle beside a level slider. On moves the slider to MUTE, off brings the last level back."""
 
     def __init__(self, slider: QSlider, tip: str):
-        super().__init__(objectName="small", checkable=True, toolTip=tip, focusPolicy=Qt.NoFocus)
+        super().__init__(objectName="small", checkable=True, toolTip=tip, accessibleName=tip, focusPolicy=Qt.TabFocus)
         self.setFixedSize(30, 22)
         self.slider, self.level = slider, slider.value() if slider.value() != MUTE else 0
         self.toggled.connect(self._toggle)
@@ -1843,7 +1852,7 @@ def part_icon(kind: str, color: QColor, size: int = 16) -> QPixmap:
 
 
 def icon_label(kind: str, text: str) -> QWidget:
-    w = QWidget()
+    w = QWidget(accessibleName=text)
     h = QHBoxLayout(w)
     h.setContentsMargins(0, 0, 0, 0)
     h.setSpacing(6)
@@ -1861,7 +1870,10 @@ def row(grid: QGridLayout, label, *widgets) -> None:
     grid.addWidget(label if isinstance(label, QWidget) else QLabel(label, objectName="field"), r, 0)
     h = QHBoxLayout()
     h.setSpacing(6)
+    name = label if isinstance(label, str) else label.toolTip() or label.accessibleName()
     for w in widgets:
+        if name and not w.accessibleName() and not isinstance(w, QLabel):
+            w.setAccessibleName(name)  # screen readers name the control after its row
         h.addWidget(w)
     h.addStretch()
     grid.addLayout(h, r, 1)
@@ -2050,7 +2062,7 @@ class TapDialog(QDialog):
         h.addStretch()
         for text, slot, name in ((_("Отмена"), self.reject, "tool"), (_("Применить"), self.accept, "primary")):
             b = QPushButton(text, objectName=name, clicked=slot)
-            b.setFocusPolicy(Qt.NoFocus)
+            b.setFocusPolicy(Qt.TabFocus)
             b.setAutoDefault(False)
             h.addWidget(b)
         v.addLayout(h)
@@ -2882,9 +2894,9 @@ class Window(QMainWindow):
         # Speaker level of the preview; not part of the song or the saved file
         self.speaker = speaker = QLabel(toolTip=_("Громкость прослушивания"))
         self.out_volume = QSlider(Qt.Horizontal, minimum=0, maximum=100, fixedWidth=130,
-                                  toolTip=_("Громкость прослушивания"))
+                                  toolTip=_("Громкость прослушивания"), accessibleName=_("Громкость прослушивания"))
         self.out_volume.setValue(int(output_volume() * 100))
-        self.out_volume.setFocusPolicy(Qt.NoFocus)
+        self.out_volume.setFocusPolicy(Qt.TabFocus)
         self.out_volume.valueChanged.connect(self._output_volume)
         self._speaker_icon()
         h.addWidget(speaker, 0, Qt.AlignVCenter)
@@ -2892,10 +2904,12 @@ class Window(QMainWindow):
         h.addWidget(self.out_volume, 0, Qt.AlignVCenter)
         h.addSpacing(16)
         self.open_b = QPushButton(_("Открыть…"), objectName="tool", clicked=self._open_dialog)
-        self.save_b = QPushButton(_("Сохранить"), objectName="tool", clicked=self._save, toolTip="⌘S")
-        self.close_b = QPushButton(_("Закрыть"), objectName="tool", clicked=self._close_track, toolTip="⌘W")
+        self.save_b = QPushButton(_("Сохранить"), objectName="tool", clicked=self._save,
+                                  toolTip=QKeySequence(QKeySequence.Save).toString(QKeySequence.NativeText))
+        self.close_b = QPushButton(_("Закрыть"), objectName="tool", clicked=self._close_track,
+                                   toolTip=QKeySequence(QKeySequence.Close).toString(QKeySequence.NativeText))
         for b in (self.open_b, self.close_b, self.save_b):  # Play lives in the transport bar under the waveform
-            b.setFocusPolicy(Qt.NoFocus)
+            b.setFocusPolicy(Qt.TabFocus)
             h.addWidget(b)
         return head
 
@@ -2939,7 +2953,7 @@ class Window(QMainWindow):
         self.prog_phrase = QLabel(objectName="progPhrase", alignment=Qt.AlignCenter, wordWrap=True)
         self.prog_phrase.setFixedWidth(540)
         self.cancel_b = QPushButton(_("Отмена"), objectName="tool", clicked=self._cancel)
-        self.cancel_b.setFocusPolicy(Qt.NoFocus)
+        self.cancel_b.setFocusPolicy(Qt.TabFocus)
         for w in (self.prog_label, self.prog_why):
             v.addWidget(w, 0, Qt.AlignHCenter)
         v.addSpacing(4)
@@ -2958,7 +2972,7 @@ class Window(QMainWindow):
         """A practical tip for every progress display; while the parts separate with a part turned down, a note
         that the pauses come only after it."""
         tip = True  # music lines are off until a better set is chosen
-        text = _(random.choice(TIPS))
+        text = keys(_(random.choice(TIPS)))
         if self.sep_job and self._full_stems() is None and self._filling() and self.settings().levels:
             text = _("Паузы с хай-хэтом появятся, когда закончится разделение на дорожки: их ищут без убранных инструментов")
         self.prog_phrase.setText(text)
@@ -3083,10 +3097,10 @@ class Window(QMainWindow):
         self.pause_l = QLabel(objectName="chipText", alignment=Qt.AlignCenter, minimumWidth=56)
         ch.addWidget(self.pause_l)
         h.addWidget(chip)
-        h.addWidget(glyph_button("plus", _("Сделать паузой такт под плейхедом. Несколько тактов: тяните с ⇧ или по шкале времени."),
+        h.addWidget(glyph_button("plus", keys(_("Сделать паузой такт под плейхедом. Несколько тактов: тяните с ⇧ или по шкале времени.")),
                                  self._add_pause, "round"))
         help_b = QPushButton("?", objectName="tbtn", clicked=self._help, toolTip=_("Справка Count-In"))
-        help_b.setFocusPolicy(Qt.NoFocus)
+        help_b.setFocusPolicy(Qt.TabFocus)
 
         # Speed: − percent +, slower with the pitch kept; steps of 5% from 80% to 100%; slower than that the stretch smears the sound
         h.addSpacing(10)
@@ -3256,7 +3270,7 @@ class Window(QMainWindow):
 
         def pad(text: str, slot, tip: str = "") -> QPushButton:
             b = QPushButton(text, objectName="tapPad", clicked=slot, toolTip=tip)
-            b.setFocusPolicy(Qt.NoFocus)
+            b.setFocusPolicy(Qt.TabFocus)
             return b
 
         def line(*widgets) -> QHBoxLayout:
@@ -3291,7 +3305,7 @@ class Window(QMainWindow):
         sp = self.alt_b.sizePolicy()
         sp.setRetainSizeWhenHidden(True)  # the card keeps its height when the button comes and goes
         self.alt_b.setSizePolicy(sp)
-        self.alt_b.setFocusPolicy(Qt.NoFocus)
+        self.alt_b.setFocusPolicy(Qt.TabFocus)
         g.addWidget(self.alt_b, 5, 0, 1, 2)
         return tempo
 
@@ -3439,12 +3453,12 @@ class Window(QMainWindow):
         self.status = QLabel()
         self.reveal_b = QPushButton(_("Показать в Finder") if sys.platform == "darwin" else _("Показать в папке"),
                                     objectName="small", clicked=self._reveal)
-        self.reveal_b.setFocusPolicy(Qt.NoFocus)
+        self.reveal_b.setFocusPolicy(Qt.TabFocus)
         self.version_l = QLabel(f"v{update.current_version()}")
 
         # Round blue badge left of the version, shown only when a newer release exists.
         self.update_b = QPushButton("↓", objectName="update", clicked=self._update_action)
-        self.update_b.setFocusPolicy(Qt.NoFocus)
+        self.update_b.setFocusPolicy(Qt.TabFocus)
         self.update_b.setCursor(Qt.PointingHandCursor)
         sb.addWidget(self.file_l)
         sb.addWidget(self.status, 1)
@@ -4101,11 +4115,11 @@ class Window(QMainWindow):
         self.status.setText(_("Настройки сохранены как настройки по умолчанию"))
 
     def _icon_button(self, kind: str, tip: str, slot) -> QPushButton:
-        b = QPushButton(objectName="iconButton", clicked=slot, toolTip=tip)
+        b = QPushButton(objectName="iconButton", clicked=slot, toolTip=tip, accessibleName=tip)
         b.setIcon(QIcon(part_icon(kind, QColor(127, 127, 127), 18)))
         b.setIconSize(QSize(18, 18))
         b.setFixedSize(30, 28)
-        b.setFocusPolicy(Qt.NoFocus)
+        b.setFocusPolicy(Qt.TabFocus)
         b.setCursor(Qt.PointingHandCursor)
         return b
 
