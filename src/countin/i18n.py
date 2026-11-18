@@ -490,7 +490,7 @@ EN = {
     "⌘G переходит к такту, ⌘[ и ⌘] делают медленнее и быстрее.": "⌘G goes to a bar, ⌘[ and ⌘] make it slower and faster.",
     "⌘Z отменяет правку, ⇧⌘Z повторяет её.": "⌘Z undoes a change, ⇧⌘Z redoes it.",
     "⌘+ и ⌘− меняют масштаб волны, ⌘0 показывает весь трек.": "⌘+ and ⌘− zoom the waveform, ⌘0 shows the whole track.",
-    "На Windows вместо ⌘ работает Ctrl.": "On Windows, Ctrl works in place of ⌘.",
+    "На Windows вместо ⌘ работает Ctrl, а правку повторяет Ctrl+Y.": "On Windows, Ctrl works in place of ⌘, and Ctrl+Y redoes a change.",
 }
 
 

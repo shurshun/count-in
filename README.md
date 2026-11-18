@@ -73,7 +73,7 @@ The app remembers what you set for each song and brings it back when the song op
 | ⌘Z, ⇧⌘Z | undo and redo |
 | ⌘+ ⌘− ⌘0 | zoom in, zoom out, whole track |
 
-On Windows, Ctrl works in place of ⌘. PageDown and PageUp are the keys a page-turner pedal sends.
+On Windows, Ctrl works in place of ⌘, and Ctrl+Y redoes a change. PageDown and PageUp are the keys a page-turner pedal sends.
 
 In Settings (⌘,) you can pick one output folder and have files sorted into Artist / Year - Album subfolders from the source tags; each level is a checkbox.
 
@@ -91,10 +91,11 @@ When the detector is unsure, an orange hint appears above the waveform. ×2 and 
 | Backing track | `Song_backing_guitar-off_vocals-6dB.mp3` |
 | Slowed to 80% | `Song_backing_guitar-off_80pct.mp3` |
 | Two semitones up | `Song_countin_+2st.mp3` |
+| Stage mix | `Song_countin_stage.mp3` |
 
 ### Processing time
 
-The count-in and analysis take seconds. Separation starts as soon as a track opens and runs on the GPU: about 50 seconds for a 3-minute song on an Apple Silicon Mac (Core ML), on Windows through DirectML on any DirectX 12 graphics card. You can listen and edit while it runs; the part you are listening to gets separated ahead of the rest. A song separated once comes from the cache next time; Settings show its size and clear it.
+The count-in and analysis take seconds. Separation starts as soon as a track opens and runs on the GPU: about 50 seconds for a 3-minute song on an Apple Silicon Mac (Core ML), on Windows through DirectML on any DirectX 12 graphics card. On a laptop with two graphics cards the app picks the discrete one. You can listen and edit while it runs; the part you are listening to gets separated ahead of the rest. A song separated once comes from the cache next time; Settings show its size and clear it.
 
 On first launch the app downloads its models once: about 780 MB on a Mac, plus a 712 MB GPU model on Windows. An `assets` folder next to the app works too, for a copy on a flash drive.
 
@@ -251,7 +252,7 @@ Count-In находит темп и первую сильную долю пес�
 | ⌘Z, ⇧⌘Z | отменить и повторить |
 | ⌘+ ⌘− ⌘0 | приблизить, отдалить, весь трек |
 
-На Windows вместо ⌘ работает Ctrl. PageDown и PageUp посылает педаль для перелистывания нот.
+На Windows вместо ⌘ работает Ctrl, а правку повторяет Ctrl+Y. PageDown и PageUp посылает педаль для перелистывания нот.
 
 В настройках (⌘,) можно один раз выбрать папку для всех файлов и раскладывать их по подпапкам «Исполнитель / Год - Альбом» по тегам исходника, каждый уровень включается галочкой.
 
@@ -269,10 +270,11 @@ Count-In находит темп и первую сильную долю пес�
 | Бэктрек | `Песня_backing_guitar-off_vocals-6dB.mp3` |
 | Замедлено до 80% | `Песня_backing_guitar-off_80pct.mp3` |
 | На два полутона выше | `Песня_countin_+2st.mp3` |
+| Микс для сцены | `Песня_countin_stage.mp3` |
 
 #### Время обработки
 
-Отсчёт и анализ занимают секунды. Разделение начинается сразу после открытия трека и идёт на видеокарте: около 50 секунд на 3-минутную песню на Mac с Apple Silicon (Core ML), на Windows через DirectML на любой видеокарте с DirectX 12. Пока оно идёт, можно слушать и править; отрывок для прослушивания разделяется вне очереди. Песня, которую уже разделяли, берётся из кэша; его размер и очистка есть в настройках.
+Отсчёт и анализ занимают секунды. Разделение начинается сразу после открытия трека и идёт на видеокарте: около 50 секунд на 3-минутную песню на Mac с Apple Silicon (Core ML), на Windows через DirectML на любой видеокарте с DirectX 12. На ноутбуке с двумя видеокартами программа выбирает дискретную. Пока оно идёт, можно слушать и править; отрывок для прослушивания разделяется вне очереди. Песня, которую уже разделяли, берётся из кэша; его размер и очистка есть в настройках.
 
 При первом запуске программа один раз скачивает модели: около 780 МБ на Mac и ещё 712 МБ модели для видеокарты на Windows. Подходит и папка `assets` рядом с программой, например на флешке.
 
