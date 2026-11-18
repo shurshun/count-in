@@ -15,7 +15,7 @@ from PySide6.QtCore import QEvent, QLineF, QLocale, QObject, QSettings, QStandar
 from PySide6.QtGui import QAction, QCursor, QDesktopServices, QFont, QIcon, QImage, QKeySequence, QColor, QPainter, QPainterPath, QPen, QPalette, QPixmap, QPolygonF
 from PySide6.QtWidgets import (
     QAbstractSpinBox, QApplication, QButtonGroup, QCheckBox, QComboBox, QDialog, QDoubleSpinBox, QFileDialog, QFrame,
-    QGridLayout, QHBoxLayout, QLabel, QLayout, QLineEdit, QMenu, QPlainTextEdit, QMainWindow, QMessageBox, QProgressBar, QPushButton, QRadioButton, QScrollArea,
+    QGridLayout, QHBoxLayout, QInputDialog, QLabel, QLayout, QLineEdit, QMenu, QPlainTextEdit, QMainWindow, QMessageBox, QProgressBar, QPushButton, QRadioButton, QScrollArea,
     QGraphicsDropShadowEffect, QSlider, QSpinBox, QStackedWidget, QStatusBar, QVBoxLayout, QWidget,
 )
 
@@ -612,7 +612,7 @@ def export_job(job: Job, t: Track, s: Settings, cached, what: dict):
     if what["click"]:
         daw.write_clicks(folder / "click.mid", g, clicks, s.meter, s.speed)
     if what["tempo"]:
-        daw.write_tempo(folder / "tempo.mid", g, s.meter, s.speed)
+        daw.write_tempo(folder / "tempo.mid", g, s.meter, s.speed, t.markers)
     return t, folder, full, 0
 
 
@@ -1188,6 +1188,7 @@ class Wave(QWidget):
     zonesEdited = Signal(object)
     zoneClicked = Signal(int)
     spanSelected = Signal(int, int)  # first and last bar of a span dragged with Shift or along the ruler
+    markerMenu = Signal(int)  # a right-click on section marker i
     playFrom = Signal(float)
     playheadClicked = Signal()  # the user put the playhead somewhere by a click  # double-click: play from here
     navChanged = Signal()  # the play position or the current pause changed
@@ -1205,6 +1206,8 @@ class Wave(QWidget):
         self.bars, self.zones, self.fill = [], [], True
         self.sel = None  # bars (first, last) while a span is being dragged
         self.loop: tuple[float, float, bool] | None = None  # loop start, end and whether it plays round
+        self.markers: list[tuple[float, str]] = []  # (song time, name) of the sections
+        self.marker_boxes: list[tuple[QRectF, int]] = []  # hit boxes of the marker labels on the ruler
         self.peak, self.ref_db, self.threshold_db = 1.0, None, None  # for the pause threshold band
         self.threshold_full = False  # band over the whole track while the slider moves
         self.labels: list[tuple[QRectF, int]] = []
@@ -1459,18 +1462,52 @@ class Wave(QWidget):
         f.setBold(False)
         f.setPointSizeF(f.pointSizeF() * 0.85)
         p.setFont(f)
-        step = self._ruler_step()
-        t = np.ceil(self.v0 / step) * step
-        while t <= self.v1:
-            x = self.x_of(t)
-            p.setPen(QPen(QColor(127, 127, 127, 140), 1))
-            p.drawLine(QPointF(x, wh), QPointF(x, wh + 4))
-            p.drawText(QRectF(x + 3, wh + 2, 80, self.RULER - 2), Qt.AlignLeft | Qt.AlignVCenter,
-                       f"{t:.2f}".rstrip("0").rstrip(".") + _(" с"))
-            t += step
+        p.setPen(QPen(QColor(127, 127, 127, 140), 1))
+        if self.bars:
+            # Bar numbers, as tabs and scores count them; every k-th bar when they would crowd
+            px = (self.bars[min(1, len(self.bars) - 1)].end - self.bars[0].start) * w / max(self.v1 - self.v0, 1e-6)
+            k = next((k for k in (1, 2, 4, 8, 16, 32, 64) if px * k >= 36), 128)
+            for i, b in enumerate(self.bars):
+                if i % k or not self.v0 <= b.start <= self.v1:
+                    continue
+                x = self.x_of(b.start)
+                p.drawLine(QPointF(x, wh), QPointF(x, wh + 4))
+                p.drawText(QRectF(x + 3, wh + 2, 60, self.RULER - 2), Qt.AlignLeft | Qt.AlignVCenter, str(i + 1))
+        else:
+            step = self._ruler_step()
+            t = np.ceil(self.v0 / step) * step
+            while t <= self.v1:
+                x = self.x_of(t)
+                p.drawLine(QPointF(x, wh), QPointF(x, wh + 4))
+                p.drawText(QRectF(x + 3, wh + 2, 80, self.RULER - 2), Qt.AlignLeft | Qt.AlignVCenter,
+                           f"{t:.2f}".rstrip("0").rstrip(".") + _(" с"))
+                t += step
+        self._paint_markers(p, w, wh)
         self._paint_playhead(p, wh)
         if self.overview is not None:
             self.overview.update()
+
+    def _paint_markers(self, p: QPainter, w: float, wh: float):
+        """Section markers: a faint line over the waveform and the name on the ruler; right-click edits."""
+        self.marker_boxes = []
+        accent = accent_color(QApplication.instance())
+        fm = p.fontMetrics()
+        for i, (t, name) in enumerate(self.markers):
+            x = self.x_of(t)
+            if not -200 <= x <= w:
+                continue
+            line = QColor(accent)
+            line.setAlpha(110)
+            p.setPen(QPen(line, 1, Qt.DashLine))
+            p.drawLine(QPointF(x, 22), QPointF(x, wh))
+            text = f"{i + 1} {name}" if i < 9 else name
+            box = QRectF(x, wh + 2, fm.horizontalAdvance(text) + 12, self.RULER - 4)
+            p.setPen(Qt.NoPen)
+            p.setBrush(accent)
+            p.drawRoundedRect(box, 6, 6)
+            p.setPen(on_accent(QApplication.instance()))
+            p.drawText(box, Qt.AlignCenter, text)
+            self.marker_boxes.append((box, i))
 
     def _paint_playhead(self, p: QPainter, wh: float):
         """A line at the play position (or where playback will start) with a head on the time ruler."""
@@ -1584,6 +1621,10 @@ class Wave(QWidget):
             QApplication.focusWidget().clearFocus()  # a click on the waveform ends typing in a number field
         x, pos = e.position().x(), e.position()
         if e.button() == Qt.RightButton:
+            m = next((i for box, i in self.marker_boxes if box.contains(pos)), None)
+            if m is not None:
+                self.markerMenu.emit(m)
+                return
             i = self._bar_at(self.t_of(x))
             if i is not None:
                 z = self._zone_at(i)
@@ -2865,7 +2906,8 @@ class Window(QMainWindow):
                 self._play()
                 return True
         front = QApplication.activeWindow()
-        if (e.type() == QEvent.KeyPress and e.key() in (Qt.Key_Left, Qt.Key_Right, Qt.Key_Home, Qt.Key_L)
+        if (e.type() == QEvent.KeyPress and (e.key() in (Qt.Key_Left, Qt.Key_Right, Qt.Key_Home, Qt.Key_L, Qt.Key_M)
+                                             or Qt.Key_1 <= e.key() <= Qt.Key_9)
                 and not e.modifiers() and QApplication.activeModalWidget() is None
                 and QApplication.activePopupWidget() is None
                 and (front in (self, None) or not front.isVisible())  # not while Help is in front
@@ -2874,6 +2916,10 @@ class Window(QMainWindow):
             # Arrows walk the pauses, Home goes back to the count-in.
             if e.key() == Qt.Key_L:
                 self._toggle_loop()
+            elif e.key() == Qt.Key_M:
+                self._add_marker()
+            elif Qt.Key_1 <= e.key() <= Qt.Key_9:
+                self._goto_marker(e.key() - Qt.Key_1)
             elif e.key() == Qt.Key_Home:
                 self._to_start()
             else:
@@ -2908,6 +2954,8 @@ class Window(QMainWindow):
         play.addAction(_("Следующая пауза") + "\t→", lambda: self._jump_pause(1))
         play.addAction(_("Петля") + "\tL", self._toggle_loop)
         play.addSeparator()
+        play.addAction(_("Добавить метку части") + "\tM", self._add_marker)
+        play.addAction(_("Перейти к такту…"), QKeySequence("Ctrl+G"), self._goto_bar)
         self.trainer_a = play.addAction(_("Тренажёр скорости: +5% каждые два круга петли"))
         self.trainer_a.setCheckable(True)
         self.trainer_a.toggled.connect(lambda _on: setattr(self.player, "laps", 0))
@@ -3219,6 +3267,62 @@ class Window(QMainWindow):
         h.addWidget(help_b)
         return bar
 
+    def _here(self) -> float | None:
+        w = self.wave
+        return w.cursor_t if w.cursor_t is not None else w.play_t
+
+    def _set_markers(self, markers: list):
+        t = self.current
+        t.markers = sorted(markers)
+        self.wave.markers = t.markers
+        self._song_changed()
+        self.wave.update()
+
+    def _add_marker(self):
+        """A named section at the play position: keys 1–9 jump to the first nine."""
+        t, at = self.current, self._here()
+        if not (t and t.analysis) or at is None:
+            self.status.setText(_("Щёлкните по волне, где начинается часть, и добавьте метку"))
+            return
+        name, ok = QInputDialog.getText(self, _("Метка части"), _("Название части:"),
+                                        text=_("Часть {n}", n=len(t.markers) + 1))
+        if ok and name.strip():
+            self._set_markers(t.markers + [(float(at), name.strip())])
+
+    def _marker_menu(self, i: int):
+        t = self.current
+        menu = QMenu(self)
+        rename, delete = menu.addAction(_("Переименовать…")), menu.addAction(_("Удалить метку"))
+        chosen = menu.exec(QCursor.pos())
+        at, name = t.markers[i]
+        if chosen is rename:
+            new, ok = QInputDialog.getText(self, _("Метка части"), _("Название части:"), text=name)
+            if ok and new.strip():
+                self._set_markers(t.markers[:i] + [(at, new.strip())] + t.markers[i + 1 :])
+        elif chosen is delete:
+            self._set_markers(t.markers[:i] + t.markers[i + 1 :])
+
+    def _goto_marker(self, i: int):
+        t = self.current
+        if t and i < len(t.markers):
+            self._go_to(t.markers[i][0])
+
+    def _goto_bar(self):
+        t = self.current
+        if not (t and t.bars):
+            return
+        n, ok = QInputDialog.getInt(self, _("Перейти к такту"), _("Номер такта:"), 1, 1, len(t.bars))
+        if ok:
+            self._go_to(t.bars[n - 1].start)
+
+    def _go_to(self, at: float):
+        w = self.wave
+        w.set_playhead(at, snap=False)
+        span = w.v1 - w.v0
+        w.show_range(at - 0.1 * span, at + 0.9 * span)
+        if self.play_start is not None:
+            self._play_at(at, preroll=True)
+
     def _solo(self, name: str, on: bool):
         self.player.solo = {n for n, b in self.solo_b.items() if b.isChecked()}
         if on and not self.player.src[1] and self.play_start is not None:
@@ -3521,6 +3625,7 @@ class Window(QMainWindow):
         self.wave.zonesEdited.connect(self._zones_edited)
         self.wave.zoneClicked.connect(self._edit_zone)
         self.wave.spanSelected.connect(self._span_selected)
+        self.wave.markerMenu.connect(self._marker_menu)
         self.wave.playFrom.connect(self._play_from)
         self.wave.playheadClicked.connect(self._seek)
 
@@ -3809,6 +3914,7 @@ class Window(QMainWindow):
 
         self.alt_b.setVisible(a.alt_downbeat is not None)
         self._restore_song(t)
+        self.wave.markers = t.markers
         self._show_track_values()
         bar = 60.0 / t.bpm * rd.METERS[self.meter_seg.value()][0]
         self.wave.show_range(t.t0 - bar * self.bars_seg.value() - 1.0, t.t0 + 6.0)
@@ -4166,7 +4272,7 @@ class Window(QMainWindow):
         self._cancel_separation()
         self.backing_key, self.wave_source = None, None
         self.wave.env, self.wave.t0, self.wave.beats, self.wave.downs, self.wave.clicks = None, None, [], [], []
-        self.wave.bars, self.wave.zones, self.wave.ref_db = [], [], None
+        self.wave.bars, self.wave.zones, self.wave.ref_db, self.wave.markers = [], [], None, []
         self.wave._cache = (None, None)
         self.wave.update()
         for label in (self.subtitle, self.detector, self.warning, self.file_l, self.status):

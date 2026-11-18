@@ -129,12 +129,20 @@ def _tempo_track(g: Grid, meter: str, speed: float):
     return track, to_tick
 
 
-def write_tempo(path: Path, g: Grid, meter: str, speed: float = 1.0) -> None:
+def write_tempo(path: Path, g: Grid, meter: str, speed: float = 1.0, markers: list | None = None) -> None:
+    """The tempo map; section markers (song time, name) go in as MIDI markers a DAW shows on its timeline."""
     import mido
 
-    track, _to_tick = _tempo_track(g, meter, speed)
+    track, to_tick = _tempo_track(g, meter, speed)
     mid = mido.MidiFile(type=1, ticks_per_beat=TPB)
     mid.tracks.append(track)
+    if markers:
+        names = mido.MidiTrack([mido.MetaMessage("track_name", name="Sections")])
+        last = 0
+        for at, name in sorted((max(0, to_tick(t)), n) for t, n in markers):
+            names.append(mido.MetaMessage("marker", text=name, time=at - last))
+            last = at
+        mid.tracks.append(names)
     mid.save(str(path))
 
 
