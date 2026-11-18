@@ -102,10 +102,17 @@ def separate(pcm: np.ndarray, sr: int, progress=None, only: tuple[str, ...] | No
     with torch.no_grad():
         for i, s in enumerate(starts):
             part = mix[None, :, s : s + chunk]
+            y = None
             if ml is not None:
                 short = chunk - part.shape[-1]  # the compiled core takes whole chunks only
-                y = accel.run(ml, model, torch.nn.functional.pad(part, (0, short)))[..., : part.shape[-1]]
-            else:
+                try:
+                    y = accel.run(ml, model, torch.nn.functional.pad(part, (0, short)))[..., : part.shape[-1]]
+                except Exception:
+                    # A GPU that fails mid-song (out of memory, driver reset) hands the rest to torch
+                    log.exception("%s failed, carrying on with torch", ml.name)
+                    ml = None
+                    model.to(device, dtype)
+            if y is None:
                 try:
                     y = model(part.to(device, dtype))[0].float().cpu()
                 except NotImplementedError:
