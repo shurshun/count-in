@@ -47,9 +47,9 @@ PARTS = (
 # Why each job runs, shown under its progress title
 JOB_WHY = {
     "zones_job": "Раскладываю песню на дорожки, чтобы найти паузы без убранных инструментов. Это делается один раз на трек.",
-    "preview_job": "Готовлю прослушивание: отсчёт и песню с вашими настройками.",
+    "preview_job": "Готовлю к прослушиванию отсчёт и песню с вашими настройками.",
     "save_job": "Сохраняю трек с отсчётом и выбранным уровнем дорожек.",
-    "export_job": "Сохраняю мультитрек: партии, клик и темп начинаются с первого такта.",
+    "export_job": "Сохраняю мультитрек. Дорожки, клик и темп начинаются с первого такта.",
 }
 
 # Lines that turn up while a job runs
@@ -2026,10 +2026,7 @@ class AssetsDialog(QDialog):
         v.setSpacing(12)
         v.addWidget(QLabel(_("Нужно скачать модели"), objectName="progTitle"))
         mb = assets.missing_bytes() / 1e6
-        text = QLabel(_("Count-In находит доли и разделяет песню на дорожки нейросетями. Их веса ({mb:.0f} МБ) "
-                        "скачиваются один раз и потом не меняются, поэтому обновления приложения остаются маленькими. "
-                        "Если модели уже есть на флешке или в другой папке, укажите её. Папка assets рядом с "
-                        "приложением подхватывается сама.", mb=mb), wordWrap=True, objectName="progWhy")
+        text = QLabel(_("Count-In находит доли и разделяет песню на дорожки нейросетями. Их веса ({mb:.0f} МБ) скачиваются один раз и потом не меняются, поэтому обновления программы остаются маленькими. Если модели уже есть на флешке или в другой папке, укажите её. Папка assets рядом с программой подхватывается сама.", mb=mb), wordWrap=True, objectName="progWhy")
         v.addWidget(text)
         self.bar = QProgressBar(textVisible=False, fixedHeight=8)
         self.bar.hide()
@@ -2232,10 +2229,10 @@ class ZoneDialog(QDialog):
         g.addWidget(QLabel(_("Долей в такте"), objectName="field"), 1, 0)
         g.addWidget(self.beats, 1, 1)
         h = QHBoxLayout()
-        for text, slot in ((_("Удалить паузу"), self._remove), (_("Как в песне"), self._reset)):
+        for text, slot in ((_("Убрать паузу"), self._remove), (_("Как в песне"), self._reset)):
             b = QPushButton(text, objectName="tool", clicked=slot)
             if slot == self._reset:
-                b.setToolTip(_("Убрать ручной темп и размер: пауза снова идёт по долям, найденным в песне"))
+                b.setToolTip(_("Убрать ручной темп и размер, чтобы пауза снова шла по долям песни"))
             h.addWidget(b)
         h.addStretch()
         ok = QPushButton(_("Готово"), objectName="primary", clicked=self.accept, default=True)
@@ -2358,17 +2355,17 @@ class ExportDialog(QDialog):
         fmt.setSpacing(6)
         fmt.addWidget(QLabel(_("Формат"), objectName="field"))
         fmt.addWidget(self.fmt)
-        self.split = QCheckBox(_("Для сцены: клик в левом канале, музыка в правом"), checked=pref_bool(EXPORT_SPLIT, False))
+        self.split = QCheckBox(_("Микс для сцены с кликом слева и музыкой справа"), checked=pref_bool(EXPORT_SPLIT, False))
         self.split.setToolTip(_("Клик уходит в наушники барабанщика или в ваши, музыка в зал. Музыка сводится в моно."))
         self.split.toggled.connect(self._update)
         fmt.addWidget(self.split)
-        self.norm = QCheckBox(_("Ровная громкость: −14 LUFS, как в стримингах"), checked=pref_bool(EXPORT_NORM, False))
+        self.norm = QCheckBox(_("Ровная громкость −14 LUFS, как в стримингах"), checked=pref_bool(EXPORT_NORM, False))
         self.norm.setToolTip(_("Бэктреки из разных альбомов звучат одинаково громко. Пики не поднимаются выше −1 дБ, "
                                "поэтому динамичная песня может остаться чуть тише."))
         fmt.addWidget(self.norm)
 
         self.boxes = {
-            EXPORT_PARTS: QCheckBox(_("Партии отдельными файлами (WAV)")),
+            EXPORT_PARTS: QCheckBox(_("Дорожки отдельными файлами (WAV)")),
             EXPORT_CLICK: QCheckBox(_("Сетка кликов (MIDI)")),
             EXPORT_TEMPO: QCheckBox(_("Темповая карта (MIDI)")),
             EXPORT_CLICKWAV: QCheckBox(_("Клик отдельным WAV")),
@@ -2546,7 +2543,7 @@ class ReportDialog(QDialog):
         self.setMinimumWidth(520)
         v = QVBoxLayout(self)
         v.addWidget(QLabel(_("Что случилось? Что вы делали перед этим?"), objectName="field"))
-        self.text = QPlainTextEdit(placeholderText=_("Например: после нажатия «Сохранить» программа зависла на 40%"))
+        self.text = QPlainTextEdit(placeholderText=_("Например, после нажатия «Сохранить» программа зависла на 40%"))
         self.text.setMinimumHeight(120)
         v.addWidget(self.text)
         self.contact = QLineEdit(placeholderText=_("Почта или Telegram, если хотите получить ответ (необязательно)"))
@@ -2618,9 +2615,7 @@ class CloudKeyDialog(QDialog):
         self.setWindowTitle(_("Ключ Count-In"))
         self.setMinimumWidth(460)
         v = QVBoxLayout(self)
-        v.addWidget(QLabel(_("Ключ включает разделение на дорожки на сервере Count-In. Песня уходит на сервер, "
-                             "исходный файл удаляется через сутки, партии хранятся 30 дней, чтобы та же песня "
-                             "открывалась без нового разделения."), objectName="field", wordWrap=True))
+        v.addWidget(QLabel(_("Ключ включает разделение на дорожки на сервере Count-In. Песня уходит на сервер, исходный файл удаляется через сутки, дорожки хранятся 30 дней, чтобы та же песня открывалась без нового разделения."), objectName="field", wordWrap=True))
         self.edit = QLineEdit(cloud.key() or "", placeholderText="cin_…", echoMode=QLineEdit.Password)
         v.addWidget(self.edit)
         self.note = QLabel(objectName="field", wordWrap=True)
@@ -2713,7 +2708,7 @@ class PrefsDialog(QDialog):
             self.icon.addItem(_(title), key)
         self.icon.setCurrentIndex(list(ICON_CHOICES).index(icon_choice()))
         self.icon.currentIndexChanged.connect(self._icon)
-        row(g2, _("Иконка приложения"), self.icon)
+        row(g2, _("Иконка программы"), self.icon)
         self.lang = QComboBox()
         for key, title in i18n.LANGUAGES.items():
             self.lang.addItem(_(title) if key == "system" else title, key)
@@ -2721,7 +2716,7 @@ class PrefsDialog(QDialog):
         self.lang.setCurrentIndex(max(0, list(i18n.LANGUAGES).index(saved) if saved in i18n.LANGUAGES else 0))
         self.lang.currentIndexChanged.connect(self._lang)
         row(g2, _("Язык"), self.lang)
-        self.lang_note = QLabel(_("Язык сменится после перезапуска приложения"), objectName="field")
+        self.lang_note = QLabel(_("Язык сменится после перезапуска программы"), objectName="field")
         self.lang_note.hide()
         g2.addWidget(self.lang_note, g2.rowCount(), 1)
 
@@ -2756,9 +2751,7 @@ class PrefsDialog(QDialog):
             for n, text in ((2, _("2 · быстрее")), (4, "4"), (8, _("8 · чище"))):
                 self.overlap.addItem(text, n)
             self.overlap.setCurrentIndex(self.overlap.findData(cloud_overlap()))
-            self.overlap.setToolTip(_("Сколько раз модель слушает каждый момент песни. Больше даёт чуть чище партии "
-                                      "и дольше разделение. Новое значение действует на песни, открытые после "
-                                      "смены; партии каждого значения хранятся отдельно."))
+            self.overlap.setToolTip(_("Сколько раз модель слушает каждый момент песни. Больше даёт чуть чище дорожки и дольше разделение. Новое значение действует на песни, открытые после смены; дорожки каждого значения хранятся отдельно."))
             self.overlap.currentIndexChanged.connect(lambda _i: QSettings().setValue(CLOUD_OVERLAP, self.overlap.currentData()))
             g4.addWidget(self.overlap, 1, 1)
             self.cloud_l = QLabel(_("проверяю ключ…"), objectName="field", wordWrap=True)
@@ -2996,10 +2989,10 @@ class Window(QMainWindow):
         play.addAction(_("Следующая пауза") + "\t→", lambda: self._jump_pause(1))
         play.addAction(_("Петля") + "\tL", self._toggle_loop)
         play.addSeparator()
-        play.addAction(_("Сначала") + "\tPgUp", self._replay)
+        play.addAction(_("Играть сначала") + "\tPgUp", self._replay)
         play.addAction(_("Добавить метку части") + "\tM", self._add_marker)
         play.addAction(_("Перейти к такту…"), QKeySequence("Ctrl+G"), self._goto_bar)
-        self.trainer_a = play.addAction(_("Тренажёр скорости: +5% каждые два круга петли"))
+        self.trainer_a = play.addAction(_("Тренажёр скорости (+5% каждые два круга)"))
         self.trainer_a.setCheckable(True)
         self.trainer_a.toggled.connect(lambda _on: setattr(self.player, "laps", 0))
         play.addAction(_("Медленнее"), QKeySequence("Ctrl+["), lambda: self._set_speed(self.speed - 5))
@@ -3134,7 +3127,7 @@ class Window(QMainWindow):
         tip = True  # music lines are off until a better set is chosen
         text = keys(_(random.choice(TIPS)))
         if self.sep_job and self._full_stems() is None and self._filling() and self.settings().levels:
-            text = _("Паузы с хай-хэтом появятся, когда закончится разделение на дорожки: их ищут без убранных инструментов")
+            text = _("Паузы с хай-хэтом появятся после разделения на дорожки, потому что их ищут без убранных инструментов")
         self.prog_phrase.setText(text)
         self.wave.busy.phrase.setText(text)
         self.wave.tips.set(text, tip)
@@ -3257,7 +3250,7 @@ class Window(QMainWindow):
         self.pause_l = QLabel(objectName="chipText", alignment=Qt.AlignCenter, minimumWidth=56)
         ch.addWidget(self.pause_l)
         h.addWidget(chip)
-        h.addWidget(glyph_button("plus", keys(_("Сделать паузой такт под плейхедом. Несколько тактов: тяните с ⇧ или по шкале времени.")),
+        h.addWidget(glyph_button("plus", keys(_("Сделать паузой такт под плейхедом. Чтобы взять несколько тактов, тяните с ⇧ или по линейке.")),
                                  self._add_pause, "round"))
         help_b = QPushButton("?", objectName="tbtn", clicked=self._help, toolTip=_("Справка Count-In"))
         help_b.setFocusPolicy(Qt.TabFocus)
@@ -3273,7 +3266,7 @@ class Window(QMainWindow):
         sh = QHBoxLayout(schip)
         sh.setContentsMargins(10, 3, 10, 3)
         self.speed_l = QLabel("100%", objectName="chipText", alignment=Qt.AlignCenter, minimumWidth=48)
-        self.speed_l.setToolTip(_("Скорость прослушивания и сохранения. Тон не меняется, отсчёт и хай-хэт встают на замедленную сетку. Ниже 80% звук заметно размывается, для разбора нот это не мешает."))
+        self.speed_l.setToolTip(_("Скорость прослушивания и сохранения. Тон не меняется, отсчёт и хай-хэт встают на замедленную сетку. Ниже 80% звук размывается, но разбирать ноты это не мешает."))
         sh.addWidget(self.speed_l)
         h.addWidget(schip)
         h.addWidget(glyph_button("plus", _("Быстрее на 5%"), lambda: self._set_speed(self.speed + 5), "round"))
@@ -3293,7 +3286,7 @@ class Window(QMainWindow):
         th = QHBoxLayout(tchip)
         th.setContentsMargins(10, 3, 10, 3)
         self.semis_l = QLabel("0", objectName="chipText", alignment=Qt.AlignCenter, minimumWidth=32)
-        self.semis_l.setToolTip(_("Сдвиг тона в полутонах, темп не меняется: −1 для строя Eb, −2 для D. Действует и на сохранение."))
+        self.semis_l.setToolTip(_("Сдвиг тона в полутонах, темп не меняется. −1 подходит для строя Eb, −2 для строя D. Сохранённый файл тоже сдвигается."))
         th.addWidget(self.semis_l)
         h.addWidget(tchip)
         h.addWidget(glyph_button("plus", _("На полтона выше"), lambda: self._set_semis(self.semis + 1), "round"))
@@ -3313,7 +3306,7 @@ class Window(QMainWindow):
     def _step_setlist(self, d: int):
         t = self.current
         if not self.setlist:
-            self.status.setText(_("Сет-лист: откройте или перетащите несколько песен сразу"))
+            self.status.setText(_("Чтобы собрать сет-лист, откройте или перетащите несколько песен сразу"))
             return
         i = self.setlist.index(t.path) if t and t.path in self.setlist else -1
         j = i + d
@@ -3355,7 +3348,7 @@ class Window(QMainWindow):
     def _marker_menu(self, i: int):
         t = self.current
         menu = QMenu(self)
-        rename, delete = menu.addAction(_("Переименовать…")), menu.addAction(_("Удалить метку"))
+        rename, delete = menu.addAction(_("Переименовать…")), menu.addAction(_("Убрать метку"))
         chosen = menu.exec(QCursor.pos())
         at, name = t.markers[i]
         if chosen is rename:
@@ -3627,9 +3620,9 @@ class Window(QMainWindow):
         self.click_db.setValue(int(QSettings().value(CLICK_DB_KEY, 0)))
         self.click_db_l = QLabel(minimumWidth=60)
         row(g, _("Громкость клика"), self.click_db, self.click_db_l)
-        self.preroll_cb = QCheckBox(_("Такт отсчёта перед стартом с места"), objectName="rowCheck",
+        self.preroll_cb = QCheckBox(_("Такт отсчёта при старте с середины"), objectName="rowCheck",
                                     checked=pref_bool(PREROLL_KEY, True))
-        self.preroll_cb.setToolTip(_("Когда песня играет с курсора или петля начинается заново, перед этим местом звучит такт клика в его темпе."))
+        self.preroll_cb.setToolTip(_("Когда песня играет с плейхеда или петля начинается заново, перед этим местом звучит такт клика в его темпе."))
         self.preroll_cb.toggled.connect(lambda on: QSettings().setValue(PREROLL_KEY, on))
         g.addWidget(self.preroll_cb, g.rowCount(), 0, 1, 2, Qt.AlignLeft | Qt.AlignVCenter)
         self.pattern: Path | None = None
@@ -3644,7 +3637,7 @@ class Window(QMainWindow):
             s = self.parts[name] = QSlider(Qt.Horizontal, minimum=MUTE, maximum=BOOST, value=0, minimumWidth=110)
             self.part_l[name] = QLabel(minimumWidth=80)
             solo = QPushButton("S", objectName="small", checkable=True, focusPolicy=Qt.TabFocus, fixedSize=QSize(26, 22),
-                               toolTip=_("Соло: в прослушивании звучит только эта дорожка"),
+                               toolTip=_("Соло оставляет в прослушивании только эту дорожку"),
                                accessibleName=_("Соло: {part}", part=_(label)))
             solo.toggled.connect(lambda on, n=name: self._solo(n, on))
             self.solo_b[name] = solo
@@ -3656,8 +3649,7 @@ class Window(QMainWindow):
         self.fill.setObjectName("rowCheck")
         g.addWidget(self.fill, g.rowCount(), 0, 1, 2, Qt.AlignLeft | Qt.AlignVCenter)
         self.fill_build = QCheckBox(_("Нарастание к концу паузы"), checked=pref_bool(FILL_BUILD_KEY, True), objectName="rowCheck")
-        self.fill_build.setToolTip(_("Последний такт паузы ведёт к вступлению: вторая половина такта звучит восьмыми, "
-                                     "последние три удара громче, как в отсчёте «Нарастание»."))
+        self.fill_build.setToolTip(_("Последний такт паузы ведёт к вступлению. Его вторая половина звучит восьмыми, последние три удара громче, как в отсчёте «Нарастание»."))
         self.fill_build.toggled.connect(lambda on: QSettings().setValue(FILL_BUILD_KEY, on))
         self.fill_build.toggled.connect(self._refresh)
         self.fill_build.toggled.connect(lambda _on: self._restart_preview())
@@ -3667,7 +3659,7 @@ class Window(QMainWindow):
         self.threshold = QSlider(Qt.Horizontal, minimum=-36, maximum=-6, minimumWidth=110)
         self.threshold.setValue(int(QSettings().value(THRESHOLD_KEY, zn.QUIET_DB)))
         self.threshold.setToolTip(_("Насколько тише среднего уровня песни должен быть такт, чтобы считаться паузой. "
-                                    "На волне этот уровень показан пунктиром."))
+                                    "На волне этот уровень показан оранжевыми полосами у правого края."))
         self.threshold_l = QLabel(minimumWidth=80)
         row(g, icon_label("threshold", _("Порог тишины")), self.threshold, self.threshold_l)
         self.trim = QCheckBox(_("Обрезать тишину в начале"), objectName="rowCheck")
@@ -3914,7 +3906,7 @@ class Window(QMainWindow):
         path = songs_in[0] if songs_in else None
         if not path or self.job:
             if paths and not path:
-                self.status.setText(_("Это не аудиофайл: mp3, FLAC, ALAC или WAV"))
+                self.status.setText(_("Это не аудиофайл. Подходят mp3, FLAC, ALAC, WAV, AIFF, OGG и M4A"))
             return
         self._flush_song()
         self._stop()
@@ -4006,7 +3998,7 @@ class Window(QMainWindow):
                 key += " → " + an.key_name(*t.tonal[:2], self.semis)
             text += " · " + _("тональность {key}", key=key)
         self.detector.setText(text)
-        self.detector.setToolTip(_("Тональность — оценка по спектру всей песни, проверьте её на слух") if t.tonal else "")
+        self.detector.setToolTip(_("Тональность оценена по спектру всей песни, проверьте её на слух") if t.tonal else "")
 
     def _song_changed(self, *_args):
         if self.current and self.current.analysis and not self.restoring:
@@ -4443,7 +4435,7 @@ class Window(QMainWindow):
             return
         if new_cache:
             self.stem_cache = new_cache
-        self.status.setText(clip_note(clipped) or (_("Дорожки можно менять на ходу") if stems else
+        self.status.setText(clip_note(clipped) or (_("Уровни дорожек можно менять на ходу") if stems else
                             _("Пока дорожки разделяются, играет оригинал") if self.sep_job and self.settings().levels
                             else ""))
         self._gains()
@@ -4706,7 +4698,7 @@ class Window(QMainWindow):
         from .core import worker
 
         if cached:
-            self.status.setText(_("Дорожки взяты из кэша: эту песню уже разделяли"))
+            self.status.setText(_("Дорожки взяты из кэша, эту песню уже разделяли"))
         elif worker.separator().last:
             sec, name = worker.separator().last
             log.info("parts ready in %.1f s with %s", sec, name)
