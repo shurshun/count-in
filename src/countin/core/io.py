@@ -146,7 +146,7 @@ def encode(pcm: np.ndarray, info: AudioInfo, out: str | Path, tags_from: str | P
 def output_path(song: Path, fmt: str, levels: dict[str, float], folder: Path | None = None, speed: float = 1.0,
                 semis: float = 0) -> Path:
     """In folder (default: next to the source): song_countin.ext, or song_backing_guitar-off_vocals-6dB.ext when stems got turned down; a slowed one ends in _80pct."""
-    parts = [f"{name}-off" if db == float("-inf") else f"{name}{db:g}dB" for name, db in levels.items()]
+    parts = [f"{name}-off" if db == float("-inf") else f"{name}{db:+g}dB" for name, db in levels.items()]
     tag = "_".join(["backing", *parts]) if parts else "countin"
     if speed != 1.0:
         tag += f"_{round(speed * 100)}pct"

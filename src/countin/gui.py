@@ -276,7 +276,8 @@ def search_levels(t: Track, s: Settings) -> dict:
     only the threshold or the user's own edits change them."""
     out = dict(t.search_levels or {})
     for k, v in s.levels.items():
-        out[k] = min(v, out.get(k, 0.0))
+        if v < 0:  # a boosted part never makes a pause
+            out[k] = min(v, out.get(k, 0.0))
     return out
 
 
@@ -695,6 +696,7 @@ class Player:
         self.loop: tuple[int, int] | None = None  # output samples [start, end) played round
         self.ticks: list[tuple[int, np.ndarray]] = []  # clicks mixed live: (output sample, mono hit)
         self.laps = 0  # times the loop came round
+        self.solo: set[str] = set()  # stems played alone; empty plays the whole mix
 
     def play(self, base: np.ndarray, stems: dict, sr: int, start: int = 0):
         """Starts playback, or swaps the buffer of a running stream so a rebuilt preview carries on gaplessly."""
@@ -721,11 +723,17 @@ class Player:
         self.stream.start()
 
     def _segment(self, base: np.ndarray, stems: dict, a: int, b: int) -> np.ndarray:
-        x = base[a:b].copy()
+        solo = self.solo & stems.keys()
+        x = np.zeros_like(base[a:b]) if solo else base[a:b].copy()
         for k, (st, off) in stems.items():
             g = self.gains.get(k, 1.0)
             lo, hi = max(a, off), min(b, off + len(st))
-            if g != 1.0 and lo < hi:
+            if lo >= hi:
+                continue
+            if solo:
+                if k in solo:
+                    x[lo - a : hi - a] += (g or 1.0) * st[lo - off : hi - off]
+            elif g != 1.0:
                 x[lo - a : hi - a] -= (1.0 - g) * st[lo - off : hi - off]
         for p, hit in self.ticks:
             lo, hi = max(a, p), min(b, p + len(hit))
@@ -1927,6 +1935,7 @@ CLICK_VOICE_KEY = "click/voice"
 PREROLL_KEY = "click/preroll"
 GEOMETRY_KEY = "window/geometry"
 RECENT_KEY = "recent/files"
+BOOST = 6  # dB a part slider goes above the mix
 TRAINER_LAPS = 2  # loop passes before the speed trainer adds 5%
 CLICK_DB_KEY = "click/volume"
 OUTPUT_VOLUME_KEY = "playback/volume"
@@ -3210,6 +3219,13 @@ class Window(QMainWindow):
         h.addWidget(help_b)
         return bar
 
+    def _solo(self, name: str, on: bool):
+        self.player.solo = {n for n, b in self.solo_b.items() if b.isChecked()}
+        if on and not self.player.src[1] and self.play_start is not None:
+            self._restart_preview(separate=True)  # the playing preview has no parts yet
+        elif on and self._full_stems() is None and not self.sep_job:
+            self.status.setText(_("Соло заработает, когда песня разделится на дорожки"))
+
     def _set_semis(self, n: int):
         """Transposition in semitones, −6..+6; a playing preview carries on in the new key."""
         n = int(np.clip(n, -6, 6))
@@ -3455,11 +3471,17 @@ class Window(QMainWindow):
         reset_b = self._icon_button("reset", _("Вернуть настройки по умолчанию"), self._reset_settings)
         mix, g = card(_("Бэктрек"), reset_b, save_b)
         self.parts: dict[str, QSlider] = {}
+        self.solo_b: dict[str, QPushButton] = {}
         self.part_l: dict[str, QLabel] = {}
         for name, label, icon, tip in PARTS:
-            s = self.parts[name] = QSlider(Qt.Horizontal, minimum=MUTE, maximum=0, value=0, minimumWidth=110)
+            s = self.parts[name] = QSlider(Qt.Horizontal, minimum=MUTE, maximum=BOOST, value=0, minimumWidth=110)
             self.part_l[name] = QLabel(minimumWidth=80)
-            row(g, icon_label(icon, _(label)), MuteButton(s, _(tip)), s, self.part_l[name])
+            solo = QPushButton("S", objectName="small", checkable=True, focusPolicy=Qt.TabFocus, fixedSize=QSize(26, 22),
+                               toolTip=_("Соло: в прослушивании звучит только эта дорожка"),
+                               accessibleName=_("Соло: {part}", part=_(label)))
+            solo.toggled.connect(lambda on, n=name: self._solo(n, on))
+            self.solo_b[name] = solo
+            row(g, icon_label(icon, _(label)), MuteButton(s, _(tip)), solo, s, self.part_l[name])
         self.guitar, self.vocals = self.parts["guitar"], self.parts["vocals"]
         self.fill = QCheckBox(_("Заполнять паузы хай-хэтом"), checked=pref_bool(FILL_KEY, True))
         self.fill.setToolTip(_("Такты, где без убранных дорожек тихо, получают хай-хэт на каждую долю. "
@@ -3998,12 +4020,12 @@ class Window(QMainWindow):
         self.threshold_l.setText(_("{v:+d} дБ", v=self.threshold.value()))
         for s, l in ((self.parts[n], self.part_l[n]) for n in self.parts):
             v = s.value()
-            l.setText(_("как есть") if v == 0 else _("убрать") if v == MUTE else _("{v} дБ", v=v))
+            l.setText(_("как есть") if v == 0 else _("убрать") if v == MUTE else _("{v:+d} дБ", v=v))
 
     def settings(self) -> Settings:
         levels = {}
         for name, s in self.parts.items():
-            if s.value() < 0:
+            if s.value() != 0:
                 levels[name] = float("-inf") if s.value() == MUTE else float(s.value())
         out_root, group = output_prefs()
         return Settings(
