@@ -4467,7 +4467,10 @@ class Window(QMainWindow):
         """In auto mode the volume slider follows the loudest click level the backing leaves room for."""
         if not (self.vol_auto.isChecked() and self.pcm is not None and self.wave.clicks):
             return
-        song = self.backing if self.backing is not None and len(self.backing) == len(self.pcm) else self.pcm
+        from .core import stems
+
+        st, levels = self._full_stems(), self.settings().levels
+        song = stems.attenuate(self.pcm, st, levels) if st and levels else self.pcm
         if self.current.extra is not None:
             song = song + self.current.extra
         if getattr(self, "_samples", (None,))[0] != self.sr:
