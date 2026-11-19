@@ -121,6 +121,7 @@ QPushButton#primary:disabled { background: rgba(127,127,127,0.25); }
 QPushButton#tool { border: 1px solid @BORDER@; border-radius: 9px; padding: 8px 18px; font-size: 15px;
                    background: @CARD@; min-height: 22px; }
 QPushButton#tool:disabled { color: gray; }
+QFrame#hsep { background: @BORDER@; }
 QPushButton#solo { border: 1px solid rgba(127,127,127,0.3); border-radius: 6px; padding: 0; font-weight: 600; }
 QPushButton#solo:checked { background: @ACCENT@; border-color: @ACCENT@; color: white; }
 QPushButton#small { border: 1px solid rgba(127,127,127,0.3); border-radius: 6px; padding: 2px 8px;
@@ -3075,7 +3076,27 @@ class Window(QMainWindow):
         acts = QFrame(objectName="card")
         av = QVBoxLayout(acts)
         av.setContentsMargins(16, 12, 16, 12)
-        av.addStretch()  # the buttons sit on the bottom edge, in line with the last line of the other cards
+        av.setSpacing(10)
+        # Speaker level of the playback; never part of the saved file
+        self.speaker = QLabel(toolTip=_("Громкость прослушивания"))
+        self.out_volume = QSlider(Qt.Horizontal, minimum=0, maximum=100, minimumWidth=120,
+                                  toolTip=_("Громкость прослушивания"), accessibleName=_("Громкость прослушивания"))
+        self.out_volume.setValue(int(output_volume() * 100))
+        self.out_volume.setFocusPolicy(Qt.TabFocus)
+        self.out_volume.valueChanged.connect(self._output_volume)
+        self._speaker_icon()
+        vol = QHBoxLayout()
+        vol.setSpacing(8)
+        vol.addWidget(self.speaker, 0, Qt.AlignVCenter)
+        vol.addWidget(QLabel(_("Громкость вывода"), objectName="field"), 0, Qt.AlignVCenter)
+        vol.addWidget(self.out_volume, 1, Qt.AlignVCenter)
+        av.addLayout(vol)
+        av.addStretch()
+        sep = QHBoxLayout()
+        sep.setContentsMargins(24, 0, 24, 0)  # a short rule, clear of the card's edges
+        sep.addWidget(QFrame(objectName="hsep", fixedHeight=1))
+        av.addLayout(sep)
+        av.addStretch()
         self.open_b = QPushButton(_("Открыть…"), objectName="tool", clicked=self._open_dialog)
         self.save_b = QPushButton(_("Сохранить"), objectName="tool", clicked=self._save,
                                   toolTip=QKeySequence(QKeySequence.Save).toString(QKeySequence.NativeText))
@@ -3675,22 +3696,7 @@ class Window(QMainWindow):
 
         save_b = self._icon_button("save", _("Сохранить эти настройки как настройки по умолчанию"), self._save_defaults)
         reset_b = self._icon_button("reset", _("Вернуть настройки по умолчанию"), self._reset_settings)
-        # Speaker level of the playback; never part of the saved file. It sits in the backing card's title row.
-        self.speaker = QLabel(toolTip=_("Громкость прослушивания"))
-        self.out_volume = QSlider(Qt.Horizontal, minimum=0, maximum=100, fixedWidth=120,
-                                  toolTip=_("Громкость прослушивания"), accessibleName=_("Громкость прослушивания"))
-        self.out_volume.setValue(int(output_volume() * 100))
-        self.out_volume.setFocusPolicy(Qt.TabFocus)
-        self.out_volume.valueChanged.connect(self._output_volume)
-        self._speaker_icon()
-        vol = QWidget()
-        vh = QHBoxLayout(vol)
-        vh.setContentsMargins(0, 0, 12, 0)
-        vh.setSpacing(6)
-        vh.addWidget(self.speaker, 0, Qt.AlignVCenter)
-        vh.addWidget(QLabel(_("Громкость вывода"), objectName="field"), 0, Qt.AlignVCenter)
-        vh.addWidget(self.out_volume, 0, Qt.AlignVCenter)
-        mix, g = card(_("Бэктрек"), vol, reset_b, save_b)
+        mix, g = card(_("Бэктрек"), reset_b, save_b)
         self.parts: dict[str, QSlider] = {}
         self.solo_b: dict[str, QPushButton] = {}
         self.part_l: dict[str, QLabel] = {}
