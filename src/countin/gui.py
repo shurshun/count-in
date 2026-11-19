@@ -3076,8 +3076,9 @@ class Window(QMainWindow):
         g.addWidget(self.key_l, 0, 0, 1, 2)
         g.addWidget(self.length_l, 1, 0, 1, 2)
         g.addWidget(self.file_l, 2, 0, 1, 2)
-        self.info_card.setMinimumWidth(230)
-        self.info_card.hide()  # shown once a track opens
+        self.info_card.setFixedWidth(250)  # a long file line never widens the card and shifts its neighbours
+        self.length_l.setText("—")  # placeholders keep the header the same height with or without a song
+        self.file_l.setText("—")
         h.addWidget(self.info_card, 0)
 
         # Speaker level of the playback; never part of the saved file
@@ -4006,9 +4007,10 @@ class Window(QMainWindow):
         who = " — ".join(x for x in (tags.get("artist"), tags.get("album")) if x)
         year = (tags.get("date") or "")[:4]
         self.subtitle.setText(who + (f" ({year})" if year and who else year))
-        self.file_l.setText(io.describe(i))
+        line = io.describe(i)
+        self.file_l.setText(self.file_l.fontMetrics().elidedText(line, Qt.ElideRight, 250 - 28))
+        self.file_l.setToolTip(line)
         self.length_l.setText(fmt_time(i.duration)[:-4])
-        self.info_card.show()
 
     def _analyzed(self, result):
         t, pcm, sr, env = result
@@ -4451,10 +4453,10 @@ class Window(QMainWindow):
         self.wave.bars, self.wave.zones, self.wave.ref_db, self.wave.markers = [], [], None, []
         self.wave._cache = (None, None)
         self.wave.update()
-        for label in (self.subtitle, self.detector, self.warning, self.file_l, self.length_l, self.status):
+        for label in (self.subtitle, self.detector, self.warning, self.status):
             label.setText("")
-        self.key_l.setText("—")
-        self.info_card.hide()
+        for label in (self.key_l, self.file_l, self.length_l):
+            label.setText("—")
         self.reveal_b.hide()
 
     def _close_track(self):
