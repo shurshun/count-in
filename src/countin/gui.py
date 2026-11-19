@@ -8,6 +8,7 @@ import threading
 import random
 import time
 from dataclasses import dataclass, field, replace
+from functools import lru_cache
 from pathlib import Path
 
 import numpy as np
@@ -4692,14 +4693,42 @@ class Window(QMainWindow):
         QSettings().setValue(CLICK_DB_KEY, self.click_db.value())
         self._refresh()
         if self.click_all.isChecked():
-            self._restart_preview()
+            self._swap_clicks()
 
     def _click_all_toggled(self, on: bool):
         self._refresh()
         self._enable()
         if not on:
             self._auto_zones()
-        self._restart_preview()
+        self._swap_clicks()
+
+    def _swap_clicks(self):
+        """Rebuilds only the click part of the playing buffer, so a click change is heard at once."""
+        if self.play_start is None:
+            return
+        base, stems = self.player.src
+        if "click" not in stems:
+            self._restart_preview()
+            return
+        sr, s = self.player.sr, self.settings()
+        g = 10 ** (s.volume_db / 20)
+        click = np.zeros(len(base), dtype=np.float32)
+        for c in clicks_for(self.current, s):
+            at = self._out(c.time)
+            if not 0 <= at < len(click):
+                continue
+            pair = self.stick_hits(sr) if c.voice == "stick" else rd.voice_samples(c.voice, sr)
+            x = (pair[0] if c.accent else pair[1]) * (g * c.gain)
+            n = min(len(x), len(click) - at)
+            click[at : at + n] += x[:n]
+        old = stems["click"][0]
+        base = base - old + click[:, None]
+        self.player.src = (base, {**stems, "click": (click[:, None], 0)})
+
+    @staticmethod
+    @lru_cache(maxsize=4)
+    def stick_hits(sr: int):
+        return rd.load_samples(sr)
 
     def _fill_toggled(self, on: bool):
         QSettings().setValue(FILL_KEY, on)
