@@ -20,4 +20,14 @@
     <xhtml:link rel="alternate" hreflang="en" href="https://count-in.app/guide/"/>
     <xhtml:link rel="alternate" hreflang="ru" href="https://count-in.app/ru/guide/"/>
   </url>
+  <url>
+    <loc>https://count-in.app/changelog/</loc>
+    <xhtml:link rel="alternate" hreflang="en" href="https://count-in.app/changelog/"/>
+    <xhtml:link rel="alternate" hreflang="ru" href="https://count-in.app/ru/changelog/"/>
+  </url>
+  <url>
+    <loc>https://count-in.app/ru/changelog/</loc>
+    <xhtml:link rel="alternate" hreflang="en" href="https://count-in.app/changelog/"/>
+    <xhtml:link rel="alternate" hreflang="ru" href="https://count-in.app/ru/changelog/"/>
+  </url>
 </urlset>

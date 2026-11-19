@@ -836,3 +836,13 @@ def test_loudness_reads_a_full_scale_tone_at_zero_and_normalize_respects_the_pea
     quiet = (0.05 * np.stack([x, x], 1)).astype(np.float32)
     y = rd.normalize(quiet, sr)
     assert np.abs(y).max() <= 10 ** (-1 / 20) + 1e-6 and rd.loudness(y, sr) == pytest.approx(-14.0, abs=0.3)
+
+
+def test_changes_newest_first_and_since():
+    from countin import changes
+
+    keys = [changes.version_key(v) for v, _d, _i in changes.RELEASES]
+    assert keys == sorted(keys, reverse=True)
+    assert [r[0] for r in changes.since("0.8.2", "0.9.1")] == ["0.9.1"]
+    assert changes.since("0.10.0", "0.10.0rc1") == []
+    assert changes.rich("**a<b** c") == "<b>a&lt;b</b> c"

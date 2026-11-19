@@ -1,0 +1,200 @@
+<!doctype html>
+<!-- Generated from _guide.html by build_site.py -->
+<html lang="en" data-theme="light">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Count-In changelog — what is new in each version</title>
+<meta name="description" content="What changed in each Count-In release.">
+<link rel="canonical" href="https://count-in.app/changelog/">
+<link rel="alternate" hreflang="en" href="https://count-in.app/guide/">
+<link rel="alternate" hreflang="ru" href="https://count-in.app/ru/guide/">
+<link rel="icon" href="/favicon.png" type="image/png">
+<script>try { document.documentElement.dataset.theme = localStorage.getItem("theme") || "light"; } catch {}</script>
+<meta name="theme-color" content="#fbfbfd">
+<link rel="stylesheet" href="/site.css">
+<script src="/site.js" defer></script>
+<style>
+  .guide { max-width: 860px; margin: 0 auto; padding: 24px 0 40px; }
+  .guide h1 { font-size: 40px; letter-spacing: -0.02em; margin: 24px 0 8px; }
+  .guide .lead { margin: 0 0 28px; text-align: left; }
+  .guide .toc { display: flex; flex-wrap: wrap; gap: 8px; margin: 0 0 36px; padding: 0; list-style: none; }
+  .guide .toc a { display: inline-block; padding: 6px 12px; border-radius: 999px; border: 1px solid var(--border);
+                  background: var(--card); color: var(--text); text-decoration: none; font-size: 14px; }
+  .guide section { margin: 0 0 44px; scroll-margin-top: 24px; }
+  .guide h2 { font-size: 26px; letter-spacing: -0.01em; margin: 0 0 14px; text-align: left; }
+  .guide h2 small { font-size: 15px; font-weight: 400; color: var(--muted); margin-left: 8px; }
+  .guide ul { margin: 0 0 18px; padding-left: 20px; }
+  .guide li { margin: 0 0 8px; line-height: 1.55; }
+  .guide figure { margin: 18px 0 0; }
+  .guide figure img { display: block; max-width: 100%; height: auto; border-radius: 12px; border: 1px solid var(--border);
+                      box-shadow: var(--shadow); background: var(--card); }
+  .guide figure.small img { max-width: 360px; }
+  .guide figcaption { color: var(--muted); font-size: 14px; margin-top: 8px; }
+</style>
+</head>
+<body>
+<div class="wrap">
+
+<nav>
+  <a class="name" href="/"><img src="/favicon.png" alt="">Count-In</a>
+  <a class="link gh" href="https://github.com/shurshun/count-in" aria-label="GitHub"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M12 .297c-6.63 0-12 5.373-12 12 0 5.303 3.438 9.8 8.205 11.385.6.113.82-.258.82-.577 0-.285-.01-1.04-.015-2.04-3.338.724-4.042-1.61-4.042-1.61C4.422 18.07 3.633 17.7 3.633 17.7c-1.087-.744.084-.729.084-.729 1.205.084 1.838 1.236 1.838 1.236 1.07 1.835 2.809 1.305 3.495.998.108-.776.417-1.305.76-1.605-2.665-.3-5.466-1.332-5.466-5.93 0-1.31.465-2.38 1.235-3.22-.135-.303-.54-1.523.105-3.176 0 0 1.005-.322 3.3 1.23.96-.267 1.98-.399 3-.405 1.02.006 2.04.138 3 .405 2.28-1.552 3.285-1.23 3.285-1.23.645 1.653.24 2.873.12 3.176.765.84 1.23 1.91 1.23 3.22 0 4.61-2.805 5.625-5.475 5.92.42.36.81 1.096.81 2.22 0 1.606-.015 2.896-.015 3.286 0 .315.21.69.825.57C20.565 22.092 24 17.592 24 12.297c0-6.627-5.373-12-12-12"/></svg><span>GitHub</span></a>
+  <a class="link gh" href="https://t.me/count_in_app" aria-label="Telegram"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M11.944 0A12 12 0 0 0 0 12a12 12 0 0 0 12 12 12 12 0 0 0 12-12A12 12 0 0 0 12 0a12 12 0 0 0-.056 0zm4.962 7.224c.1-.002.321.023.465.14a.506.506 0 0 1 .171.325c.016.093.036.306.02.472-.18 1.898-.962 6.502-1.36 8.627-.168.9-.499 1.201-.82 1.23-.696.065-1.225-.46-1.9-.902-1.056-.693-1.653-1.124-2.678-1.8-1.185-.78-.417-1.21.258-1.91.177-.184 3.247-2.977 3.307-3.23.007-.032.014-.15-.056-.212s-.174-.041-.249-.024c-.106.024-1.793 1.14-5.061 3.345-.48.33-.913.49-1.302.48-.428-.008-1.252-.241-1.865-.44-.752-.245-1.349-.374-1.297-.789.027-.216.325-.437.893-.663 3.498-1.524 5.83-2.529 6.998-3.014 3.332-1.386 4.025-1.627 4.476-1.635z"/></svg><span>Telegram</span></a>
+  <button type="button" data-toggle="theme" aria-label="Switch theme"><span class="light-only">☾</span><span class="dark-only">☀</span></button>
+  <a class="lang" href="/ru/changelog/" hreflang="ru" data-lang="ru">RU</a>
+</nav>
+
+<main class="guide">
+  <h1>What's new in Count-In</h1>
+  <p class="lead">Every release, newest first. The app updates itself.</p>
+  <ul class="toc">
+    <li><a href="#v0-10-0">0.10.0</a></li>
+    <li><a href="#v0-9-1">0.9.1</a></li>
+    <li><a href="#v0-8-2">0.8.2</a></li>
+    <li><a href="#v0-8-1">0.8.1</a></li>
+    <li><a href="#v0-8-0">0.8.0</a></li>
+    <li><a href="#v0-7-2">0.7.2</a></li>
+    <li><a href="#v0-7-1">0.7.1</a></li>
+    <li><a href="#v0-7-0">0.7.0</a></li>
+    <li><a href="#v0-6-2">0.6.2</a></li>
+    <li><a href="#v0-6-1">0.6.1</a></li>
+    <li><a href="#v0-6-0">0.6.0</a></li>
+    <li><a href="#v0-5-1">0.5.1</a></li>
+    <li><a href="#v0-5-0">0.5.0</a></li>
+    <li><a href="#v0-4-1">0.4.1</a></li>
+    <li><a href="#v0-4-0">0.4.0</a></li>
+    <li><a href="#v0-3-0">0.3.0</a></li>
+    <li><a href="#v0-2-0">0.2.0</a></li>
+    <li><a href="#v0-1-0">0.1.0</a></li>
+  </ul>
+  <section id="v0-10-0">
+    <h2>0.10.0 <small>2026-11-19</small></h2>
+    <ul>
+      <li><b>Loop and speed trainer.</b> Select bars and loop them; the trainer raises the speed by 5% every two passes up to 100%. Speed now goes down to 50%.</li>
+      <li><b>Key.</b> The app detects the song's key and shows it in the header. The new Key control shifts the song by up to ±6 semitones and keeps the tempo.</li>
+      <li><b>Solo and +6 dB.</b> Every part has a solo button, and its slider now goes up to +6 dB. The click is its own part with mute and solo.</li>
+      <li><b>Markers and bars.</b> Bar numbers on the ruler, Go to Bar, named section markers (M, keys 1–9). Markers also go into tempo.mid.</li>
+      <li><b>Song memory and undo.</b> Tempo, the 1, pauses, levels, speed, click and loop come back when a song reopens. Edits to tempo, the 1, pauses and markers can be undone.</li>
+      <li><b>Set list.</b> Open several songs and switch with N and P or a page-turner pedal.</li>
+      <li><b>Stage mix and even loudness.</b> A backing track with the click alone on the left channel, click.wav in the multitrack export, and an option to save at −14 LUFS.</li>
+      <li><b>Faster and smoother.</b> Seeking is instant, slowed playback no longer freezes the window, and the song click turns on and off during playback without a pause.</li>
+      <li><b>New header.</b> The song, its key and file, and the output volume with the file buttons sit in three cards. Recent files appear on the start screen.</li>
+      <li><b>Windows.</b> Separation runs on the graphics card with the most memory, and falls back to the processor if the card fails mid-song.</li>
+      <li>Help → What's New shows this list, and it opens once after an update.</li>
+    </ul>
+  </section>
+  <section id="v0-9-1">
+    <h2>0.9.1 <small>2026-11-18</small></h2>
+    <ul>
+      <li><b>Click through the whole song.</b> A checkbox in the Count-in card keeps the click going on every beat to the end. Pick its sound (metronome, sticks, cowbell, ping or hi-hat) and level.</li>
+      <li><b>New build-up.</b> Eighths only over the second half of the last bar, each hit louder than the one before.</li>
+      <li><b>Playback to the end.</b> The preview plays the whole song, and slowed playback is prepared about four times faster.</li>
+      <li><b>Clicks never clip</b>, and the audio output follows the system device without a restart.</li>
+    </ul>
+  </section>
+  <section id="v0-8-2">
+    <h2>0.8.2 <small>2026-11-18</small></h2>
+    <ul>
+      <li><b>Separation works on macOS 14.</b> The app now asks for macOS 14 or later.</li>
+    </ul>
+  </section>
+  <section id="v0-8-1">
+    <h2>0.8.1 <small>2026-11-18</small></h2>
+    <ul>
+      <li><b>Signed and notarized for macOS.</b> No more trip to Privacy &amp; Security on first launch.</li>
+    </ul>
+  </section>
+  <section id="v0-8-0">
+    <h2>0.8.0 <small>2026-11-17</small></h2>
+    <ul>
+      <li><b>Multitrack export for your DAW.</b> Every part as a 32-bit WAV plus the click and a tempo map as MIDI, all starting at bar 1.</li>
+      <li><b>New save dialog</b> with the output format, readable buttons with any accent colour, and Help → Report a Problem.</li>
+    </ul>
+  </section>
+  <section id="v0-7-2">
+    <h2>0.7.2 <small>2026-11-15</small></h2>
+    <ul>
+      <li>Download speed and time left while the models download.</li>
+    </ul>
+  </section>
+  <section id="v0-7-1">
+    <h2>0.7.1 <small>2026-11-15</small></h2>
+    <ul>
+      <li><b>Model download fixed</b> on a Mac, and Help opens the user guide on the site.</li>
+    </ul>
+  </section>
+  <section id="v0-7-0">
+    <h2>0.7.0 <small>2026-11-15</small></h2>
+    <ul>
+      <li><b>Pauses get a hi-hat</b> with a build-up into the band's entry.</li>
+      <li><b>Five parts.</b> Guitar, vocals, bass, drums and piano each get a slider and a mute button.</li>
+      <li><b>Slow it down</b> to 80% with the pitch kept.</li>
+      <li><b>Separation on the GPU, in the background</b>, and a song separated once opens instantly next time.</li>
+      <li><b>New editor</b> with a transport bar, mini-map and Help window, and a smaller app with models downloaded once.</li>
+    </ul>
+  </section>
+  <section id="v0-6-2">
+    <h2>0.6.2 <small>2026-11-15</small></h2>
+    <ul>
+      <li><b>Mute buttons</b> beside the Guitar and Vocals sliders.</li>
+    </ul>
+  </section>
+  <section id="v0-6-1">
+    <h2>0.6.1 <small>2026-11-15</small></h2>
+    <ul>
+      <li>The system accent colour in light mode.</li>
+    </ul>
+  </section>
+  <section id="v0-6-0">
+    <h2>0.6.0 <small>2026-11-14</small></h2>
+    <ul>
+      <li><b>Automatic updates.</b> The app downloads a new version in the background and installs it on restart.</li>
+    </ul>
+  </section>
+  <section id="v0-5-1">
+    <h2>0.5.1 <small>2026-11-13</small></h2>
+    <ul>
+      <li>The update badge sits neatly beside the version.</li>
+    </ul>
+  </section>
+  <section id="v0-5-0">
+    <h2>0.5.0 <small>2026-11-13</small></h2>
+    <ul>
+      <li>The folder opens with the new file selected after a save.</li>
+    </ul>
+  </section>
+  <section id="v0-4-1">
+    <h2>0.4.1 <small>2026-11-13</small></h2>
+    <ul>
+      <li>The update check works in the released app.</li>
+    </ul>
+  </section>
+  <section id="v0-4-0">
+    <h2>0.4.0 <small>2026-11-13</small></h2>
+    <ul>
+      <li><b>English and Russian interface</b>, light and dark app icon.</li>
+    </ul>
+  </section>
+  <section id="v0-3-0">
+    <h2>0.3.0 <small>2026-11-13</small></h2>
+    <ul>
+      <li>One track at a time with Open, Preview and Save, Space to play, and Preferences.</li>
+    </ul>
+  </section>
+  <section id="v0-2-0">
+    <h2>0.2.0 <small>2026-11-13</small></h2>
+    <ul>
+      <li>Light and dark app icons.</li>
+    </ul>
+  </section>
+  <section id="v0-1-0">
+    <h2>0.1.0 <small>2026-11-13</small></h2>
+    <ul>
+      <li><b>First release.</b> Drum count-in before the first downbeat, backing tracks without guitar or vocals, mp3, FLAC, ALAC and WAV with tags kept.</li>
+    </ul>
+  </section>
+</main>
+
+</div>
+</body>
+</html>

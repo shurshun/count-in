@@ -17,10 +17,10 @@ from PySide6.QtGui import QAction, QCursor, QDesktopServices, QFont, QIcon, QIma
 from PySide6.QtWidgets import (
     QAbstractSpinBox, QApplication, QButtonGroup, QCheckBox, QComboBox, QDialog, QDoubleSpinBox, QFileDialog, QFrame,
     QGridLayout, QHBoxLayout, QInputDialog, QLabel, QLayout, QLineEdit, QMenu, QPlainTextEdit, QMainWindow, QMessageBox, QProgressBar, QPushButton, QRadioButton, QScrollArea,
-    QGraphicsDropShadowEffect, QSlider, QSpinBox, QStackedWidget, QStatusBar, QVBoxLayout, QWidget,
+    QGraphicsDropShadowEffect, QSlider, QSpinBox, QStackedWidget, QStatusBar, QTextBrowser, QVBoxLayout, QWidget,
 )
 
-from . import i18n, update
+from . import changes, i18n, update
 from .i18n import _
 from .help import HELP, TIPS
 from .core import analyze as an
@@ -181,6 +181,7 @@ QPushButton#candidate { border: none; border-radius: 8px; background: rgba(255,1
 ICON_CHOICES = {"light": "Светлая", "dark": "Тёмная"}
 LANG_KEY = "appearance/language"
 SITE = "https://count-in.app/"
+SEEN_KEY = "app/seen_version"  # the version whose What's New the user has seen
 
 
 def site_url(path: str = "") -> str:
@@ -3040,6 +3041,7 @@ class Window(QMainWindow):
         self.update_a = help_.addAction(_("Проверить обновления…"), self._update_action)
         self.update_a.setMenuRole(QAction.ApplicationSpecificRole)
         help_.addAction(_("Справка Count-In"), QKeySequence.HelpContents, self._help)
+        help_.addAction(_("Что нового"), lambda: self._whats_new(None))
         help_.addAction(_("Страница проекта"), lambda: QDesktopServices.openUrl(QUrl(site_url())))
         help_.addSeparator()
         help_.addAction(_("Сообщить о проблеме…"), lambda: ReportDialog(self).exec())
@@ -3826,8 +3828,31 @@ class Window(QMainWindow):
         QMessageBox.about(self, _("О программе Count-In"), (
             f"<h3>Count-In v{update.current_version()}</h3>"
             f"<p>{_('Барабанный отсчёт перед первой сильной долей и бэктреки без гитары или вокала.')}</p>"
-            f'<p><a href="https://github.com/{update.REPO}">github.com/{update.REPO}</a></p>'
+            f'<p><a href="{site_url("changelog/")}">{_("Что нового")}</a> · '
+            f'<a href="https://github.com/{update.REPO}">github.com/{update.REPO}</a></p>'
             "<p>beat_this (MIT), BS-RoFormer (MIT), FFmpeg (LGPL), Qt for Python (LGPL), PyTorch (BSD).</p>"))
+
+    def _whats_new(self, seen: str | None):
+        """Releases after `seen`, or the latest one, with a link to the full changelog on the site."""
+        cur = update.current_version()
+        releases = changes.since(seen, cur) if seen else [r for r in changes.RELEASES
+                                                          if changes.version_key(r[0]) <= changes.version_key(cur)][:1]
+        i = 0 if i18n.language() == "en" else 1
+        body = "".join(f"<h3>{v}</h3><ul>" + "".join(f"<li>{changes.rich(it[i])}</li>" for it in items) + "</ul>"
+                       for v, _date, items in releases)
+        body += f'<p><a href="{site_url("changelog/")}">{_("Все изменения на сайте")}</a></p>'
+        d = QDialog(self, windowTitle=_("Что нового в Count-In"))
+        d.resize(560, 520)
+        v = QVBoxLayout(d)
+        text = QTextBrowser(openExternalLinks=True)
+        text.setHtml(body)
+        v.addWidget(text)
+        ok = QPushButton(_("Готово"), default=True, clicked=d.accept)
+        h = QHBoxLayout()
+        h.addStretch()
+        h.addWidget(ok)
+        v.addLayout(h)
+        d.exec()
 
     # --- updates ---
 
@@ -5187,6 +5212,13 @@ def main() -> int:
     else:
         w.check_updates()
         QTimer.singleShot(400, lambda: ensure_assets(w))
+
+        # What's New opens once after an update; a fresh install has nothing to compare with
+        st, cur = QSettings(), update.current_version()
+        seen = st.value(SEEN_KEY) or ("0" if st.contains(GEOMETRY_KEY) else None)
+        if seen and changes.version_key(seen) < changes.version_key(cur):
+            QTimer.singleShot(800, lambda: w._whats_new(seen if seen != "0" else None))
+        st.setValue(SEEN_KEY, cur)
     return app.exec()
 
 

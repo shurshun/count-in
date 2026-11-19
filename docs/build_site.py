@@ -193,7 +193,49 @@ def build_guide() -> None:
         print("wrote", out.relative_to(DOCS))
 
 
+CHANGELOG = {
+    "en": {"out": "changelog/index.html", "url": "https://count-in.app/changelog/", "home": "/", "sfx": "-en",
+           "title": "Count-In changelog — what is new in each version",
+           "description": "What changed in each Count-In release.",
+           "heading": "What's new in Count-In", "lead": "Every release, newest first. The app updates itself.",
+           "window_alt": "", "other_lang": "ru", "other_url": "/ru/changelog/", "other_label": "RU",
+           "theme_label": "Switch theme"},
+    "ru": {"out": "ru/changelog/index.html", "url": "https://count-in.app/ru/changelog/", "home": "/ru/", "sfx": "",
+           "title": "Что нового в Count-In — история версий",
+           "description": "Что менялось в каждой версии Count-In.",
+           "heading": "Что нового в Count-In", "lead": "Все версии, новые сверху. Программа обновляется сама.",
+           "window_alt": "", "other_lang": "en", "other_url": "/changelog/", "other_label": "EN",
+           "theme_label": "Сменить тему"},
+}
+
+
+def build_changelog() -> None:
+    """The guide's page with the releases as sections and no window shot."""
+    ch = _module("changes")
+    tpl = (DOCS / "_guide.html").read_text()
+    tpl = tpl.split("\n", 2)[0] + "\n" + tpl.split("\n", 2)[2]
+    tpl = "\n".join(line for line in tpl.split("\n") if "{{window_alt}}" not in line)
+    for lang, g in CHANGELOG.items():
+        i = 0 if lang == "en" else 1
+        toc, body = [], []
+        for v, date, items in ch.RELEASES:
+            sid = "v" + v.replace(".", "-")
+            toc.append(f'    <li><a href="#{sid}">{v}</a></li>')
+            lis = "\n".join(f"      <li>{ch.rich(it[i])}</li>" for it in items)
+            body.append(f'  <section id="{sid}">\n    <h2>{v} <small>{date}</small></h2>\n    <ul>\n{lis}\n    </ul>\n  </section>')
+        html = tpl
+        for k, v in {**g, "lang": lang, "toc": "\n".join(toc), "sections": "\n".join(body)}.items():
+            html = html.replace("{{" + k + "}}", v)
+        assert "{{" not in html, "unfilled placeholder"
+        html = html.replace("<!doctype html>\n", "<!doctype html>\n<!-- Generated from _guide.html by build_site.py -->\n", 1)
+        out = DOCS / g["out"]
+        out.parent.mkdir(parents=True, exist_ok=True)
+        out.write_text(html)
+        print("wrote", out.relative_to(DOCS))
+
+
 if __name__ == "__main__":
     build()
     build_downloads()
     build_guide()
+    build_changelog()
