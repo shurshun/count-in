@@ -3075,21 +3075,7 @@ class Window(QMainWindow):
         acts = QFrame(objectName="card")
         av = QVBoxLayout(acts)
         av.setContentsMargins(16, 12, 16, 12)
-        av.setSpacing(12)
-        # Speaker level of the preview; not part of the song or the saved file
-        self.speaker = speaker = QLabel(toolTip=_("Громкость прослушивания"))
-        self.out_volume = QSlider(Qt.Horizontal, minimum=0, maximum=100, minimumWidth=150,
-                                  toolTip=_("Громкость прослушивания"), accessibleName=_("Громкость прослушивания"))
-        self.out_volume.setValue(int(output_volume() * 100))
-        self.out_volume.setFocusPolicy(Qt.TabFocus)
-        self.out_volume.valueChanged.connect(self._output_volume)
-        self._speaker_icon()
-        vol = QHBoxLayout()
-        vol.setSpacing(8)
-        vol.addWidget(speaker, 0, Qt.AlignVCenter)
-        vol.addWidget(QLabel(_("Громкость вывода"), objectName="headerLabel"), 0, Qt.AlignVCenter)
-        vol.addWidget(self.out_volume, 1, Qt.AlignVCenter)
-        av.addLayout(vol)
+        av.addStretch()  # the buttons sit on the bottom edge, in line with the last line of the other cards
         self.open_b = QPushButton(_("Открыть…"), objectName="tool", clicked=self._open_dialog)
         self.save_b = QPushButton(_("Сохранить"), objectName="tool", clicked=self._save,
                                   toolTip=QKeySequence(QKeySequence.Save).toString(QKeySequence.NativeText))
@@ -3101,7 +3087,6 @@ class Window(QMainWindow):
             b.setFocusPolicy(Qt.TabFocus)
             buttons.addWidget(b)
         av.addLayout(buttons)
-        av.addStretch()
         h.addWidget(acts, 0)
         return head
 
@@ -3690,7 +3675,22 @@ class Window(QMainWindow):
 
         save_b = self._icon_button("save", _("Сохранить эти настройки как настройки по умолчанию"), self._save_defaults)
         reset_b = self._icon_button("reset", _("Вернуть настройки по умолчанию"), self._reset_settings)
-        mix, g = card(_("Бэктрек"), reset_b, save_b)
+        # Speaker level of the playback; never part of the saved file. It sits in the backing card's title row.
+        self.speaker = QLabel(toolTip=_("Громкость прослушивания"))
+        self.out_volume = QSlider(Qt.Horizontal, minimum=0, maximum=100, fixedWidth=120,
+                                  toolTip=_("Громкость прослушивания"), accessibleName=_("Громкость прослушивания"))
+        self.out_volume.setValue(int(output_volume() * 100))
+        self.out_volume.setFocusPolicy(Qt.TabFocus)
+        self.out_volume.valueChanged.connect(self._output_volume)
+        self._speaker_icon()
+        vol = QWidget()
+        vh = QHBoxLayout(vol)
+        vh.setContentsMargins(0, 0, 12, 0)
+        vh.setSpacing(6)
+        vh.addWidget(self.speaker, 0, Qt.AlignVCenter)
+        vh.addWidget(QLabel(_("Громкость вывода"), objectName="field"), 0, Qt.AlignVCenter)
+        vh.addWidget(self.out_volume, 0, Qt.AlignVCenter)
+        mix, g = card(_("Бэктрек"), vol, reset_b, save_b)
         self.parts: dict[str, QSlider] = {}
         self.solo_b: dict[str, QPushButton] = {}
         self.part_l: dict[str, QLabel] = {}
@@ -3754,7 +3754,6 @@ class Window(QMainWindow):
         self.threshold_timer.timeout.connect(self._threshold_shown)
         self.threshold.valueChanged.connect(self._threshold_moved)
         self.threshold.sliderReleased.connect(self.threshold_timer.start)
-        self.threshold.valueChanged.connect(self._refresh)
         self.threshold.valueChanged.connect(lambda v: QSettings().setValue(THRESHOLD_KEY, v))
 
         cards = QHBoxLayout()
@@ -4317,7 +4316,9 @@ class Window(QMainWindow):
         if not t or not t.analysis:
             return
         try:
-            self.wave.clicks = clicks_for(t, self.settings())
+            clicks = clicks_for(t, self.settings())
+            if clicks != self.wave.clicks:  # a new list redraws the cached click layer
+                self.wave.clicks = clicks
         except Exception as e:  # unreadable or empty MIDI pattern
             self.wave.clicks = []
             self.status.setText(str(e))
@@ -4331,8 +4332,11 @@ class Window(QMainWindow):
         self._nav_changed()
         self.wave.update()
 
-    def _threshold_moved(self, _v):
+    def _threshold_moved(self, v):
+        # Only the band on the waveform follows the slider; the pauses get searched again once it stops
+        self.wave.threshold_db = float(v)
         self.wave.threshold_full = True
+        self.wave.update()
         self.threshold_timer.start()
 
     def _threshold_shown(self):
