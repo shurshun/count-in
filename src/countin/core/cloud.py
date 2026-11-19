@@ -19,9 +19,9 @@ import numpy as np
 
 API = os.environ.get("COUNTIN_API", "https://api.count-in.app")
 
-# Some networks cut long connections to Cloudflare, so traffic goes through our server, which forwards TCP 443 there.
-# TLS still names the API host, so the certificate check stays the same. Empty COUNTIN_RELAY connects directly.
-RELAY = os.environ.get("COUNTIN_RELAY", "193.176.79.217")
+# COUNTIN_RELAY names a server that forwards TCP 443 to Cloudflare, for networks that cut long connections to it.
+# TLS still names the API host, so the certificate check stays the same. Unset connects directly.
+RELAY = os.environ.get("COUNTIN_RELAY", "")
 SERVICE = "Count-In"
 ACCOUNT = "api-key"
 POLL_S = 2.0
