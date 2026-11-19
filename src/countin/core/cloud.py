@@ -5,9 +5,11 @@ backend runs it on a RunPod GPU or returns the parts it kept from an earlier run
 nothing from the monthly limit. Parts come back as 16-bit FLAC, the same as the local stem cache.
 """
 
+import http.client
 import io
 import json
 import os
+import socket
 import ssl
 import time
 import urllib.error
@@ -16,6 +18,10 @@ import urllib.request
 import numpy as np
 
 API = os.environ.get("COUNTIN_API", "https://api.count-in.app")
+
+# Some networks cut long connections to Cloudflare, so traffic goes through our server, which forwards TCP 443 there.
+# TLS still names the API host, so the certificate check stays the same. Empty COUNTIN_RELAY connects directly.
+RELAY = os.environ.get("COUNTIN_RELAY", "193.176.79.217")
 SERVICE = "Count-In"
 ACCOUNT = "api-key"
 POLL_S = 2.0
@@ -61,6 +67,23 @@ def _tls() -> ssl.SSLContext | None:
     return truststore.SSLContext(ssl.PROTOCOL_TLS_CLIENT)
 
 
+class _RelayConnection(http.client.HTTPSConnection):
+    def connect(self):
+        sock = socket.create_connection((RELAY, self.port or 443), self.timeout)
+        self.sock = self._context.wrap_socket(sock, server_hostname=self.host)
+
+
+class _RelayHandler(urllib.request.HTTPSHandler):
+    def https_open(self, req):
+        return self.do_open(_RelayConnection, req, context=self._context)
+
+
+def _open(req: urllib.request.Request, timeout: float):
+    if not RELAY or not req.full_url.startswith("https://"):
+        return urllib.request.urlopen(req, timeout=timeout, context=_tls())
+    return urllib.request.build_opener(_RelayHandler(context=_tls())).open(req, timeout=timeout)
+
+
 class _Upload(io.BytesIO):
     """A request body that reports how much of it has gone out."""
 
@@ -87,7 +110,7 @@ def _call(method: str, path: str, token: str, body: bytes | dict | None = None, 
             data = _Upload(body, progress)
     req = urllib.request.Request(API + path, data=data, method=method, headers=headers)
     try:
-        with urllib.request.urlopen(req, timeout=timeout, context=_tls()) as r:
+        with _open(req, timeout) as r:
             if r.headers.get_content_type() == "application/json":
                 return json.loads(r.read())
             size, raw = int(r.headers.get("Content-Length") or 0), bytearray()
