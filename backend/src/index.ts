@@ -1,3 +1,5 @@
+import { admin } from "./admin";
+
 // Count-In API: hand-issued tokens in front of a RunPod separation endpoint.
 //
 // The app talks to /v1 with its token. The RunPod worker talks to /w with short-lived signed URLs, so it holds
@@ -16,6 +18,8 @@ export interface Env {
   OVERLAP: string;
   TELEGRAM_TOKEN: string;
   TELEGRAM_CHAT: string;
+  RUNPOD_QUEUE: Queue<Step>;
+  ADMIN_KEY: string;
 }
 
 const STEMS = ["guitar", "vocals", "bass", "drums", "piano"];
@@ -150,15 +154,52 @@ async function start(env: Env, t: Token, id: string) {
   if (!j) return fail(404, "no such job");
   if (j.status !== "uploading" || !j.input_bytes) return fail(409, "upload the input first");
   if ((await used(env, t)) >= t.monthly_limit) return fail(429, "monthly limit reached", { limit: t.monthly_limit });
-  const outputs: Record<string, string> = {};
-  for (const s of STEMS) outputs[s] = await signed(env, "PUT", `/w/${id}/${s}.flac`);
-  const r = await runpod(env, "run", {
-    input: { input_url: await signed(env, "GET", `/w/${id}/input.flac`), outputs, stems: STEMS, overlap: Number(j.song_hash.split("-o").pop()) },
-  });
-  await env.DB.prepare("UPDATE jobs SET status = 'queued', runpod_id = ?, started_at = ? WHERE id = ?")
-    .bind(r.id, now(), id).run();
-  note(`${t.name}: sent to RunPod for separation`, { user: t.name, job: id, runpod: r.id });
+  await env.DB.prepare("UPDATE jobs SET status = 'queued', started_at = ? WHERE id = ?").bind(now(), id).run();
+  await env.RUNPOD_QUEUE.send({ id, op: "run" });
   return json({ id, status: "queued" }, 202);
+}
+
+// RunPod refuses Worker subrequests made on behalf of clients from some countries, so every RunPod call
+// runs in the queue consumer, which has no client. Requests from the app only read and write D1.
+type Step = { id: string; op: "run" | "poll"; fails?: number };
+const POLL_S = 2;
+const MAX_FAILS = 5;
+
+async function step(env: Env, m: Step) {
+  const j = await env.DB.prepare("SELECT jobs.*, tokens.name FROM jobs JOIN tokens ON tokens.hash = jobs.token_hash WHERE id = ?")
+    .bind(m.id).first<any>();
+  if (!j || (j.status !== "queued" && j.status !== "running")) return;
+  if (m.op === "run") {
+    if (j.runpod_id) return; // a repeated delivery
+    const outputs: Record<string, string> = {};
+    for (const s of STEMS) outputs[s] = await signed(env, "PUT", `/w/${j.id}/${s}.flac`);
+    const r = await runpod(env, "run", {
+      input: { input_url: await signed(env, "GET", `/w/${j.id}/input.flac`), outputs, stems: STEMS, overlap: Number(j.song_hash.split("-o").pop()) },
+    });
+    await env.DB.prepare("UPDATE jobs SET runpod_id = ? WHERE id = ?").bind(r.id, j.id).run();
+    note(`${j.name}: sent to RunPod for separation`, { user: j.name, job: j.id, runpod: r.id });
+    await env.RUNPOD_QUEUE.send({ id: j.id, op: "poll" }, { delaySeconds: POLL_S });
+    return;
+  }
+  const r = await runpod(env, `status/${j.runpod_id}`);
+  const next = ({ IN_QUEUE: "queued", IN_PROGRESS: "running", COMPLETED: "done" } as Record<string, string>)[r.status] ?? "failed";
+  const error = next === "failed" ? String(r.error ?? r.status) : null;
+  const ended = next === "done" || next === "failed";
+  const progress = r.output?.progress ? JSON.stringify(r.output.progress) : null;
+  await env.DB.prepare("UPDATE jobs SET status = ?, progress = ?, finished_at = ?, gpu_seconds = ?, error = ? WHERE id = ?")
+    .bind(next, progress, ended ? now() : null, r.executionTime ? r.executionTime / 1000 : null, error, j.id).run();
+  if (!ended) {
+    await env.RUNPOD_QUEUE.send({ id: j.id, op: "poll" }, { delaySeconds: POLL_S });
+    return;
+  }
+  await purgeInput(env, j.id);
+  note(`${j.name}: separation ${next === "done" ? "finished" : "failed"}`, { user: j.name, job: j.id, status: next,
+    gpu_s: r.executionTime / 1000 || null, wait_s: now() - j.started_at, worker: r.workerId ?? null, error });
+  if (next === "done") {
+    await env.DB.prepare(`INSERT INTO songs (token_hash, song_hash, created_at, accessed_at) VALUES (?, ?, ?, ?)
+                          ON CONFLICT DO UPDATE SET accessed_at = excluded.accessed_at`)
+      .bind(j.token_hash, j.song_hash, now(), now()).run();
+  }
 }
 
 async function status(env: Env, t: Token, id: string) {
@@ -166,26 +207,7 @@ async function status(env: Env, t: Token, id: string) {
   if (!j) return fail(404, "no such job");
   if (j.status === "done") return json({ id, status: "done", cached: !!j.cached, stems: stemLinks(id) });
   if (j.status !== "queued" && j.status !== "running") return json({ id, status: j.status, error: j.error });
-
-  const r = await runpod(env, `status/${j.runpod_id}`);
-  const next = ({ IN_QUEUE: "queued", IN_PROGRESS: "running", COMPLETED: "done" } as Record<string, string>)[r.status] ?? "failed";
-  const error = next === "failed" ? String(r.error ?? r.status) : null;
-  const ended = next === "done" || next === "failed";
-  await env.DB.prepare("UPDATE jobs SET status = ?, finished_at = ?, gpu_seconds = ?, error = ? WHERE id = ?")
-    .bind(next, ended ? now() : null, r.executionTime ? r.executionTime / 1000 : null, error, id).run();
-  if (ended) {
-    await purgeInput(env, id);
-    note(`${t.name}: separation ${next === "done" ? "finished" : "failed"}`, { user: t.name, job: id, status: next,
-      gpu_s: r.executionTime / 1000 || null, wait_s: now() - j.started_at, worker: r.workerId ?? null, error });
-  }
-  if (next === "done") {
-    await env.DB.prepare(`INSERT INTO songs (token_hash, song_hash, created_at, accessed_at) VALUES (?, ?, ?, ?)
-                          ON CONFLICT DO UPDATE SET accessed_at = excluded.accessed_at`)
-      .bind(t.hash, j.song_hash, now(), now()).run();
-    return json({ id, status: "done", cached: false, stems: stemLinks(id) });
-  }
-  if (next === "failed") return json({ id, status: next, error });
-  return json({ id, status: next, progress: r.output?.progress ?? null });
+  return json({ id, status: j.status, progress: j.progress ? JSON.parse(j.progress) : null });
 }
 
 async function stem(env: Env, t: Token, id: string, name: string) {
@@ -307,6 +329,7 @@ export default {
       if (p[0] === "w" && p.length === 3 && (req.method === "GET" || req.method === "PUT")) {
         return await workerFile(env, req, url, p[1], p[2]);
       }
+      if (p[0] === "admin") return await admin(env, req, url);
       if (p[0] !== "v1") return fail(404, "not found");
       if (p[1] === "report" && p.length === 2 && req.method === "POST") return await report(env, req);
       const t = await auth(env, req);
@@ -331,7 +354,28 @@ export default {
   },
 
   // Uploaded songs go after a day, separated parts 30 days after their last use.
+  async queue(batch: MessageBatch<Step>, env: Env): Promise<void> {
+    for (const m of batch.messages) {
+      try {
+        await step(env, m.body);
+      } catch (e) {
+        const fails = (m.body.fails ?? 0) + 1;
+        console.error(e);
+        if (fails < MAX_FAILS) {
+          await env.RUNPOD_QUEUE.send({ ...m.body, fails }, { delaySeconds: POLL_S * fails });
+        } else {
+          await env.DB.prepare("UPDATE jobs SET status = 'failed', finished_at = ?, error = ? WHERE id = ? AND status IN ('queued', 'running')")
+            .bind(now(), `RunPod unreachable: ${String(e).slice(0, 300)}`, m.body.id).run();
+        }
+      }
+      m.ack();
+    }
+  },
   async scheduled(_c: ScheduledController, env: Env): Promise<void> {
+    // A job whose queue message got lost gets it again within the hour.
+    const stuck = await env.DB.prepare("SELECT id, runpod_id FROM jobs WHERE status IN ('queued', 'running') AND started_at < ?")
+      .bind(now() - 600).all<{ id: string; runpod_id: string | null }>();
+    for (const j of stuck.results) await env.RUNPOD_QUEUE.send({ id: j.id, op: j.runpod_id ? "poll" : "run" });
     for (const o of (await env.AUDIO.list({ prefix: "jobs/" })).objects) {
       if (o.uploaded.getTime() / 1000 < now() - KEEP_INPUT_S) await env.AUDIO.delete(o.key);
     }

@@ -21,7 +21,8 @@ CREATE TABLE IF NOT EXISTS jobs (
   gpu_seconds REAL,
   error TEXT,
   song_hash TEXT NOT NULL,       -- the app's hash of the source file and model settings
-  cached INTEGER NOT NULL DEFAULT 0
+  cached INTEGER NOT NULL DEFAULT 0,
+  progress TEXT                  -- the worker's last {done, total}, JSON
 );
 
 -- Separated songs kept per token, so the same file never goes through the model twice.
