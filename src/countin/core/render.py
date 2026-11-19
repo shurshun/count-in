@@ -219,7 +219,10 @@ def stretch_many(parts: list[np.ndarray], sr: int, speed: float, semis: float = 
 
     try:
         if _pool is None:
+            import atexit
+
             _pool = ProcessPoolExecutor(min(6, os.cpu_count() or 2), mp_context=mp.get_context("spawn"))
+            atexit.register(_pool.shutdown, wait=False, cancel_futures=True)  # no traceback at quit
         n = len(parts)
         return list(_pool.map(stretch, parts, [sr] * n, [speed] * n, [semis] * n))
     except Exception:
