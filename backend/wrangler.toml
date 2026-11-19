@@ -28,10 +28,6 @@ OVERLAP = "4"
 # Secrets (wrangler secret put, or .dev.vars locally):
 # RUNPOD_API_KEY, RUNPOD_ENDPOINT, SIGNING_KEY, PUBLIC_URL
 
-# RunPod blocks Worker subrequests from some data centers near Russia; run the Worker near Frankfurt instead.
-[placement]
-region = "aws:eu-central-1"
-
 [[queues.producers]]
 binding = "RUNPOD_QUEUE"
 queue = "count-in-runpod"
