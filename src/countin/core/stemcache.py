@@ -39,18 +39,18 @@ def key(song: Path, overlap: int | None = None) -> str:
 
 def load(k: str, names: tuple[str, ...], length: int) -> dict[str, np.ndarray] | None:
     """The cached stems, or None when any is missing or does not match the song's length."""
+    from concurrent.futures import ThreadPoolExecutor
+
     d = folder() / k
-    out = {}
-    for name in names:
-        f = d / f"{name}.flac"
-        if not f.is_file():
-            return None
-        y, _sr = sf.read(f, dtype="float32", always_2d=True)
-        if len(y) != length:
-            return None
-        out[name] = y
+    files = [d / f"{name}.flac" for name in names]
+    if not all(f.is_file() for f in files):
+        return None
+    with ThreadPoolExecutor(len(files)) as ex:  # the FLAC decoder releases the GIL: about 3x faster
+        ys = list(ex.map(lambda f: sf.read(f, dtype="float32", always_2d=True)[0], files))
+    if any(len(y) != length for y in ys):
+        return None
     os.utime(d)  # recently used: pruned last
-    return out
+    return dict(zip(names, ys))
 
 
 def save(k: str, stems: dict[str, np.ndarray], sr: int) -> None:

@@ -700,7 +700,7 @@ def test_multitrack_click_and_audio_land_on_the_same_bar_grid(tmp_path, speed):
 
     x = np.zeros((int(16 * SR), 1), np.float32)
     x[int(round(bars[5].beats[2] * SR))] = 1.0
-    y = daw.place(x, SR, g, speed)
+    y = daw.place([x], SR, g, speed)[0]
     at = np.argmax(np.abs(y[:, 0])) / SR
     assert abs(at - (bars[5].beats[2] - g.start) / speed) < 2e-3
 
@@ -776,3 +776,73 @@ def test_clicks_turn_down_to_fit_a_loud_song_and_leave_it_untouched():
     assert r.pcm[a, 0] == pytest.approx(rd.CEILING)  # turned down to the ceiling
     assert r.pcm[b, 0] == pytest.approx(rd.CEILING)  # 1.0 over silence is above the ceiling too
     assert r.pcm[a + 20, 0] == pytest.approx(0.5)  # the song itself stays as it was
+
+
+def test_player_loops_mixes_offset_stems_and_live_clicks():
+    from types import SimpleNamespace
+    from countin.gui import Player
+
+    base = np.arange(20, dtype=np.float32)[:, None] / 100
+    stem = np.full((5, 1), 0.01, dtype=np.float32)
+    pl = Player()
+    pl.src, pl.sr, pl.gains = (base, {"guitar": (stem, 4)}), 10, {"guitar": 0.0}
+    pl.dry = pl.bad = 0
+    pl.loop, pl.pos = (2, 8), 6
+    pl.ticks = [(7, np.array([0.5], dtype=np.float32))]
+    out = np.zeros((6, 1), dtype=np.float32)
+    pl._fill(out, 6, None, SimpleNamespace(output_underflow=False))
+    # 6 and 7 (muted stem sits at 4..8, click at 7), then back to the loop start: 2, 3, 4, 5
+    assert out[:, 0] == pytest.approx([0.05, 0.56, 0.02, 0.03, 0.03, 0.04])
+    assert pl.pos == 6 and pl.ticks == []  # a wrap drops the lead-in clicks
+
+
+def test_transpose_shifts_pitch_and_keeps_length():
+    sr = 22050
+    t = np.arange(sr * 2) / sr
+    x = (0.5 * np.sin(2 * np.pi * 440 * t)).astype(np.float32)[:, None]
+    y = rd.stretch(x, sr, 1.0, 2)
+    assert len(y) == len(x)
+    spec = np.abs(np.fft.rfft(y[sr // 2 : sr // 2 + sr, 0]))
+    assert np.argmax(spec) == pytest.approx(440 * 2 ** (2 / 12), abs=3)  # 1 Hz bins over one second
+
+
+def test_key_of_a_minor_progression():
+    from countin.core import analyze as an
+
+    sr = 22050
+    t = np.arange(sr * 2) / sr
+    chords = [(220, 261.6, 329.6), (146.8, 174.6, 220), (164.8, 207.7, 246.9), (220, 261.6, 329.6)]
+    x = np.concatenate([sum(np.sin(2 * np.pi * f * t) for f in c) for c in chords]) * 0.2
+    tonic, minor, _conf = an.detect_key(np.stack([x, x], 1).astype(np.float32), sr)
+    assert an.key_name(tonic, minor) == "Am" and an.key_name(tonic, minor, 2) == "Bm"
+
+
+def test_render_returns_the_clicks_alone():
+    sr = 8000
+    song = np.full((sr, 2), 0.1, dtype=np.float32)
+    hit = np.linspace(0.5, 0.0, 40, dtype=np.float32)
+    r = rd.render(song, sr, [rd.Click(-0.25, True), rd.Click(0.5, False)], 0.0, "keep", 0.0, (hit, hit))
+    pad = int(round(r.offset * sr))  # where the song starts
+    music = r.pcm - r.click[:, None]
+    assert np.allclose(music[:pad], 0) and np.allclose(music[pad:], 0.1)  # silence before the song, then the song
+    assert r.click[r.click_samples[1]] == pytest.approx(0.5)
+
+
+def test_loudness_reads_a_full_scale_tone_at_zero_and_normalize_respects_the_peak():
+    sr = 48000
+    t = np.arange(sr * 5) / sr
+    x = np.sin(2 * np.pi * 997 * t)
+    assert rd.loudness(np.stack([x, x], 1), sr) == pytest.approx(0.0, abs=0.2)  # BS.1770 reference
+    quiet = (0.05 * np.stack([x, x], 1)).astype(np.float32)
+    y = rd.normalize(quiet, sr)
+    assert np.abs(y).max() <= 10 ** (-1 / 20) + 1e-6 and rd.loudness(y, sr) == pytest.approx(-14.0, abs=0.3)
+
+
+def test_changes_newest_first_and_since():
+    from countin import changes
+
+    keys = [changes.version_key(v) for v, _d, _i in changes.RELEASES]
+    assert keys == sorted(keys, reverse=True)
+    assert [r[0] for r in changes.since("0.8.2", "0.9.1")] == ["0.9.1"]
+    assert changes.since("0.10.0", "0.10.0rc1") == []
+    assert changes.rich("**a<b** c") == "<b>a&lt;b</b> c"

@@ -1,5 +1,6 @@
 # Build: uv run pyinstaller packaging/countin.spec --noconfirm --distpath build/dist --workpath build/work
 # One bundle, two executables sharing its libraries: the app (Count-In) and the CLI (countin).
+import re
 import sys
 import tomllib
 from pathlib import Path
@@ -47,6 +48,6 @@ if sys.platform == "darwin":
                  icon=str(icons / "light" / "macos" / "Count-In.icns"),
                  # The CLI is the last EXE, so PyInstaller would mark the bundle background-only.
                  info_plist={"NSHighResolutionCapable": True, "LSBackgroundOnly": False, "LSMinimumSystemVersion": "14.0",
-                             "CFBundleShortVersionString": version,
+                             "CFBundleShortVersionString": re.match(r"[\d.]*\d", version).group(),  # 0.10.0rc1 -> 0.10.0
                              "CFBundleDocumentTypes": [{"CFBundleTypeName": "Audio", "CFBundleTypeRole": "Viewer",
                                                         "LSItemContentTypes": ["public.audio"]}]})

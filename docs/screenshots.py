@@ -15,7 +15,7 @@ from PySide6.QtCore import QRectF, QSettings, Qt, QTimer
 from PySide6.QtGui import QColor, QFont, QImage, QLinearGradient, QPainter
 
 from countin import gui, i18n
-from countin.core import io
+from countin.core import io, songs
 from countin.i18n import _
 
 OUT = Path(__file__).resolve().parent / "screenshots"
@@ -98,6 +98,10 @@ def run(song: Path, scheme: str, lang: str, tmp: Path) -> None:
     st = QSettings()
     st.setValue(gui.OUT_DIR, "~/Music/Count-In")  # shown in the settings shot; never a real home path
     st.setValue(gui.OUT_GROUP, True)
+
+    # Each run starts from a song nobody has opened, with the settings of a fresh install
+    songs.folder = lambda: tmp / f"songs-{scheme}{sfx}"
+    gui.cloud_key = lambda: False
 
     w = gui.Window()
     w.resize(1180, 800)

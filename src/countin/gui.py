@@ -8,23 +8,25 @@ import threading
 import random
 import time
 from dataclasses import dataclass, field, replace
+from functools import lru_cache
 from pathlib import Path
 
 import numpy as np
-from PySide6.QtCore import QEvent, QLocale, QObject, QSettings, QStandardPaths, QUrl, QPointF, QRectF, QRunnable, QSize, Qt, QThreadPool, QTimer, Signal
-from PySide6.QtGui import QAction, QDesktopServices, QFont, QIcon, QImage, QKeySequence, QColor, QPainter, QPainterPath, QPen, QPalette, QPixmap, QPolygonF
+from PySide6.QtCore import QEvent, QLineF, QLocale, QObject, QSettings, QStandardPaths, QUrl, QPointF, QRectF, QRunnable, QSize, Qt, QThreadPool, QTimer, Signal
+from PySide6.QtGui import QAction, QCursor, QDesktopServices, QFont, QIcon, QImage, QKeySequence, QColor, QPainter, QPainterPath, QPen, QPalette, QPixmap, QPolygonF
 from PySide6.QtWidgets import (
     QAbstractSpinBox, QApplication, QButtonGroup, QCheckBox, QComboBox, QDialog, QDoubleSpinBox, QFileDialog, QFrame,
-    QGridLayout, QHBoxLayout, QLabel, QLayout, QLineEdit, QPlainTextEdit, QMainWindow, QMessageBox, QProgressBar, QPushButton, QRadioButton, QScrollArea,
-    QGraphicsDropShadowEffect, QSlider, QSpinBox, QStackedWidget, QStatusBar, QVBoxLayout, QWidget,
+    QGridLayout, QHBoxLayout, QInputDialog, QLabel, QLayout, QLineEdit, QMenu, QPlainTextEdit, QMainWindow, QMessageBox, QProgressBar, QPushButton, QRadioButton, QScrollArea,
+    QGraphicsDropShadowEffect, QSlider, QSpinBox, QStackedWidget, QStatusBar, QTextBrowser, QVBoxLayout, QWidget,
 )
 
-from . import i18n, update
+from . import changes, i18n, update
 from .i18n import _
 from .help import HELP, TIPS
 from .core import analyze as an
 from .core import io
 from .core import render as rd
+from .core import songs
 from .core import zones as zn
 from .core import assets
 from .core.io import resource
@@ -46,9 +48,9 @@ PARTS = (
 # Why each job runs, shown under its progress title
 JOB_WHY = {
     "zones_job": "Раскладываю песню на дорожки, чтобы найти паузы без убранных инструментов. Это делается один раз на трек.",
-    "preview_job": "Готовлю прослушивание: отсчёт и песню с вашими настройками.",
+    "preview_job": "Готовлю к прослушиванию отсчёт и песню с вашими настройками.",
     "save_job": "Сохраняю трек с отсчётом и выбранным уровнем дорожек.",
-    "export_job": "Сохраняю мультитрек: партии, клик и темп начинаются с первого такта.",
+    "export_job": "Сохраняю мультитрек. Дорожки, клик и темп начинаются с первого такта.",
 }
 
 # Lines that turn up while a job runs
@@ -85,17 +87,20 @@ QPushButton#update { background: #0a84ff; color: white; border: none; border-rad
                      min-width: 20px; max-width: 20px; min-height: 20px; max-height: 20px; padding: 0; }
 QPushButton#update:hover { background: #409cff; }
 #title { font-size: 24px; font-weight: 600; }
+#keyBig { font-size: 30px; font-weight: 600; }
 #headerLabel { font-size: 15px; color: @FIELD@; }
 QPushButton#iconButton { border: 1px solid @BORDER@; border-radius: 7px; background: rgba(127,127,127,0.12); padding: 0; }
 QPushButton#iconButton:hover { background: rgba(127,127,127,0.24); }
 #progOverlay { background: transparent; }
-#sepWait { color: #ff9f0a; font-weight: 600; }
+#sepWait { color: @WARN@; font-weight: 600; }
 #progTitle { font-size: 26px; font-weight: 700; }
 #progWhy, #progEta { font-size: 15px; color: @FIELD@; }
 #progPhrase { font-size: 15px; font-style: italic; color: @FIELD@; }
 #subtitle { color: @FIELD@; }
-#warning { color: #ff9f0a; }
+#warning { color: @WARN@; }
 #drop { border: 2px dashed @BORDER@; border-radius: 18px; color: @FIELD@; font-size: 18px; }
+QPushButton#recent { border: none; background: transparent; color: @ACCENT@; padding: 2px 0; text-align: left; }
+QPushButton#recent:hover { text-decoration: underline; }
 QFrame#card { background: @CARD@; border: 1px solid @BORDER@; border-radius: 12px; }
 #cardTitle { font-weight: 600; font-size: 16px; }
 QFrame#option { background: @CARD@; border: 1px solid @BORDER@; border-radius: 12px; margin: 1px; }
@@ -117,6 +122,15 @@ QPushButton#primary:disabled { background: rgba(127,127,127,0.25); }
 QPushButton#tool { border: 1px solid @BORDER@; border-radius: 9px; padding: 8px 18px; font-size: 15px;
                    background: @CARD@; min-height: 22px; }
 QPushButton#tool:disabled { color: gray; }
+QPushButton#headBtn { border: 1px solid @BORDER@; border-radius: 9px; background: rgba(127,127,127,0.10);
+                      font-size: 14px; font-weight: 600; min-height: 28px; padding: 0 12px; }
+QPushButton#headBtn:hover { background: rgba(127,127,127,0.22); }
+QPushButton#headBtn:disabled { color: rgba(127,127,127,0.6); }
+QPushButton#headBtn[accent="true"] { background: @ACCENT@; color: @ACCENT_TEXT@; border-color: @ACCENT@; }
+QPushButton#headBtn[accent="true"]:disabled { background: rgba(127,127,127,0.10); color: rgba(127,127,127,0.6);
+                                              border-color: @BORDER@; }
+QPushButton#solo { border: 1px solid rgba(127,127,127,0.3); border-radius: 6px; padding: 0; font-weight: 600; }
+QPushButton#solo:checked { background: @ACCENT@; border-color: @ACCENT@; color: white; }
 QPushButton#small { border: 1px solid rgba(127,127,127,0.3); border-radius: 6px; padding: 2px 8px;
                     background: rgba(127,127,127,0.06); min-width: 26px; }
 QSlider::groove:horizontal { height: 4px; background: rgba(127,127,127,0.3); border-radius: 2px; }
@@ -136,9 +150,9 @@ QFrame#tipCard { background: @TIP_CARD@; border: 1px solid @BORDER@; border-radi
 QScrollArea#helpArea, QScrollArea#helpArea > QWidget > QWidget { background: @WINDOW@; border: none; }
 QFrame#busyPill { background: @SEP_CARD@; border: 1px solid @BORDER@; border-radius: 19px; }
 #pillText { font-size: 14px; font-weight: 600; }
-#pillNote { font-size: 14px; font-weight: 600; color: #ff9f0a; }
+#pillNote { font-size: 14px; font-weight: 600; color: @WARN@; }
 QFrame#transport { background: @CARD@; border: 1px solid @BORDER@; border-radius: 12px; }
-QPushButton#tbtn { border: none; border-radius: 8px; background: transparent; min-width: 34px; min-height: 30px; padding: 0 6px; }
+QPushButton#tbtn { border: none; border-radius: 8px; background: transparent; min-width: 32px; min-height: 30px; padding: 0; }
 QPushButton#tbtn:hover { background: rgba(127,127,127,0.18); }
 QPushButton#tplay { border: none; border-radius: 17px; background: @ACCENT@; padding: 0;
                     min-width: 34px; max-width: 34px; min-height: 34px; max-height: 34px; }
@@ -167,6 +181,7 @@ QPushButton#candidate { border: none; border-radius: 8px; background: rgba(255,1
 ICON_CHOICES = {"light": "Светлая", "dark": "Тёмная"}
 LANG_KEY = "appearance/language"
 SITE = "https://count-in.app/"
+SEEN_KEY = "app/seen_version"  # the version whose What's New the user has seen
 
 
 def site_url(path: str = "") -> str:
@@ -220,8 +235,12 @@ class Track:
     search_levels: dict | None = None  # each part's lowest level on this track; pauses are searched with these
     auto_done: bool = False  # the silence threshold was fitted to this track's separated backing
     bar_db: list | None = None  # level of each bar against the song (zones.bar_levels); sets the hi-hat level
+    ref_db: float | None = None  # level of the whole song (zones.level_db)
     covered: set = field(default_factory=set)  # bars under the pauses as last shown
     dismissed: set = field(default_factory=set)  # bars whose pause the user removed; a search never brings them back
+    tonal: tuple | None = None  # (tonic pitch class, minor, confidence) from analyze.detect_key
+    key: str | None = None  # the file's content hash; what the user set is kept under it (core/songs.py)
+    markers: list = field(default_factory=list)  # (song time, name) of the song's sections
 
 
 @dataclass
@@ -242,6 +261,9 @@ class Settings:
     click_db: float = 0.0  # song click level on top of the count-in volume
     fill_build: bool = True  # the last bar of each pause runs into the entry in eighths
     speed: float = 1.0  # playback and export speed, pitch kept (0.8 = 20% slower)
+    semis: float = 0.0  # transposition in semitones, tempo kept
+    split: bool = False  # backing track with the click alone on the left and the music in mono on the right
+    normalize: bool = False  # the saved backing track at −14 LUFS, peaks at most −1 dB
     threshold: float = zn.QUIET_DB  # dB below the song average that counts as a pause
 
 
@@ -268,7 +290,8 @@ def search_levels(t: Track, s: Settings) -> dict:
     only the threshold or the user's own edits change them."""
     out = dict(t.search_levels or {})
     for k, v in s.levels.items():
-        out[k] = min(v, out.get(k, 0.0))
+        if v < 0:  # a boosted part never makes a pause
+            out[k] = min(v, out.get(k, 0.0))
     return out
 
 
@@ -287,7 +310,7 @@ def find_zones(t: Track, pcm: np.ndarray, sr: int, st: dict[str, np.ndarray] | N
 
     if backing is None:
         backing = stems.attenuate(pcm, st, s.levels) if s.levels and st else pcm
-    return zn.zones_from(zn.quiet_bars(backing, sr, t.bars, zn.level_db(pcm), s.threshold))
+    return zn.zones_from(zn.quiet_bars(backing, sr, t.bars, t.ref_db, s.threshold))
 
 
 def mix_job(job: "Job", seq: int, pcm: np.ndarray, sr: int, st, levels: dict, search):
@@ -302,9 +325,8 @@ def mix_job(job: "Job", seq: int, pcm: np.ndarray, sr: int, st, levels: dict, se
     env = peaks_per_ms(backing, sr)
     found, used = None, None
     if search is not None:
-        bars, threshold, sl, fit = search
+        bars, threshold, sl, fit, ref = search
         mix = backing if sl == levels else stems.attenuate(pcm, st, sl) if st and sl else pcm
-        ref = zn.level_db(pcm)
         fitted = zn.auto_threshold(mix, sr, bars, ref) if fit else None
         if fitted is not None:
             threshold = float(round(fitted))
@@ -412,8 +434,11 @@ def analyze_job(job: Job, track: Track):
         sr = info.sr
         track.duration = len(pcm) / sr
         track.analysis = an.analyze(pcm, sr)
+        track.key = songs.key(track.path)
+        track.tonal = an.detect_key(pcm, sr)
         track.bars = zn.bars_from(track.analysis.beats, track.analysis.downbeats, track.duration)
-        track.bar_db = zn.bar_levels(pcm, sr, track.bars)
+        track.ref_db = zn.level_db(pcm)
+        track.bar_db = zn.bar_levels(pcm, sr, track.bars, track.ref_db)
         env = peaks_per_ms(pcm, sr)
     except Exception as e:
         log.exception("analysis of %s failed", track.path)
@@ -486,21 +511,23 @@ def _covers(cached, i0: int, i1: int) -> bool:
 
 def preview_job(job: Job, track: Track, s: Settings, pcm: np.ndarray, sr: int, cached, separate: bool,
                 at: float | None = None):
-    """From the count-in, or from song time `at` (play from here), to the song end, with stems kept apart so the
-    player can mix them live, rendered at s.speed. Only when the parts have yet to be separated for it, it stops
-    PREVIEW_AFTER seconds after the downbeat or PREVIEW_FROM seconds after `at`.
+    """The whole song from the count-in, with stems kept apart so the player can mix them live, rendered at
+    s.speed; the player then jumps anywhere in it at once. Only when the parts have yet to be separated for it,
+    it runs from song time `at` (or the count-in) and stops PREVIEW_FROM seconds after `at` (PREVIEW_AFTER after
+    the downbeat).
 
-    Returns (song with clicks, {stem: aligned array}, sr, original-song time of the first sample, new stem cache,
-    clipped samples). Output time runs at s.speed: song time = start + output time * speed.
+    Returns (song with clicks, {stem: (array, output offset)}, sr, original-song time of the first sample, new
+    stem cache, clipped samples). Output time runs at s.speed: song time = start + output time * speed.
     """
     clicks = clicks_for(track, s)
     dur = len(pcm) / sr
-    first = min(c.time for c in clicks) if at is None else at
-    i0 = int(max(0.0, first - 0.5) * sr)
-    if not separate or _covers(cached, i0, len(pcm)):
-        end = dur
+    count_in = min(c.time for c in clicks)
+    if not separate or _covers(cached, int(max(0.0, min(count_in, at or count_in) - 0.5) * sr), len(pcm)):
+        first, end = min(count_in, at if at is not None else count_in), dur
     else:
+        first = count_in if at is None else at
         end = track.t0 + PREVIEW_AFTER if at is None else at + PREVIEW_FROM
+    i0 = int(max(0.0, first - 0.5) * sr)
     i1 = int(min(end, dur) * sr)
     part, new_cache = None, None
     if _covers(cached, i0, i1):
@@ -515,26 +542,33 @@ def preview_job(job: Job, track: Track, s: Settings, pcm: np.ndarray, sr: int, c
     win = [rd.Click((c.time - lo_t) / s.speed, c.accent, c.gain, c.voice)
            for c in clicks if first - 0.35 <= c.time < end]
     song, part = pcm[i0:i1], dict(part or {})
-    if s.speed != 1.0:
+    if s.speed != 1.0 or s.semis:
         # Stretching shifts phases, so a stretched song minus a stretched stem no longer cancels. The slowed
         # song gets rebuilt from its slowed pieces, every stem and the rest, so the player's live subtraction
         # stays exact.
         rest = song - sum(part.values()) if part else song
-        *slow, rest = rd.stretch_many([*part.values(), rest], sr, s.speed)
+        *slow, rest = rd.stretch_many([*part.values(), rest], sr, s.speed, s.semis)
         part = dict(zip(part, slow))
         song = rest + sum(part.values()) if part else rest
-    r = rd.render(song, sr, win, 0.0, "keep", s.volume_db, rd.load_samples(sr))
-    base = r.pcm
+    hits = rd.load_samples(sr)
+    r = rd.render(song, sr, win, 0.0, "keep", s.volume_db, hits)
 
-    # Stems go to the same output positions as the song samples they came from.
-    aligned = {}
+    # The click plays as its own part at full level: mute, solo and its level work live, and over a loud master
+    # it stays audible, while the saved file turns a click down to fit (render's limiter)
+    click = np.zeros(len(r.pcm), dtype=np.float32)
+    g = 10 ** (s.volume_db / 20)
+    for c, at in zip(win, r.click_samples):
+        pair = hits if c.voice == "stick" else rd.voice_samples(c.voice, sr)
+        x = (pair[0] if c.accent else pair[1]) * (g * c.gain)
+        n = min(len(x), len(click) - at)
+        click[at : at + n] += x[:n]
+    base = r.pcm - r.click[:, None] + click[:, None]
+
+    # Stems play at the output positions of the song samples they came from.
     a = int(round(r.offset * sr))
-    for k, v in part.items():
-        z = np.zeros_like(base)
-        lo, hi = max(a, 0), min(a + len(v), len(base))
-        z[lo:hi] = v[lo - a : hi - a]
-        aligned[k] = z
-    return track, base, aligned, sr, lo_t - r.offset * s.speed, new_cache, r.clipped
+    stems_out = {k: (v, a) for k, v in part.items()}
+    stems_out["click"] = (click[:, None], 0)
+    return track, base, stems_out, sr, lo_t - r.offset * s.speed, new_cache, r.clipped
 
 
 def target_path(song: Path, s: Settings, info: io.AudioInfo) -> Path:
@@ -542,7 +576,8 @@ def target_path(song: Path, s: Settings, info: io.AudioInfo) -> Path:
     folder = s.out_root
     if folder and s.group:
         folder = io.organized_dir(folder, info.tags, *s.group)
-    return io.output_path(song, s.fmt or info.format, s.levels, folder, s.speed)
+    out = io.output_path(song, s.fmt or info.format, s.levels, folder, s.speed, s.semis)
+    return out.with_name(f"{out.stem}_stage{out.suffix}") if s.split else out
 
 
 def save_job(job: Job, t: Track, s: Settings, cached):
@@ -559,19 +594,25 @@ def save_job(job: Job, t: Track, s: Settings, cached):
             t.zones, t.zones_key = find_zones(t, pcm, info.sr, st, s), zones_key(s)
         pcm = stems.attenuate(pcm, st, s.levels)
     job.report(_("{name}: запись", name=t.path.name))
-    if s.speed != 1.0:
+    if s.speed != 1.0 or s.semis:
         job.report(_("{name}: замедление", name=t.path.name))
-    r = rd.render(pcm, info.sr, clicks_for(t, s), t.t0, s.pre_roll, s.volume_db, rd.load_samples(info.sr), s.speed)
+    r = rd.render(pcm, info.sr, clicks_for(t, s), t.t0, s.pre_roll, s.volume_db, rd.load_samples(info.sr), s.speed,
+                  s.semis)
     out = target_path(t.path, s, info)
     out.parent.mkdir(parents=True, exist_ok=True)
-    io.encode(r.pcm, info, out, tags_from=t.path)
+    pcm_out = r.pcm
+    if s.split:  # stage mix: the click alone on the left, the music in mono on the right
+        pcm_out = np.stack([r.click, (r.pcm - r.click[:, None]).mean(axis=1)], axis=1)
+    if s.normalize:
+        pcm_out = rd.normalize(pcm_out, info.sr)
+    io.encode(pcm_out, info, out, tags_from=t.path)
     return t, out, full, r.clipped
 
 
 def multitrack_dir(song: Path, s: Settings, info: io.AudioInfo) -> Path:
     """The folder of a multitrack export, where the backing track would go."""
     out = target_path(song, s, info)
-    tag = f"_{round(s.speed * 100)}pct" if s.speed != 1.0 else ""
+    tag = (f"_{round(s.speed * 100)}pct" if s.speed != 1.0 else "") + (f"_{s.semis:+g}st" if s.semis else "")
     return out.parent / f"{song.stem}_multitrack{tag}"
 
 
@@ -597,19 +638,25 @@ def export_job(job: Job, t: Track, s: Settings, cached, what: dict):
     folder.mkdir(parents=True, exist_ok=True)
     backing = stems.attenuate(pcm, st, s.levels) if st and s.levels else pcm
     tracks = daw.parts(pcm, st) if what["parts"] else {t.path.stem: backing}
-    for name, x in tracks.items():
+    job.report(_("Сборка дорожек"))
+    for name, x in zip(tracks, daw.place(list(tracks.values()), info.sr, g, s.speed, s.semis)):
         job.report(_("{name}: запись", name=f"{name}.wav"))
-        daw.write_wav(folder / f"{name}.wav", daw.place(x, info.sr, g, s.speed), info.sr)
+        daw.write_wav(folder / f"{name}.wav", x, info.sr)
+    if what.get("clickwav"):
+        n = round(max(t.duration - g.start, 0) / s.speed * info.sr) + info.sr
+        daw.write_wav(folder / "click.wav", rd.click_track(clicks, info.sr, g.start, n, s.volume_db, s.speed)[:, None], info.sr)
     if what["click"]:
         daw.write_clicks(folder / "click.mid", g, clicks, s.meter, s.speed)
     if what["tempo"]:
-        daw.write_tempo(folder / "tempo.mid", g, s.meter, s.speed)
+        daw.write_tempo(folder / "tempo.mid", g, s.meter, s.speed, t.markers)
     return t, folder, full, 0
 
 
 def warm_models():
     """Starts the separation process and loads its models there, so the first separation does not wait for
-    them; on a Mac's first run it also builds the Core ML model. They stay loaded for the life of the app."""
+    them; on a Mac's first run it also builds the Core ML model. They stay loaded for the life of the app.
+    PortAudio loads here too, so the first Play does not wait about 0.3 s for it."""
+    threading.Thread(target=lambda: __import__("sounddevice"), name="portaudio", daemon=True).start()
     try:
         from .core import worker
 
@@ -659,7 +706,7 @@ def _bars_of(zones) -> set[int]:
 def peaks_per_ms(pcm: np.ndarray, sr: int) -> np.ndarray:
     """Peak of every millisecond. Bins start at exact millisecond boundaries: whole-sample bins of sr // 1000
     run short at 44.1 kHz and draw a hit 0.4 s late by the third minute."""
-    m = np.abs(pcm).max(axis=1)
+    m = np.maximum(pcm.max(axis=1), -pcm.min(axis=1))  # no full-size abs copy
     starts = (np.arange(int(len(m) * 1000 // sr)) * sr // 1000).astype(np.int64)
     return np.maximum.reduceat(m, starts) if len(starts) else m[:0]
 
@@ -670,22 +717,32 @@ def keep(slider_value: int) -> float:
 
 
 class Player:
-    """Mixes the song and its stems block by block, so stem levels change while it plays."""
+    """Mixes the song and its stems block by block, so stem levels change while it plays. Stems come as
+    (array, offset): stem sample 0 sits at output sample `offset`, so the cache needs no aligned copies."""
 
     streams = 0  # open streams of all players
 
     def __init__(self):
         self.stream = None
+        self.src: tuple[np.ndarray, dict] = (np.zeros((0, 2), np.float32), {})
         self.pos = 0
         self.done = False
         self.gains: dict[str, float] = {}
         self.volume = 1.0  # speaker level only; the saved file never sees it
+        self.loop: tuple[int, int] | None = None  # output samples [start, end) played round
+        self.ticks: list[tuple[int, np.ndarray]] = []  # clicks mixed live: (output sample, mono hit)
+        self.laps = 0  # times the loop came round
+        self.solo: set[str] = set()  # stems played alone; empty plays the whole mix
 
-    def play(self, base: np.ndarray, stems: dict[str, np.ndarray], sr: int, start: int = 0):
+    def play(self, base: np.ndarray, stems: dict, sr: int, start: int = 0):
+        """Starts playback, or swaps the buffer of a running stream so a rebuilt preview carries on gaplessly."""
         import sounddevice as sd
 
-        self.stop()
-        self.base, self.stems, self.sr, self.pos, self.done = base, stems, sr, max(0, start), False
+        if self.stream is not None and (self.sr, self.src[0].shape[1]) != (sr, base.shape[1]):
+            self.stop()
+        self.src, self.sr, self.pos, self.done, self.ticks = (base, stems), sr, max(0, start), False, []
+        if self.stream is not None:
+            return
         self.dry = self.bad = 0
 
         # PortAudio reads the devices and the system default once; reload them, so a switched or plugged-in
@@ -701,26 +758,49 @@ class Player:
         Player.streams += 1
         self.stream.start()
 
+    def _segment(self, base: np.ndarray, stems: dict, a: int, b: int) -> np.ndarray:
+        solo = self.solo & stems.keys()
+        x = np.zeros_like(base[a:b]) if solo else base[a:b].copy()
+        for k, (st, off) in stems.items():
+            g = self.gains.get(k, 1.0)
+            lo, hi = max(a, off), min(b, off + len(st))
+            if lo >= hi:
+                continue
+            if solo:
+                if k in solo:
+                    x[lo - a : hi - a] += (g or 1.0) * st[lo - off : hi - off]
+            elif g != 1.0:
+                x[lo - a : hi - a] -= (1.0 - g) * st[lo - off : hi - off]
+        for p, hit in self.ticks:
+            lo, hi = max(a, p), min(b, p + len(hit))
+            if lo < hi:
+                x[lo - a : hi - a] += hit[lo - p : hi - p, None]
+        return x
+
     def _fill(self, out, frames, _time, status):
         if status.output_underflow:
             self.dry += 1
-        a = self.pos
-        b = min(a + frames, len(self.base))
-        x = self.base[a:b].copy()
-        for k, st in self.stems.items():
-            g = self.gains.get(k, 1.0)
-            if g != 1.0:
-                x -= (1.0 - g) * st[a:b]
+        base, stems = self.src
+        out[:] = 0
+        n = 0
+        while n < frames and not self.done:
+            a, lp = self.pos, self.loop
+            end = lp[1] if lp and a < lp[1] else len(base)
+            b = min(a + frames - n, end, len(base))
+            out[n : n + b - a] = self._segment(base, stems, a, b)
+            n += b - a
+            self.pos = b
+            if lp and b == lp[1]:
+                self.pos, self.ticks = lp[0], []
+                self.laps += 1
+            elif b >= len(base):
+                self.done = True
+        x = out[:n]
         x *= self.volume
         if not np.isfinite(x).all():  # one NaN makes Core Audio click and fall silent for the rest of the stream
             self.bad += 1
             np.nan_to_num(x, copy=False, nan=0.0, posinf=1.0, neginf=-1.0)
         np.clip(x, -1.0, 1.0, out=x)
-        out[: b - a] = x
-        out[b - a :] = 0
-        self.pos = b
-        if b >= len(self.base):
-            self.done = True
 
     def position(self) -> float:
         """Seconds heard so far: samples handed to the device minus its output latency."""
@@ -754,7 +834,7 @@ class Segmented(QWidget):
         for i, (label, _value) in enumerate(options):
             b = QPushButton(label, checkable=True)
             b.setProperty("seg", "first" if i == 0 else "last" if i == len(options) - 1 else "mid")
-            b.setFocusPolicy(Qt.NoFocus)
+            b.setFocusPolicy(Qt.TabFocus)
             self.group.addButton(b, i)
             h.addWidget(b)
         h.addStretch()
@@ -811,19 +891,51 @@ def glyph(kind: str, color: QColor, size: int = 18) -> QIcon:
         lines((4, 9, 14, 9))
     elif kind == "close":
         lines((5, 5, 13, 13), (13, 5, 5, 13))
+    elif kind == "loop":  # two arrows chasing each other round
+        p.setBrush(Qt.NoBrush)
+        p.setPen(QPen(color, 1.8, Qt.SolidLine, Qt.RoundCap))
+        p.drawArc(QRectF(3, 4, 12, 10), 20 * 16, 140 * 16)
+        p.drawArc(QRectF(3, 4, 12, 10), 200 * 16, 140 * 16)
+        p.setPen(Qt.NoPen)
+        p.setBrush(color)
+        p.drawPolygon(QPolygonF([QPointF(1.2, 6.2), QPointF(5.4, 6.2), QPointF(3.3, 9.6)]))
+        p.drawPolygon(QPolygonF([QPointF(16.8, 11.8), QPointF(12.6, 11.8), QPointF(14.7, 8.4)]))
     elif kind == "fit":
         lines((2.5, 9, 15.5, 9), (2.5, 9, 5.5, 6), (2.5, 9, 5.5, 12), (15.5, 9, 12.5, 6), (15.5, 9, 12.5, 12))
     p.end()
     return QIcon(pix)
 
 
+class ClickLabel(QLabel):
+    clicked = Signal()
+
+    def mouseReleaseEvent(self, e):
+        if e.button() == Qt.LeftButton and self.rect().contains(e.position().toPoint()):
+            self.clicked.emit()
+
+
+def add_buttons(h: QHBoxLayout, cancel: QPushButton, ok: QPushButton) -> None:
+    """Cancel and the main button in the platform's order: the main one first on Windows, last on a Mac."""
+    for b in (ok, cancel) if sys.platform == "win32" else (cancel, ok):
+        h.addWidget(b)
+
+
+def keys(text: str) -> str:
+    """Mac key symbols in a line of text, spelled the Windows way off a Mac."""
+    if sys.platform == "darwin":
+        return text
+    for mac, win in (("⌘", "Ctrl+"), ("⌥", "Alt"), ("⇧", "Shift")):
+        text = text.replace(mac, win)
+    return text
+
+
 def glyph_button(kind: str, tip: str, slot, name: str = "tbtn", color: QColor | None = None, size: int = 18) -> QPushButton:
-    b = QPushButton(objectName=name, clicked=slot, toolTip=tip)
+    b = QPushButton(objectName=name, clicked=slot, toolTip=tip, accessibleName=tip)
     b.setIcon(glyph(kind, color or QApplication.palette().text().color(), size))
     if color is None:
         b.setProperty("glyph", kind)  # redrawn in the new text colour when the appearance changes
     b.setIconSize(QSize(size, size))
-    b.setFocusPolicy(Qt.NoFocus)
+    b.setFocusPolicy(Qt.TabFocus)
     b.setCursor(Qt.PointingHandCursor)
     return b
 
@@ -1112,6 +1224,7 @@ class Wave(QWidget):
     zonesEdited = Signal(object)
     zoneClicked = Signal(int)
     spanSelected = Signal(int, int)  # first and last bar of a span dragged with Shift or along the ruler
+    markerMenu = Signal(int)  # a right-click on section marker i
     playFrom = Signal(float)
     playheadClicked = Signal()  # the user put the playhead somewhere by a click  # double-click: play from here
     navChanged = Signal()  # the play position or the current pause changed
@@ -1128,6 +1241,9 @@ class Wave(QWidget):
         self.t0 = None
         self.bars, self.zones, self.fill = [], [], True
         self.sel = None  # bars (first, last) while a span is being dragged
+        self.loop: tuple[float, float, bool] | None = None  # loop start, end and whether it plays round
+        self.markers: list[tuple[float, str]] = []  # (song time, name) of the sections
+        self.marker_boxes: list[tuple[QRectF, int]] = []  # hit boxes of the marker labels on the ruler
         self.peak, self.ref_db, self.threshold_db = 1.0, None, None  # for the pause threshold band
         self.threshold_full = False  # band over the whole track while the slider moves
         self.labels: list[tuple[QRectF, int]] = []
@@ -1135,6 +1251,7 @@ class Wave(QWidget):
         self.cursor_t = None
         self.drag = None
         self._cache = (None, None)
+        self._grid: tuple = (None, None)  # beat lines and clicks layer, see _grid_pixmap
 
         self.overview: QWidget | None = None  # mini-map of the whole song, repainted with the waveform
         self.busy: QWidget | None = None  # centred progress card
@@ -1244,6 +1361,45 @@ class Wave(QWidget):
         self._cache = (key, pix)
         return pix
 
+    def _grid_pixmap(self, accent: QColor) -> QPixmap:
+        """Beat lines and clicks, cached like the waveform: playback repaints only draw this pixmap and the
+        playhead, which keeps the interpreter free for the audio callback."""
+        dpr = self.devicePixelRatioF()
+        w, wh = self.width(), self.height() - self.RULER
+        key = (w, wh, dpr, self.v0, self.v1, id(self.beats), id(self.downs), id(self.clicks), len(self.clicks),
+               self.t0, accent.rgb())
+        if self._grid[0] == key:
+            return self._grid[1]
+        pix = QPixmap(max(int(w * dpr), 1), max(int(wh * dpr), 1))
+        pix.setDevicePixelRatio(dpr)
+        pix.fill(Qt.transparent)
+        p = QPainter(pix)
+        p.setRenderHint(QPainter.Antialiasing)
+
+        # Only what is on screen, and no beat lines closer than 4 px: a whole song would be a grey wall
+        px_per_s = w / max(self.v1 - self.v0, 1e-6)
+        dense = len(self.beats) > 1 and (self.duration / len(self.beats)) * px_per_s < 4
+        p.setPen(QPen(QColor(127, 127, 127, 70), 1))
+        p.drawLines([QLineF(self.x_of(t), 0, self.x_of(t), wh) for t in ([] if dense else self._visible(self.beats))])
+        p.setPen(QPen(QColor(127, 127, 127, 160), 1, Qt.DashLine if not dense else Qt.SolidLine))
+        p.drawLines([QLineF(self.x_of(t), 0, self.x_of(t), wh) for t in self._visible(self.downs)])
+
+        p.setPen(Qt.NoPen)
+        last_x = None
+        for c in sorted(self.clicks, key=lambda c: c.time):
+            if not self.v0 - 1 <= c.time <= self.v1 + 1:
+                continue
+            x = self.x_of(c.time)
+            if last_x is not None and x - last_x < 5 and not c.accent:  # zoomed out: bar starts only
+                continue
+            last_x = x
+            p.setBrush(GREEN if self.t0 is not None and c.time >= self.t0 - 0.05 else accent)  # inside the song
+            hgt = wh * (0.42 if c.accent else 0.28) * min(c.gain, 1.6)
+            p.drawRoundedRect(QRectF(x - 2, 28, 4, hgt), 2, 2)
+        p.end()
+        self._grid = (key, pix)
+        return pix
+
     def _visible(self, times) -> list[float]:
         a = np.asarray(times)
         return a[np.searchsorted(a, self.v0) : np.searchsorted(a, self.v1, side="right")].tolist()
@@ -1283,29 +1439,7 @@ class Wave(QWidget):
             p.drawLine(QPointF(xb, 0), QPointF(xb, wh))
 
         p.drawPixmap(0, 0, self._wave_pixmap())
-
-        # Only what is on screen, and no beat lines closer than 4 px: a whole song would be a grey wall
-        px_per_s = w / max(self.v1 - self.v0, 1e-6)
-        dense = len(self.beats) > 1 and (self.duration / len(self.beats)) * px_per_s < 4
-        p.setPen(QPen(QColor(127, 127, 127, 70), 1))
-        for t in ([] if dense else self._visible(self.beats)):
-            p.drawLine(QPointF(self.x_of(t), 0), QPointF(self.x_of(t), wh))
-        p.setPen(QPen(QColor(127, 127, 127, 160), 1, Qt.DashLine))
-        for t in self._visible(self.downs):
-            p.drawLine(QPointF(self.x_of(t), 0), QPointF(self.x_of(t), wh))
-
-        p.setPen(Qt.NoPen)
-        last_x = None
-        for c in sorted(self.clicks, key=lambda c: c.time):
-            if not self.v0 - 1 <= c.time <= self.v1 + 1:
-                continue
-            x = self.x_of(c.time)
-            if last_x is not None and x - last_x < 5 and not c.accent:  # zoomed out: bar starts only
-                continue
-            last_x = x
-            p.setBrush(GREEN if self.t0 is not None and c.time >= self.t0 - 0.05 else accent)  # inside the song
-            hgt = wh * (0.42 if c.accent else 0.28) * min(c.gain, 1.6)
-            p.drawRoundedRect(QRectF(self.x_of(c.time) - 2, 28, 4, hgt), 2, 2)
+        p.drawPixmap(0, 0, self._grid_pixmap(accent))
 
         if self.t0 is not None:
             x = self.x_of(self.t0)
@@ -1319,6 +1453,16 @@ class Wave(QWidget):
             f.setBold(True)
             p.setFont(f)
             p.drawText(QRectF(x - 9, 3, 18, 18), Qt.AlignCenter, "1")
+        if self.loop:
+            la, lb, on = self.loop
+            xa, xb = self.x_of(la), self.x_of(lb)
+            band = QColor(accent)
+            band.setAlpha(40 if on else 16)
+            p.fillRect(QRectF(xa, 0, xb - xa, wh), band)
+            band.setAlpha(230 if on else 110)
+            p.setPen(Qt.NoPen)
+            p.setBrush(band)
+            p.drawRect(QRectF(xa, wh - 4, xb - xa, 4))
         if self.sel:
             a, b = self.sel
             xa, xb = self.x_of(self.bars[a].start), self.x_of(self.bars[b].end)
@@ -1354,18 +1498,52 @@ class Wave(QWidget):
         f.setBold(False)
         f.setPointSizeF(f.pointSizeF() * 0.85)
         p.setFont(f)
-        step = self._ruler_step()
-        t = np.ceil(self.v0 / step) * step
-        while t <= self.v1:
-            x = self.x_of(t)
-            p.setPen(QPen(QColor(127, 127, 127, 140), 1))
-            p.drawLine(QPointF(x, wh), QPointF(x, wh + 4))
-            p.drawText(QRectF(x + 3, wh + 2, 80, self.RULER - 2), Qt.AlignLeft | Qt.AlignVCenter,
-                       f"{t:.2f}".rstrip("0").rstrip(".") + _(" с"))
-            t += step
+        p.setPen(QPen(QColor(127, 127, 127, 140), 1))
+        if self.bars:
+            # Bar numbers, as tabs and scores count them; every k-th bar when they would crowd
+            px = (self.bars[min(1, len(self.bars) - 1)].end - self.bars[0].start) * w / max(self.v1 - self.v0, 1e-6)
+            k = next((k for k in (1, 2, 4, 8, 16, 32, 64) if px * k >= 36), 128)
+            for i, b in enumerate(self.bars):
+                if i % k or not self.v0 <= b.start <= self.v1:
+                    continue
+                x = self.x_of(b.start)
+                p.drawLine(QPointF(x, wh), QPointF(x, wh + 4))
+                p.drawText(QRectF(x + 3, wh + 2, 60, self.RULER - 2), Qt.AlignLeft | Qt.AlignVCenter, str(i + 1))
+        else:
+            step = self._ruler_step()
+            t = np.ceil(self.v0 / step) * step
+            while t <= self.v1:
+                x = self.x_of(t)
+                p.drawLine(QPointF(x, wh), QPointF(x, wh + 4))
+                p.drawText(QRectF(x + 3, wh + 2, 80, self.RULER - 2), Qt.AlignLeft | Qt.AlignVCenter,
+                           f"{t:.2f}".rstrip("0").rstrip(".") + _(" с"))
+                t += step
+        self._paint_markers(p, w, wh)
         self._paint_playhead(p, wh)
         if self.overview is not None:
             self.overview.update()
+
+    def _paint_markers(self, p: QPainter, w: float, wh: float):
+        """Section markers: a faint line over the waveform and the name on the ruler; right-click edits."""
+        self.marker_boxes = []
+        accent = accent_color(QApplication.instance())
+        fm = p.fontMetrics()
+        for i, (t, name) in enumerate(self.markers):
+            x = self.x_of(t)
+            if not -200 <= x <= w:
+                continue
+            line = QColor(accent)
+            line.setAlpha(110)
+            p.setPen(QPen(line, 1, Qt.DashLine))
+            p.drawLine(QPointF(x, 22), QPointF(x, wh))
+            text = f"{i + 1} {name}" if i < 9 else name
+            box = QRectF(x, wh + 2, fm.horizontalAdvance(text) + 12, self.RULER - 4)
+            p.setPen(Qt.NoPen)
+            p.setBrush(accent)
+            p.drawRoundedRect(box, 6, 6)
+            p.setPen(on_accent(QApplication.instance()))
+            p.drawText(box, Qt.AlignCenter, text)
+            self.marker_boxes.append((box, i))
 
     def _paint_playhead(self, p: QPainter, wh: float):
         """A line at the play position (or where playback will start) with a head on the time ruler."""
@@ -1479,6 +1657,10 @@ class Wave(QWidget):
             QApplication.focusWidget().clearFocus()  # a click on the waveform ends typing in a number field
         x, pos = e.position().x(), e.position()
         if e.button() == Qt.RightButton:
+            m = next((i for box, i in self.marker_boxes if box.contains(pos)), None)
+            if m is not None:
+                self.markerMenu.emit(m)
+                return
             i = self._bar_at(self.t_of(x))
             if i is not None:
                 z = self._zone_at(i)
@@ -1639,7 +1821,7 @@ class MuteButton(QPushButton):
     """Speaker toggle beside a level slider. On moves the slider to MUTE, off brings the last level back."""
 
     def __init__(self, slider: QSlider, tip: str):
-        super().__init__(objectName="small", checkable=True, toolTip=tip, focusPolicy=Qt.NoFocus)
+        super().__init__(objectName="small", checkable=True, toolTip=tip, accessibleName=tip, focusPolicy=Qt.TabFocus)
         self.setFixedSize(30, 22)
         self.slider, self.level = slider, slider.value() if slider.value() != MUTE else 0
         self.toggled.connect(self._toggle)
@@ -1780,7 +1962,7 @@ def part_icon(kind: str, color: QColor, size: int = 16) -> QPixmap:
 
 
 def icon_label(kind: str, text: str) -> QWidget:
-    w = QWidget()
+    w = QWidget(accessibleName=text)
     h = QHBoxLayout(w)
     h.setContentsMargins(0, 0, 0, 0)
     h.setSpacing(6)
@@ -1798,7 +1980,10 @@ def row(grid: QGridLayout, label, *widgets) -> None:
     grid.addWidget(label if isinstance(label, QWidget) else QLabel(label, objectName="field"), r, 0)
     h = QHBoxLayout()
     h.setSpacing(6)
+    name = label if isinstance(label, str) else label.toolTip() or label.accessibleName()
     for w in widgets:
+        if name and not w.accessibleName() and not isinstance(w, QLabel):
+            w.setAccessibleName(name)  # screen readers name the control after its row
         h.addWidget(w)
     h.addStretch()
     grid.addLayout(h, r, 1)
@@ -1824,6 +2009,11 @@ CLOUD_KEY = "cloud/enabled"
 CLOUD_OVERLAP = "cloud/overlap"
 FILL_BUILD_KEY = "fill/buildup"
 CLICK_VOICE_KEY = "click/voice"
+PREROLL_KEY = "click/preroll"
+GEOMETRY_KEY = "window/geometry"
+RECENT_KEY = "recent/files"
+BOOST = 6  # dB a part slider goes above the mix
+TRAINER_LAPS = 2  # loop passes before the speed trainer adds 5%
 CLICK_DB_KEY = "click/volume"
 OUTPUT_VOLUME_KEY = "playback/volume"
 DEFAULTS = "defaults/"  # prefix for the settings saved with "Save as default"
@@ -1861,10 +2051,7 @@ class AssetsDialog(QDialog):
         v.setSpacing(12)
         v.addWidget(QLabel(_("Нужно скачать модели"), objectName="progTitle"))
         mb = assets.missing_bytes() / 1e6
-        text = QLabel(_("Count-In находит доли и разделяет песню на дорожки нейросетями. Их веса ({mb:.0f} МБ) "
-                        "скачиваются один раз и потом не меняются, поэтому обновления приложения остаются маленькими. "
-                        "Если модели уже есть на флешке или в другой папке, укажите её. Папка assets рядом с "
-                        "приложением подхватывается сама.", mb=mb), wordWrap=True, objectName="progWhy")
+        text = QLabel(_("Count-In находит доли и разделяет песню на дорожки нейросетями. Их веса ({mb:.0f} МБ) скачиваются один раз и потом не меняются, поэтому обновления программы остаются маленькими. Если модели уже есть на флешке или в другой папке, укажите её. Папка assets рядом с программой подхватывается сама.", mb=mb), wordWrap=True, objectName="progWhy")
         v.addWidget(text)
         self.bar = QProgressBar(textVisible=False, fixedHeight=8)
         self.bar.hide()
@@ -1984,11 +2171,9 @@ class TapDialog(QDialog):
         v.addWidget(self.hint)
         h = QHBoxLayout()
         h.addStretch()
-        for text, slot, name in ((_("Отмена"), self.reject, "tool"), (_("Применить"), self.accept, "primary")):
-            b = QPushButton(text, objectName=name, clicked=slot)
-            b.setFocusPolicy(Qt.NoFocus)
-            b.setAutoDefault(False)
-            h.addWidget(b)
+        pair = [QPushButton(text, objectName=name, clicked=slot, focusPolicy=Qt.TabFocus, autoDefault=False)
+                for text, slot, name in ((_("Отмена"), self.reject, "tool"), (_("Применить"), self.accept, "primary"))]
+        add_buttons(h, *pair)
         v.addLayout(h)
         self._show_hint()
 
@@ -2069,15 +2254,14 @@ class ZoneDialog(QDialog):
         g.addWidget(QLabel(_("Долей в такте"), objectName="field"), 1, 0)
         g.addWidget(self.beats, 1, 1)
         h = QHBoxLayout()
-        for text, slot in ((_("Удалить паузу"), self._remove), (_("Как в песне"), self._reset)):
+        for text, slot in ((_("Убрать паузу"), self._remove), (_("Как в песне"), self._reset)):
             b = QPushButton(text, objectName="tool", clicked=slot)
             if slot == self._reset:
-                b.setToolTip(_("Убрать ручной темп и размер: пауза снова идёт по долям, найденным в песне"))
+                b.setToolTip(_("Убрать ручной темп и размер, чтобы пауза снова шла по долям песни"))
             h.addWidget(b)
         h.addStretch()
         ok = QPushButton(_("Готово"), objectName="primary", clicked=self.accept, default=True)
-        h.addWidget(QPushButton(_("Отмена"), objectName="tool", clicked=self.reject))
-        h.addWidget(ok)
+        add_buttons(h, QPushButton(_("Отмена"), objectName="tool", clicked=self.reject), ok)
         g.addLayout(h, 2, 0, 1, 2)
 
     def _remove(self):
@@ -2091,6 +2275,7 @@ class ZoneDialog(QDialog):
 
 EXPORT_MODE, EXPORT_PARTS, EXPORT_CLICK, EXPORT_TEMPO, EXPORT_FORMAT = (
     "export/mode", "export/parts", "export/click", "export/tempo", "export/format")
+EXPORT_SPLIT, EXPORT_CLICKWAV, EXPORT_NORM = "export/split", "export/clickwav", "export/normalize"
 
 
 def export_format() -> str | None:
@@ -2195,21 +2380,31 @@ class ExportDialog(QDialog):
         fmt.setSpacing(6)
         fmt.addWidget(QLabel(_("Формат"), objectName="field"))
         fmt.addWidget(self.fmt)
+        self.split = QCheckBox(_("Микс для сцены с кликом слева и музыкой справа"), checked=pref_bool(EXPORT_SPLIT, False))
+        self.split.setToolTip(_("Клик уходит в наушники барабанщика или в ваши, музыка в зал. Музыка сводится в моно."))
+        self.split.toggled.connect(self._update)
+        fmt.addWidget(self.split)
+        self.norm = QCheckBox(_("Ровная громкость −14 LUFS, как в стримингах"), checked=pref_bool(EXPORT_NORM, False))
+        self.norm.setToolTip(_("Бэктреки из разных альбомов звучат одинаково громко. Пики не поднимаются выше −1 дБ, "
+                               "поэтому динамичная песня может остаться чуть тише."))
+        fmt.addWidget(self.norm)
 
         self.boxes = {
-            EXPORT_PARTS: QCheckBox(_("Партии отдельными файлами (WAV)")),
+            EXPORT_PARTS: QCheckBox(_("Дорожки отдельными файлами (WAV)")),
             EXPORT_CLICK: QCheckBox(_("Сетка кликов (MIDI)")),
             EXPORT_TEMPO: QCheckBox(_("Темповая карта (MIDI)")),
+            EXPORT_CLICKWAV: QCheckBox(_("Клик отдельным WAV")),
         }
         tips = {
             EXPORT_PARTS: _("Гитара, вокал, бас, барабаны, пианино и всё остальное, на полной громкости. Без галочки пишется один WAV с выбранными уровнями дорожек"),
             EXPORT_CLICK: _("Отсчёт и хай-хэт в паузах нотами на 10-м канале, General MIDI"),
             EXPORT_TEMPO: _("Темп и размер каждого такта, чтобы такты DAW совпали с песней"),
+            EXPORT_CLICKWAV: _("Отсчёт и клик тем звуком, что звучит в прослушивании, с первого такта"),
         }
         files = QVBoxLayout()
         files.setSpacing(8)
         for key, box in self.boxes.items():
-            box.setChecked(pref_bool(key, True))
+            box.setChecked(pref_bool(key, key != EXPORT_CLICKWAV))
             box.setToolTip(tips[key])
             box.toggled.connect(self._update)
             files.addWidget(box)
@@ -2241,8 +2436,7 @@ class ExportDialog(QDialog):
         self.ok = QPushButton(_("Сохранить"), objectName="primary", clicked=self._accept, default=True)
         h = QHBoxLayout()
         h.addStretch()
-        h.addWidget(cancel)
-        h.addWidget(self.ok)
+        add_buttons(h, cancel, self.ok)
         v = QVBoxLayout(self)
         v.setContentsMargins(18, 18, 18, 16)
         v.setSpacing(10)
@@ -2288,6 +2482,8 @@ class ExportDialog(QDialog):
         st = QSettings()
         st.setValue(EXPORT_MODE, "multi" if self.multi.on else "backing")
         st.setValue(EXPORT_FORMAT, self.fmt.value() or "")
+        st.setValue(EXPORT_SPLIT, self.split.isChecked())
+        st.setValue(EXPORT_NORM, self.norm.isChecked())
         for key, box in self.boxes.items():
             st.setValue(key, box.isChecked())
         self.accept()
@@ -2297,7 +2493,7 @@ class ExportDialog(QDialog):
         if not self.multi.on:
             return None
         return {"parts": self.boxes[EXPORT_PARTS].isChecked(), "click": self.boxes[EXPORT_CLICK].isChecked(),
-                "tempo": self.boxes[EXPORT_TEMPO].isChecked()}
+                "tempo": self.boxes[EXPORT_TEMPO].isChecked(), "clickwav": self.boxes[EXPORT_CLICKWAV].isChecked()}
 
 
 def system_info() -> dict[str, str]:
@@ -2372,7 +2568,7 @@ class ReportDialog(QDialog):
         self.setMinimumWidth(520)
         v = QVBoxLayout(self)
         v.addWidget(QLabel(_("Что случилось? Что вы делали перед этим?"), objectName="field"))
-        self.text = QPlainTextEdit(placeholderText=_("Например: после нажатия «Сохранить» программа зависла на 40%"))
+        self.text = QPlainTextEdit(placeholderText=_("Например, после нажатия «Сохранить» программа зависла на 40%"))
         self.text.setMinimumHeight(120)
         v.addWidget(self.text)
         self.contact = QLineEdit(placeholderText=_("Почта или Telegram, если хотите получить ответ (необязательно)"))
@@ -2394,9 +2590,8 @@ class ReportDialog(QDialog):
         v.addWidget(self.note)
         h = QHBoxLayout()
         h.addStretch()
-        h.addWidget(QPushButton(_("Отмена"), objectName="tool", clicked=self.reject))
         self.ok = QPushButton(_("Отправить"), objectName="primary", clicked=self._send, default=True)
-        h.addWidget(self.ok)
+        add_buttons(h, QPushButton(_("Отмена"), objectName="tool", clicked=self.reject), self.ok)
         v.addLayout(h)
         self.pool = QThreadPool()
 
@@ -2445,9 +2640,7 @@ class CloudKeyDialog(QDialog):
         self.setWindowTitle(_("Ключ Count-In"))
         self.setMinimumWidth(460)
         v = QVBoxLayout(self)
-        v.addWidget(QLabel(_("Ключ включает разделение на дорожки на сервере Count-In. Песня уходит на сервер, "
-                             "исходный файл удаляется через сутки, партии хранятся 30 дней, чтобы та же песня "
-                             "открывалась без нового разделения."), objectName="field", wordWrap=True))
+        v.addWidget(QLabel(_("Ключ включает разделение на дорожки на сервере Count-In. Песня уходит на сервер, исходный файл удаляется через сутки, дорожки хранятся 30 дней, чтобы та же песня открывалась без нового разделения."), objectName="field", wordWrap=True))
         self.edit = QLineEdit(cloud.key() or "", placeholderText="cin_…", echoMode=QLineEdit.Password)
         v.addWidget(self.edit)
         self.note = QLabel(objectName="field", wordWrap=True)
@@ -2456,9 +2649,8 @@ class CloudKeyDialog(QDialog):
         self.remove = QPushButton(_("Удалить ключ"), objectName="tool", clicked=self._remove, enabled=bool(cloud.key()))
         h.addWidget(self.remove)
         h.addStretch()
-        h.addWidget(QPushButton(_("Отмена"), objectName="tool", clicked=self.reject))
         self.ok = QPushButton(_("Проверить и сохранить"), objectName="primary", clicked=self._check, default=True)
-        h.addWidget(self.ok)
+        add_buttons(h, QPushButton(_("Отмена"), objectName="tool", clicked=self.reject), self.ok)
         v.addLayout(h)
         self.pool = QThreadPool()
 
@@ -2541,7 +2733,7 @@ class PrefsDialog(QDialog):
             self.icon.addItem(_(title), key)
         self.icon.setCurrentIndex(list(ICON_CHOICES).index(icon_choice()))
         self.icon.currentIndexChanged.connect(self._icon)
-        row(g2, _("Иконка приложения"), self.icon)
+        row(g2, _("Иконка программы"), self.icon)
         self.lang = QComboBox()
         for key, title in i18n.LANGUAGES.items():
             self.lang.addItem(_(title) if key == "system" else title, key)
@@ -2549,7 +2741,7 @@ class PrefsDialog(QDialog):
         self.lang.setCurrentIndex(max(0, list(i18n.LANGUAGES).index(saved) if saved in i18n.LANGUAGES else 0))
         self.lang.currentIndexChanged.connect(self._lang)
         row(g2, _("Язык"), self.lang)
-        self.lang_note = QLabel(_("Язык сменится после перезапуска приложения"), objectName="field")
+        self.lang_note = QLabel(_("Язык сменится после перезапуска программы"), objectName="field")
         self.lang_note.hide()
         g2.addWidget(self.lang_note, g2.rowCount(), 1)
 
@@ -2584,9 +2776,7 @@ class PrefsDialog(QDialog):
             for n, text in ((2, _("2 · быстрее")), (4, "4"), (8, _("8 · чище"))):
                 self.overlap.addItem(text, n)
             self.overlap.setCurrentIndex(self.overlap.findData(cloud_overlap()))
-            self.overlap.setToolTip(_("Сколько раз модель слушает каждый момент песни. Больше даёт чуть чище партии "
-                                      "и дольше разделение. Новое значение действует на песни, открытые после "
-                                      "смены; партии каждого значения хранятся отдельно."))
+            self.overlap.setToolTip(_("Сколько раз модель слушает каждый момент песни. Больше даёт чуть чище дорожки и дольше разделение. Новое значение действует на песни, открытые после смены; дорожки каждого значения хранятся отдельно."))
             self.overlap.currentIndexChanged.connect(lambda _i: QSettings().setValue(CLOUD_OVERLAP, self.overlap.currentData()))
             g4.addWidget(self.overlap, 1, 1)
             self.cloud_l = QLabel(_("проверяю ключ…"), objectName="field", wordWrap=True)
@@ -2598,7 +2788,8 @@ class PrefsDialog(QDialog):
             self.cloud_job.signals.done.connect(self._cloud_info)
             self.cloud_job.signals.failed.connect(self._cloud_refused)
             self.pool.start(self.cloud_job)
-        v.addWidget(close, 0, Qt.AlignRight)
+        if sys.platform != "darwin":  # Mac settings windows save at once and close by the title bar
+            v.addWidget(close, 0, Qt.AlignRight)
         self._update()
 
     def _save(self, key, value):
@@ -2715,10 +2906,25 @@ class Window(QMainWindow):
         self.play_start = None
         self.play_speed = 1.0  # speed of the preview now playing: song time = start + position * speed
         self.speed = 100  # playback and export speed in percent
+        self.semis = 0  # transposition in semitones
+        self.trainer_laps = 0  # loop passes counted for the speed trainer
+        self.setlist: list[Path] = []  # songs opened together; N and P walk them
         self.resume_at = None  # song time a rebuilt preview carries on from
+        self.preroll = False  # the pending preview starts with a bar of clicks before resume_at
+        self.want_play = False  # a preview job is on its way to the speakers; Stop cancels that
+        self.loop: tuple[float, float] | None = None  # song times played round while loop_on
+        self.loop_on = False
+        self.job_shown = False  # the progress card shows only for jobs that take a while
+        self.show_timer = QTimer(self, singleShot=True, interval=300, timeout=self._show_job)
+        self.song_timer = QTimer(self, singleShot=True, interval=800, timeout=self._save_song)
+        self.restoring = False  # a remembered song is being applied; nothing to save yet
+        self.undo_stack: list = []  # earlier states of the track's edits (_edit_state), newest last
+        self.redo_stack: list = []
+        self.undo_base = None  # the state the next edit gets compared with
+        self.undo_timer = QTimer(self, singleShot=True, interval=600, timeout=self._snap_undo)  # a drag is one step
         self.zones_pending = False  # a pause search waits for the running job
         self.models_warm = False  # the separation model starts loading with the first track
-        self.backing_key, self.backing, self.wave_source = None, None, None  # see _update_backing
+        self.backing_key, self.wave_source = None, None  # see _update_backing
         self.play_timer = QTimer(self, interval=30, timeout=self._tick)
         self.last_saved: Path | None = None
         self.release = None
@@ -2729,6 +2935,7 @@ class Window(QMainWindow):
         self.updateReady.connect(self._update_ready)
         self._build_menu()
         self._build_body()
+        self._show_recent()
         self._build_status()
         self._load_defaults()
         self._labels()
@@ -2746,14 +2953,31 @@ class Window(QMainWindow):
                 self._play()
                 return True
         front = QApplication.activeWindow()
-        if (e.type() == QEvent.KeyPress and e.key() in (Qt.Key_Left, Qt.Key_Right, Qt.Key_Home)
+        if (e.type() == QEvent.KeyPress and (e.key() in (Qt.Key_Left, Qt.Key_Right, Qt.Key_Home, Qt.Key_L, Qt.Key_M,
+                                                         Qt.Key_N, Qt.Key_P, Qt.Key_PageUp, Qt.Key_PageDown)
+                                             or Qt.Key_1 <= e.key() <= Qt.Key_9)
                 and not e.modifiers() and QApplication.activeModalWidget() is None
                 and QApplication.activePopupWidget() is None
                 and (front in (self, None) or not front.isVisible())  # not while Help is in front
                 and not any(isinstance(x, (QLineEdit, QAbstractSpinBox, QSlider, QComboBox))
                             for x in (obj, QApplication.focusWidget()))):
             # Arrows walk the pauses, Home goes back to the count-in.
-            self._to_start() if e.key() == Qt.Key_Home else self._jump_pause(-1 if e.key() == Qt.Key_Left else 1)
+            if e.key() == Qt.Key_L:
+                self._toggle_loop()
+            elif e.key() == Qt.Key_M:
+                self._add_marker()
+            elif e.key() in (Qt.Key_N, Qt.Key_P):
+                self._step_setlist(1 if e.key() == Qt.Key_N else -1)
+            elif e.key() == Qt.Key_PageDown:  # page-turner pedals: right plays and stops, left plays again
+                self._play()
+            elif e.key() == Qt.Key_PageUp:
+                self._replay()
+            elif Qt.Key_1 <= e.key() <= Qt.Key_9:
+                self._goto_marker(e.key() - Qt.Key_1)
+            elif e.key() == Qt.Key_Home:
+                self._to_start()
+            else:
+                self._jump_pause(-1 if e.key() == Qt.Key_Left else 1)
             return True
         return super().eventFilter(obj, e)
 
@@ -2765,15 +2989,49 @@ class Window(QMainWindow):
         self.open_a = file.addAction(_("Открыть…"), QKeySequence.Open, self._open_dialog)
         self.save_a = file.addAction(_("Сохранить"), QKeySequence.Save, self._save)
         self.close_a = file.addAction(_("Закрыть трек"), QKeySequence.Close, self._close_track)
+        self.recent_m = file.addMenu(_("Открыть недавние"))
+        file.addAction(_("Следующая песня сет-листа") + "\tN", lambda: self._step_setlist(1))
+        file.addAction(_("Предыдущая песня сет-листа") + "\tP", lambda: self._step_setlist(-1))
         self.reveal_a = file.addAction(_("Показать сохранённый файл"), self._reveal)
         file.addSeparator()
         file.addAction(_("Сохранить настройки как по умолчанию"), self._save_defaults)
         file.addAction(_("Вернуть настройки по умолчанию"), self._reset_settings)
         prefs = file.addAction(_("Настройки…"), QKeySequence.Preferences, self._prefs)
         prefs.setMenuRole(QAction.PreferencesRole)
+        file.addSeparator()
+        quit_a = file.addAction(_("Выход"), QKeySequence.Quit, QApplication.instance().quit)
+        quit_a.setMenuRole(QAction.QuitRole)  # macOS moves it into the app menu
+
+        # The keys after a tab show in the menu; the window's event filter handles them, so text fields keep them.
+        edit = mb.addMenu(_("Правка"))
+        edit.addAction(_("Отменить"), QKeySequence.Undo, self._undo)
+        edit.addAction(_("Повторить"), QKeySequence.Redo, lambda: self._undo(redo=True))
 
         play = mb.addMenu(_("Воспроизведение"))
-        self.play_a = play.addAction(_("Прослушать / Стоп (Пробел)"), self._play)
+        self.play_a = play.addAction(_("Прослушать / Стоп") + "\t" + _("Пробел"), self._play)
+        play.addAction(_("К отсчёту") + "\tHome", self._to_start)
+        play.addAction(_("Предыдущая пауза") + "\t←", lambda: self._jump_pause(-1))
+        play.addAction(_("Следующая пауза") + "\t→", lambda: self._jump_pause(1))
+        play.addAction(_("Петля") + "\tL", self._toggle_loop)
+        play.addSeparator()
+        play.addAction(_("Играть сначала") + "\tPgUp", self._replay)
+        play.addAction(_("Добавить метку части") + "\tM", self._add_marker)
+        play.addAction(_("Перейти к такту…"), QKeySequence("Ctrl+G"), self._goto_bar)
+        self.trainer_a = play.addAction(_("Тренажёр скорости (+5% каждые два круга)"))
+        self.trainer_a.setCheckable(True)
+        self.trainer_a.toggled.connect(lambda _on: setattr(self.player, "laps", 0))
+        play.addAction(_("Медленнее"), QKeySequence("Ctrl+["), lambda: self._set_speed(self.speed - 5))
+        play.addAction(_("Быстрее"), QKeySequence("Ctrl+]"), lambda: self._set_speed(self.speed + 5))
+
+        view = mb.addMenu(_("Вид"))
+        view.addAction(_("Приблизить"), QKeySequence.ZoomIn, lambda: self._zoom(0.5))
+        view.addAction(_("Отдалить"), QKeySequence.ZoomOut, lambda: self._zoom(2.0))
+        view.addAction(_("Весь трек"), QKeySequence("Ctrl+0"), self._zoom_fit)
+
+        if sys.platform == "darwin":
+            win = mb.addMenu(_("Окно"))
+            win.addAction(_("Свернуть"), QKeySequence("Ctrl+M"), self.showMinimized)
+            win.addAction(_("Изменить масштаб окна"), lambda: self.showNormal() if self.isMaximized() else self.showMaximized())
 
         help_ = mb.addMenu(_("Справка"))
         about = help_.addAction(_("О программе Count-In"), self._about)
@@ -2783,6 +3041,7 @@ class Window(QMainWindow):
         self.update_a = help_.addAction(_("Проверить обновления…"), self._update_action)
         self.update_a.setMenuRole(QAction.ApplicationSpecificRole)
         help_.addAction(_("Справка Count-In"), QKeySequence.HelpContents, self._help)
+        help_.addAction(_("Что нового"), lambda: self._whats_new(None))
         help_.addAction(_("Страница проекта"), lambda: QDesktopServices.openUrl(QUrl(site_url())))
         help_.addSeparator()
         help_.addAction(_("Сообщить о проблеме…"), lambda: ReportDialog(self).exec())
@@ -2793,35 +3052,65 @@ class Window(QMainWindow):
         self.addAction(key_a)
 
     def _header(self) -> QWidget:
+        """Three cards like the ones under the waveform: the song and what the detector found, its key and
+        file, then the speaker level over the file buttons."""
         head = QWidget(objectName="header")
         h = QHBoxLayout(head)
-        h.setContentsMargins(22, 14, 22, 6)
-        text = QVBoxLayout()
-        text.setSpacing(2)
+        h.setContentsMargins(22, 12, 22, 4)
+        h.setSpacing(12)
+
+        song = QFrame(objectName="card")
+        sv = QVBoxLayout(song)
+        sv.setContentsMargins(14, 12, 14, 12)
+        sv.setSpacing(2)
         self.title = QLabel("Count-In", objectName="title")
         self.subtitle = QLabel(objectName="subtitle")
-        text.addWidget(self.title)
-        text.addWidget(self.subtitle)
-        h.addLayout(text, 1)
+        for w in (self.title, self.subtitle, self.detector, self.warning):
+            sv.addWidget(w)
+        sv.addStretch()
+        h.addWidget(song, 1)
 
-        # Speaker level of the preview; not part of the song or the saved file
-        self.speaker = speaker = QLabel(toolTip=_("Громкость прослушивания"))
-        self.out_volume = QSlider(Qt.Horizontal, minimum=0, maximum=100, fixedWidth=130,
-                                  toolTip=_("Громкость прослушивания"))
+        self.info_card, g = card(_("Тональность"))
+        self.key_l = QLabel("—", objectName="keyBig")
+        self.key_l.setToolTip(_("Тональность оценена по спектру всей песни, проверьте её на слух"))
+        self.length_l = QLabel(objectName="subtitle")
+        self.file_l = QLabel(objectName="subtitle")
+        g.addWidget(self.key_l, 0, 0, 1, 2)
+        g.addWidget(self.length_l, 1, 0, 1, 2)
+        g.addWidget(self.file_l, 2, 0, 1, 2)
+        self.info_card.setFixedWidth(250)  # a long file line never widens the card and shifts its neighbours
+        self.length_l.setText("—")  # placeholders keep the header the same height with or without a song
+        self.file_l.setText("—")
+        h.addWidget(self.info_card, 0)
+
+        # Speaker level of the playback; never part of the saved file
+        self.out_pct = QLabel(objectName="unit")
+        acts, g = card(_("Громкость вывода"), self.out_pct)
+        self.speaker = QLabel(toolTip=_("Громкость прослушивания"))
+        self.out_volume = QSlider(Qt.Horizontal, minimum=0, maximum=100, minimumWidth=120,
+                                  toolTip=_("Громкость прослушивания"), accessibleName=_("Громкость прослушивания"))
         self.out_volume.setValue(int(output_volume() * 100))
-        self.out_volume.setFocusPolicy(Qt.NoFocus)
+        self.out_volume.setFocusPolicy(Qt.TabFocus)
         self.out_volume.valueChanged.connect(self._output_volume)
         self._speaker_icon()
-        h.addWidget(speaker, 0, Qt.AlignVCenter)
-        h.addWidget(QLabel(_("Громкость вывода"), objectName="headerLabel"), 0, Qt.AlignVCenter)
-        h.addWidget(self.out_volume, 0, Qt.AlignVCenter)
-        h.addSpacing(16)
-        self.open_b = QPushButton(_("Открыть…"), objectName="tool", clicked=self._open_dialog)
-        self.save_b = QPushButton(_("Сохранить"), objectName="tool", clicked=self._save, toolTip="⌘S")
-        self.close_b = QPushButton(_("Закрыть"), objectName="tool", clicked=self._close_track, toolTip="⌘W")
+        g.addWidget(self.speaker, 0, 0, Qt.AlignVCenter)
+        g.addWidget(self.out_volume, 0, 1, Qt.AlignVCenter)
+
+        # File buttons along the card's bottom edge, under the same rule the tempo card uses
+        self.open_b = QPushButton(_("Открыть…"), objectName="headBtn", clicked=self._open_dialog)
+        self.save_b = QPushButton(_("Сохранить"), objectName="headBtn", clicked=self._save,
+                                  toolTip=QKeySequence(QKeySequence.Save).toString(QKeySequence.NativeText))
+        self.save_b.setProperty("accent", True)
+        self.close_b = QPushButton(_("Закрыть"), objectName="headBtn", clicked=self._close_track,
+                                   toolTip=QKeySequence(QKeySequence.Close).toString(QKeySequence.NativeText))
+        buttons = QHBoxLayout()
+        buttons.setSpacing(8)
         for b in (self.open_b, self.close_b, self.save_b):  # Play lives in the transport bar under the waveform
-            b.setFocusPolicy(Qt.NoFocus)
-            h.addWidget(b)
+            b.setFocusPolicy(Qt.TabFocus)
+            buttons.addWidget(b, 1)
+        acts.layout().addWidget(QFrame(objectName="hline"))
+        acts.layout().addLayout(buttons)
+        h.addWidget(acts, 0)
         return head
 
     def _build_body(self):
@@ -2829,8 +3118,15 @@ class Window(QMainWindow):
         drop_page = QWidget()
         dv = QVBoxLayout(drop_page)
         dv.setContentsMargins(40, 20, 40, 40)
-        drop = QLabel(_("Перетащите сюда трек\n\nmp3, FLAC, ALAC, WAV"), objectName="drop", alignment=Qt.AlignCenter)
-        dv.addWidget(drop)
+        drop = ClickLabel(_("Перетащите сюда трек или щёлкните, чтобы выбрать\n\nmp3, FLAC, ALAC, WAV, AIFF, OGG, M4A"),
+                          objectName="drop", alignment=Qt.AlignCenter, cursor=Qt.PointingHandCursor)
+        drop.clicked.connect(self._open_dialog)
+        dv.addWidget(drop, 1)
+        self.recent_box = QWidget()
+        self.recent_v = QVBoxLayout(self.recent_box)
+        self.recent_v.setContentsMargins(0, 12, 0, 0)
+        self.recent_v.setSpacing(2)
+        dv.addWidget(self.recent_box)
         self.stack.addWidget(drop_page)
         self.stack.addWidget(self._editor())
 
@@ -2864,7 +3160,7 @@ class Window(QMainWindow):
         self.prog_phrase = QLabel(objectName="progPhrase", alignment=Qt.AlignCenter, wordWrap=True)
         self.prog_phrase.setFixedWidth(540)
         self.cancel_b = QPushButton(_("Отмена"), objectName="tool", clicked=self._cancel)
-        self.cancel_b.setFocusPolicy(Qt.NoFocus)
+        self.cancel_b.setFocusPolicy(Qt.TabFocus)
         for w in (self.prog_label, self.prog_why):
             v.addWidget(w, 0, Qt.AlignHCenter)
         v.addSpacing(4)
@@ -2883,9 +3179,9 @@ class Window(QMainWindow):
         """A practical tip for every progress display; while the parts separate with a part turned down, a note
         that the pauses come only after it."""
         tip = True  # music lines are off until a better set is chosen
-        text = _(random.choice(TIPS))
+        text = keys(_(random.choice(TIPS)))
         if self.sep_job and self._full_stems() is None and self._filling() and self.settings().levels:
-            text = _("Паузы с хай-хэтом появятся, когда закончится разделение на дорожки: их ищут без убранных инструментов")
+            text = _("Паузы с хай-хэтом появятся после разделения на дорожки, потому что их ищут без убранных инструментов")
         self.prog_phrase.setText(text)
         self.wave.busy.phrase.setText(text)
         self.wave.tips.set(text, tip)
@@ -2973,6 +3269,11 @@ class Window(QMainWindow):
                   self.play_b,
                   glyph_button("next", _("Следующая пауза (→)"), lambda: self._jump_pause(1))):
             h.addWidget(b)
+        self.loop_b = glyph_button("loop", _("Играть выделенные такты по кругу (L). Такты выделяются протяжкой с Shift"),
+                                   self._toggle_loop)
+        self.loop_b.setCheckable(True)
+        self.loop_b.setEnabled(False)
+        h.addWidget(self.loop_b)
         h.addSpacing(8)
         lcd = QFrame(objectName="lcd")
         lh = QHBoxLayout(lcd)
@@ -2989,10 +3290,10 @@ class Window(QMainWindow):
             line = QFrame(objectName="vsep", fixedWidth=1, fixedHeight=24)  # short of the bar's edges
             return line
 
-        h.addSpacing(10)
+        h.addSpacing(6)
         h.addWidget(vsep())
-        h.addSpacing(10)
-        h.addWidget(QLabel(_("Заполнение пауз"), objectName="groupTitle"))
+        h.addSpacing(6)
+        h.addWidget(QLabel(_("Паузы"), objectName="groupTitle", toolTip=_("Заполнение пауз")))
         h.addSpacing(4)
 
         # − count + as in the tempo card: minus removes the current pause, plus makes one at the play position
@@ -3003,15 +3304,15 @@ class Window(QMainWindow):
         self.pause_l = QLabel(objectName="chipText", alignment=Qt.AlignCenter, minimumWidth=56)
         ch.addWidget(self.pause_l)
         h.addWidget(chip)
-        h.addWidget(glyph_button("plus", _("Сделать паузой такт под плейхедом. Несколько тактов: тяните с ⇧ или по шкале времени."),
+        h.addWidget(glyph_button("plus", keys(_("Сделать паузой такт под плейхедом. Чтобы взять несколько тактов, тяните с ⇧ или по линейке.")),
                                  self._add_pause, "round"))
         help_b = QPushButton("?", objectName="tbtn", clicked=self._help, toolTip=_("Справка Count-In"))
-        help_b.setFocusPolicy(Qt.NoFocus)
+        help_b.setFocusPolicy(Qt.TabFocus)
 
-        # Speed: − percent +, slower with the pitch kept; steps of 5% from 80% to 100%; slower than that the stretch smears the sound
-        h.addSpacing(10)
+        # Speed: − percent +, slower with the pitch kept; steps of 5% from 50% to 100%; below 80% the stretch smears the sound
+        h.addSpacing(6)
         h.addWidget(vsep())
-        h.addSpacing(10)
+        h.addSpacing(6)
         h.addWidget(QLabel(_("Скорость"), objectName="groupTitle"))
         h.addSpacing(4)
         h.addWidget(glyph_button("minus", _("Медленнее на 5%, тон не меняется"), lambda: self._set_speed(self.speed - 5), "round"))
@@ -3019,7 +3320,7 @@ class Window(QMainWindow):
         sh = QHBoxLayout(schip)
         sh.setContentsMargins(10, 3, 10, 3)
         self.speed_l = QLabel("100%", objectName="chipText", alignment=Qt.AlignCenter, minimumWidth=48)
-        self.speed_l.setToolTip(_("Скорость прослушивания и сохранения. Тон не меняется, отсчёт и хай-хэт встают на замедленную сетку."))
+        self.speed_l.setToolTip(_("Скорость прослушивания и сохранения. Тон не меняется, отсчёт и хай-хэт встают на замедленную сетку. Ниже 80% звук размывается, но разбирать ноты это не мешает."))
         sh.addWidget(self.speed_l)
         h.addWidget(schip)
         h.addWidget(glyph_button("plus", _("Быстрее на 5%"), lambda: self._set_speed(self.speed + 5), "round"))
@@ -3027,6 +3328,22 @@ class Window(QMainWindow):
         self.speed_bpm_l.setToolTip(_("Темп с учётом скорости"))
         h.addSpacing(6)
         h.addWidget(self.speed_bpm_l)
+
+        # Key: semitones up or down, tempo kept
+        h.addSpacing(6)
+        h.addWidget(vsep())
+        h.addSpacing(6)
+        h.addWidget(QLabel(_("Тон"), objectName="groupTitle"))
+        h.addSpacing(4)
+        h.addWidget(glyph_button("minus", _("На полтона ниже"), lambda: self._set_semis(self.semis - 1), "round"))
+        tchip = QFrame(objectName="lcd")
+        th = QHBoxLayout(tchip)
+        th.setContentsMargins(10, 3, 10, 3)
+        self.semis_l = QLabel("0", objectName="chipText", alignment=Qt.AlignCenter, minimumWidth=32)
+        self.semis_l.setToolTip(_("Сдвиг тона в полутонах, темп не меняется. −1 подходит для строя Eb, −2 для строя D. Сохранённый файл тоже сдвигается."))
+        th.addWidget(self.semis_l)
+        h.addWidget(tchip)
+        h.addWidget(glyph_button("plus", _("На полтона выше"), lambda: self._set_semis(self.semis + 1), "round"))
         h.addStretch()
         h.addWidget(vsep())
         h.addSpacing(6)
@@ -3040,12 +3357,113 @@ class Window(QMainWindow):
         h.addWidget(help_b)
         return bar
 
+    def _step_setlist(self, d: int):
+        t = self.current
+        if not self.setlist:
+            self.status.setText(_("Чтобы собрать сет-лист, откройте или перетащите несколько песен сразу"))
+            return
+        i = self.setlist.index(t.path) if t and t.path in self.setlist else -1
+        j = i + d
+        if 0 <= j < len(self.setlist) and not self.job:
+            self.open_files([self.setlist[j]])
+            self.status.setText(_("Сет-лист: песня {i} из {n}", i=j + 1, n=len(self.setlist)))
+
+    def _replay(self):
+        """From the loop start, the playhead or the count-in again, with the count-in bar before a mid-song start."""
+        at = self.loop[0] if self.loop_on and self.loop else self.wave.play_t
+        if at is None:
+            self._stop()
+            self._play()
+        else:
+            self._play_at(at, preroll=True)
+
+    def _here(self) -> float | None:
+        w = self.wave
+        return w.cursor_t if w.cursor_t is not None else w.play_t
+
+    def _set_markers(self, markers: list):
+        t = self.current
+        t.markers = sorted(markers)
+        self.wave.markers = t.markers
+        self._song_changed()
+        self.wave.update()
+
+    def _add_marker(self):
+        """A named section at the play position: keys 1–9 jump to the first nine."""
+        t, at = self.current, self._here()
+        if not (t and t.analysis) or at is None:
+            self.status.setText(_("Щёлкните по волне, где начинается часть, и добавьте метку"))
+            return
+        name, ok = QInputDialog.getText(self, _("Метка части"), _("Название части:"),
+                                        text=_("Часть {n}", n=len(t.markers) + 1))
+        if ok and name.strip():
+            self._set_markers(t.markers + [(float(at), name.strip())])
+
+    def _marker_menu(self, i: int):
+        t = self.current
+        menu = QMenu(self)
+        rename, delete = menu.addAction(_("Переименовать…")), menu.addAction(_("Убрать метку"))
+        chosen = menu.exec(QCursor.pos())
+        at, name = t.markers[i]
+        if chosen is rename:
+            new, ok = QInputDialog.getText(self, _("Метка части"), _("Название части:"), text=name)
+            if ok and new.strip():
+                self._set_markers(t.markers[:i] + [(at, new.strip())] + t.markers[i + 1 :])
+        elif chosen is delete:
+            self._set_markers(t.markers[:i] + t.markers[i + 1 :])
+
+    def _goto_marker(self, i: int):
+        t = self.current
+        if t and i < len(t.markers):
+            self._go_to(t.markers[i][0])
+
+    def _goto_bar(self):
+        t = self.current
+        if not (t and t.bars):
+            return
+        n, ok = QInputDialog.getInt(self, _("Перейти к такту"), _("Номер такта:"), 1, 1, len(t.bars))
+        if ok:
+            self._go_to(t.bars[n - 1].start)
+
+    def _go_to(self, at: float):
+        w = self.wave
+        w.set_playhead(at, snap=False)
+        span = w.v1 - w.v0
+        w.show_range(at - 0.1 * span, at + 0.9 * span)
+        if self.play_start is not None:
+            self._play_at(at, preroll=True)
+
+    def _click_mute(self, on: bool):
+        self.click_mute.setIcon(QIcon(part_icon("muted" if on else "speaker", QColor(127, 127, 127), 16)))
+        if hasattr(self, "parts"):  # the part sliders come later in the build
+            self._gains()
+
+    def _solo(self, name: str, on: bool):
+        self.player.solo = {n for n, b in self.solo_b.items() if b.isChecked()} | (
+            {"click"} if self.solo_b_click.isChecked() else set())
+        if on and name != "click" and not self.player.src[1].keys() - {"click"} and self.play_start is not None:
+            self._restart_preview(separate=True)  # the playing preview has no parts yet
+        elif on and name != "click" and self._full_stems() is None and not self.sep_job:
+            self.status.setText(_("Соло заработает, когда песня разделится на дорожки"))
+
+    def _set_semis(self, n: int):
+        """Transposition in semitones, −6..+6; a playing preview carries on in the new key."""
+        n = int(np.clip(n, -6, 6))
+        if n == self.semis:
+            return
+        self.semis = n
+        self._song_changed()
+        self.semis_l.setText(f"{n:+d}".replace("-", "−") if n else "0")
+        self._show_detector()
+        self._restart_preview()
+
     def _set_speed(self, pct: int):
-        """Playback and export speed in percent, 80..100; a playing preview carries on at the new speed."""
-        pct = int(np.clip(pct, 80, 100))
+        """Playback and export speed in percent, 50..100; a playing preview carries on at the new speed."""
+        pct = int(np.clip(pct, 50, 100))
         if pct == self.speed:
             return
         self.speed = pct
+        self._song_changed()
         self.speed_l.setText(f"{pct}%")
         self._speed_bpm()
         self._restart_preview()
@@ -3176,7 +3594,7 @@ class Window(QMainWindow):
 
         def pad(text: str, slot, tip: str = "") -> QPushButton:
             b = QPushButton(text, objectName="tapPad", clicked=slot, toolTip=tip)
-            b.setFocusPolicy(Qt.NoFocus)
+            b.setFocusPolicy(Qt.TabFocus)
             return b
 
         def line(*widgets) -> QHBoxLayout:
@@ -3211,7 +3629,7 @@ class Window(QMainWindow):
         sp = self.alt_b.sizePolicy()
         sp.setRetainSizeWhenHidden(True)  # the card keeps its height when the button comes and goes
         self.alt_b.setSizePolicy(sp)
-        self.alt_b.setFocusPolicy(Qt.NoFocus)
+        self.alt_b.setFocusPolicy(Qt.TabFocus)
         g.addWidget(self.alt_b, 5, 0, 1, 2)
         return tempo
 
@@ -3261,18 +3679,38 @@ class Window(QMainWindow):
         self.click_db = QSlider(Qt.Horizontal, minimum=-12, maximum=12, minimumWidth=90)
         self.click_db.setValue(int(QSettings().value(CLICK_DB_KEY, 0)))
         self.click_db_l = QLabel(minimumWidth=60)
-        row(g, _("Громкость клика"), self.click_db, self.click_db_l)
+        self.click_mute = QPushButton(objectName="small", checkable=True, focusPolicy=Qt.TabFocus, fixedSize=QSize(30, 22),
+                                      toolTip=_("Выключить клик в прослушивании: отсчёт, паузы и клик песни"),
+                                      accessibleName=_("Выключить клик"))
+        self.click_mute.toggled.connect(self._click_mute)
+        self._click_mute(False)
+        click_solo = QPushButton("S", objectName="solo", checkable=True, focusPolicy=Qt.TabFocus, fixedSize=QSize(26, 22),
+                                 toolTip=_("Соло: в прослушивании звучит только клик"), accessibleName=_("Соло: клик"))
+        click_solo.toggled.connect(lambda on: self._solo("click", on))
+        self.solo_b_click = click_solo
+        row(g, _("Громкость клика"), self.click_mute, click_solo, self.click_db, self.click_db_l)
+        self.preroll_cb = QCheckBox(_("Такт отсчёта при старте с середины"), objectName="rowCheck",
+                                    checked=pref_bool(PREROLL_KEY, True))
+        self.preroll_cb.setToolTip(_("Когда песня играет с плейхеда или петля начинается заново, перед этим местом звучит такт клика в его темпе."))
+        self.preroll_cb.toggled.connect(lambda on: QSettings().setValue(PREROLL_KEY, on))
+        g.addWidget(self.preroll_cb, g.rowCount(), 0, 1, 2, Qt.AlignLeft | Qt.AlignVCenter)
         self.pattern: Path | None = None
 
         save_b = self._icon_button("save", _("Сохранить эти настройки как настройки по умолчанию"), self._save_defaults)
         reset_b = self._icon_button("reset", _("Вернуть настройки по умолчанию"), self._reset_settings)
         mix, g = card(_("Бэктрек"), reset_b, save_b)
         self.parts: dict[str, QSlider] = {}
+        self.solo_b: dict[str, QPushButton] = {}
         self.part_l: dict[str, QLabel] = {}
         for name, label, icon, tip in PARTS:
-            s = self.parts[name] = QSlider(Qt.Horizontal, minimum=MUTE, maximum=0, value=0, minimumWidth=110)
+            s = self.parts[name] = QSlider(Qt.Horizontal, minimum=MUTE, maximum=BOOST, value=0, minimumWidth=110)
             self.part_l[name] = QLabel(minimumWidth=80)
-            row(g, icon_label(icon, _(label)), MuteButton(s, _(tip)), s, self.part_l[name])
+            solo = QPushButton("S", objectName="solo", checkable=True, focusPolicy=Qt.TabFocus, fixedSize=QSize(26, 22),
+                               toolTip=_("Соло оставляет в прослушивании только эту дорожку"),
+                               accessibleName=_("Соло: {part}", part=_(label)))
+            solo.toggled.connect(lambda on, n=name: self._solo(n, on))
+            self.solo_b[name] = solo
+            row(g, icon_label(icon, _(label)), MuteButton(s, _(tip)), solo, s, self.part_l[name])
         self.guitar, self.vocals = self.parts["guitar"], self.parts["vocals"]
         self.fill = QCheckBox(_("Заполнять паузы хай-хэтом"), checked=pref_bool(FILL_KEY, True))
         self.fill.setToolTip(_("Такты, где без убранных дорожек тихо, получают хай-хэт на каждую долю. "
@@ -3280,8 +3718,7 @@ class Window(QMainWindow):
         self.fill.setObjectName("rowCheck")
         g.addWidget(self.fill, g.rowCount(), 0, 1, 2, Qt.AlignLeft | Qt.AlignVCenter)
         self.fill_build = QCheckBox(_("Нарастание к концу паузы"), checked=pref_bool(FILL_BUILD_KEY, True), objectName="rowCheck")
-        self.fill_build.setToolTip(_("Последний такт паузы ведёт к вступлению: вторая половина такта звучит восьмыми, "
-                                     "последние три удара громче, как в отсчёте «Нарастание»."))
+        self.fill_build.setToolTip(_("Последний такт паузы ведёт к вступлению. Его вторая половина звучит восьмыми, последние три удара громче, как в отсчёте «Нарастание»."))
         self.fill_build.toggled.connect(lambda on: QSettings().setValue(FILL_BUILD_KEY, on))
         self.fill_build.toggled.connect(self._refresh)
         self.fill_build.toggled.connect(lambda _on: self._restart_preview())
@@ -3291,7 +3728,7 @@ class Window(QMainWindow):
         self.threshold = QSlider(Qt.Horizontal, minimum=-36, maximum=-6, minimumWidth=110)
         self.threshold.setValue(int(QSettings().value(THRESHOLD_KEY, zn.QUIET_DB)))
         self.threshold.setToolTip(_("Насколько тише среднего уровня песни должен быть такт, чтобы считаться паузой. "
-                                    "На волне этот уровень показан пунктиром."))
+                                    "На волне этот уровень показан оранжевыми полосами у правого края."))
         self.threshold_l = QLabel(minimumWidth=80)
         row(g, icon_label("threshold", _("Порог тишины")), self.threshold, self.threshold_l)
         self.trim = QCheckBox(_("Обрезать тишину в начале"), objectName="rowCheck")
@@ -3312,6 +3749,7 @@ class Window(QMainWindow):
         self.wave.zonesEdited.connect(self._zones_edited)
         self.wave.zoneClicked.connect(self._edit_zone)
         self.wave.spanSelected.connect(self._span_selected)
+        self.wave.markerMenu.connect(self._marker_menu)
         self.wave.playFrom.connect(self._play_from)
         self.wave.playheadClicked.connect(self._seek)
 
@@ -3324,7 +3762,6 @@ class Window(QMainWindow):
         self.threshold_timer.timeout.connect(self._threshold_shown)
         self.threshold.valueChanged.connect(self._threshold_moved)
         self.threshold.sliderReleased.connect(self.threshold_timer.start)
-        self.threshold.valueChanged.connect(self._refresh)
         self.threshold.valueChanged.connect(lambda v: QSettings().setValue(THRESHOLD_KEY, v))
 
         cards = QHBoxLayout()
@@ -3337,8 +3774,6 @@ class Window(QMainWindow):
         v = QVBoxLayout(page)
         v.setContentsMargins(22, 4, 22, 12)
         v.setSpacing(8)
-        v.addWidget(self.detector)
-        v.addWidget(self.warning)
         v.addWidget(self.wave, 1)
         v.addWidget(Overview(self.wave, 46))
         v.addWidget(self._transport())
@@ -3350,18 +3785,16 @@ class Window(QMainWindow):
         sb = QStatusBar()
         sb.setSizeGripEnabled(False)
         self.setStatusBar(sb)
-        self.file_l = QLabel()
         self.status = QLabel()
         self.reveal_b = QPushButton(_("Показать в Finder") if sys.platform == "darwin" else _("Показать в папке"),
                                     objectName="small", clicked=self._reveal)
-        self.reveal_b.setFocusPolicy(Qt.NoFocus)
+        self.reveal_b.setFocusPolicy(Qt.TabFocus)
         self.version_l = QLabel(f"v{update.current_version()}")
 
         # Round blue badge left of the version, shown only when a newer release exists.
         self.update_b = QPushButton("↓", objectName="update", clicked=self._update_action)
-        self.update_b.setFocusPolicy(Qt.NoFocus)
+        self.update_b.setFocusPolicy(Qt.TabFocus)
         self.update_b.setCursor(Qt.PointingHandCursor)
-        sb.addWidget(self.file_l)
         sb.addWidget(self.status, 1)
         sb.addPermanentWidget(self.reveal_b)
 
@@ -3395,8 +3828,31 @@ class Window(QMainWindow):
         QMessageBox.about(self, _("О программе Count-In"), (
             f"<h3>Count-In v{update.current_version()}</h3>"
             f"<p>{_('Барабанный отсчёт перед первой сильной долей и бэктреки без гитары или вокала.')}</p>"
-            f'<p><a href="https://github.com/{update.REPO}">github.com/{update.REPO}</a></p>'
+            f'<p><a href="{site_url("changelog/")}">{_("Что нового")}</a> · '
+            f'<a href="https://github.com/{update.REPO}">github.com/{update.REPO}</a></p>'
             "<p>beat_this (MIT), BS-RoFormer (MIT), FFmpeg (LGPL), Qt for Python (LGPL), PyTorch (BSD).</p>"))
+
+    def _whats_new(self, seen: str | None):
+        """Releases after `seen`, or the latest one, with a link to the full changelog on the site."""
+        cur = update.current_version()
+        releases = changes.since(seen, cur) if seen else [r for r in changes.RELEASES
+                                                          if changes.version_key(r[0]) <= changes.version_key(cur)][:1]
+        i = 0 if i18n.language() == "en" else 1
+        body = "".join(f"<h3>{v}</h3><ul>" + "".join(f"<li>{changes.rich(it[i])}</li>" for it in items) + "</ul>"
+                       for v, _date, items in releases)
+        body += f'<p><a href="{site_url("changelog/")}">{_("Все изменения на сайте")}</a></p>'
+        d = QDialog(self, windowTitle=_("Что нового в Count-In"))
+        d.resize(560, 520)
+        v = QVBoxLayout(d)
+        text = QTextBrowser(openExternalLinks=True)
+        text.setHtml(body)
+        v.addWidget(text)
+        ok = QPushButton(_("Готово"), default=True, clicked=d.accept)
+        h = QHBoxLayout()
+        h.addStretch()
+        h.addWidget(ok)
+        v.addLayout(h)
+        d.exec()
 
     # --- updates ---
 
@@ -3502,17 +3958,44 @@ class Window(QMainWindow):
 
     def _open_dialog(self):
         exts = " ".join(f"*{x}" for x in sorted(AUDIO_EXT))
-        f, _sel = QFileDialog.getOpenFileName(self, _("Трек"), "", _("Аудио ({exts})", exts=exts))
-        if f:
-            self.open_files([Path(f)])
+        fs, _sel = QFileDialog.getOpenFileNames(self, _("Трек"), "", _("Аудио ({exts})", exts=exts))
+        if fs:
+            self.open_files([Path(f) for f in fs])  # several files make a set list
+
+    def _remember(self, path: Path):
+        """Most recent first, eight at most; files that are gone drop out."""
+        st = QSettings()
+        old = [p for p in st.value(RECENT_KEY, []) or [] if isinstance(p, str)]
+        st.setValue(RECENT_KEY, [str(path)] + [p for p in old if p != str(path)][:7])
+        self._show_recent()
+
+    def _show_recent(self):
+        paths = [Path(p) for p in QSettings().value(RECENT_KEY, []) or [] if isinstance(p, str) and Path(p).is_file()]
+        while self.recent_v.count():
+            self.recent_v.takeAt(0).widget().deleteLater()
+        self.recent_m.clear()
+        if paths:
+            self.recent_v.addWidget(QLabel(_("Недавние"), objectName="field"))
+        for p in paths:
+            b = QPushButton(p.stem, objectName="recent", toolTip=str(p), cursor=Qt.PointingHandCursor,
+                            clicked=lambda _c=False, p=p: self.open_files([p]))
+            self.recent_v.addWidget(b, 0, Qt.AlignLeft)
+            self.recent_m.addAction(p.name, lambda p=p: self.open_files([p]))
+        self.recent_box.setVisible(bool(paths))
+        self.recent_m.setEnabled(bool(paths))
 
     def open_files(self, paths: list[Path]):
-        """Opens the first audio file; the app works on one track at a time."""
-        path = next((p for p in paths if p.is_file() and p.suffix.lower() in AUDIO_EXT), None)
+        """Opens the first audio file; the app works on one track at a time. Several files at once become a
+        set list: N and P go to the next and previous song."""
+        songs_in = [p for p in paths if p.is_file() and p.suffix.lower() in AUDIO_EXT]
+        if len(songs_in) > 1:
+            self.setlist = songs_in
+        path = songs_in[0] if songs_in else None
         if not path or self.job:
             if paths and not path:
-                self.status.setText(_("Это не аудиофайл: mp3, FLAC, ALAC или WAV"))
+                self.status.setText(_("Это не аудиофайл. Подходят mp3, FLAC, ALAC, WAV, AIFF, OGG и M4A"))
             return
+        self._flush_song()
         self._stop()
         if self.analysis_job:
             self.analysis_job.cancelled.set()
@@ -3527,6 +4010,9 @@ class Window(QMainWindow):
         t = self.current = Track(path)
         self.stack.setCurrentIndex(1)
         self.title.setText(path.stem)
+        self._remember(path)
+        self.setWindowTitle(path.name)
+        self.setWindowFilePath(str(path))  # the file's icon in the macOS title bar
         self.subtitle.setText("")
         self.detector.setText(_("Анализ…"))
         self.show_busy(_("Анализирую трек"), _(BUSY_WHY["analysis"]), None, _("Пожалуйста, подождите…"))
@@ -3546,7 +4032,10 @@ class Window(QMainWindow):
         who = " — ".join(x for x in (tags.get("artist"), tags.get("album")) if x)
         year = (tags.get("date") or "")[:4]
         self.subtitle.setText(who + (f" ({year})" if year and who else year))
-        self.file_l.setText(f"{io.describe(i)} · {fmt_time(i.duration)[:-4]}")
+        line = io.describe(i)
+        self.file_l.setText(self.file_l.fontMetrics().elidedText(line, Qt.ElideRight, 250 - 28))
+        self.file_l.setToolTip(line)
+        self.length_l.setText(fmt_time(i.duration)[:-4])
 
     def _analyzed(self, result):
         t, pcm, sr, env = result
@@ -3565,8 +4054,7 @@ class Window(QMainWindow):
         a = t.analysis
         self.wave.set_env(env, len(pcm) / sr)
         self.wave.beats, self.wave.downs, self.wave.bars = list(a.beats), list(a.downbeats), t.bars
-        self.detector.setText(_("Детектор: {bpm:.2f} BPM · «1» на {t} · уверенность {conf:.0%}",
-                                bpm=a.bpm, t=fmt_time(a.first_downbeat), conf=a.confidence))
+        self._show_detector()
         notes = [translate(n) for n in a.notes]
         if a.confidence < 0.4:
             notes.insert(0, _("детектор не уверен, проверьте маркер «1» на слух"))
@@ -3574,6 +4062,9 @@ class Window(QMainWindow):
         self.warning.setToolTip("; ".join(notes))
 
         self.alt_b.setVisible(a.alt_downbeat is not None)
+        self._restore_song(t)
+        self.wave.markers = t.markers
+        self.undo_stack, self.redo_stack, self.undo_base = [], [], self._edit_state()
         self._show_track_values()
         bar = 60.0 / t.bpm * rd.METERS[self.meter_seg.value()][0]
         self.wave.show_range(t.t0 - bar * self.bars_seg.value() - 1.0, t.t0 + 6.0)
@@ -3582,6 +4073,132 @@ class Window(QMainWindow):
             QApplication.focusWidget().clearFocus()  # a new track starts with plain numbers, no blinking cursor
         self._start_separation()
         self._auto_zones()
+
+    def _show_detector(self):
+        """Tempo, the "1", confidence and the key; with a transposition the key it now plays in."""
+        t = self.current
+        if not (t and t.analysis):
+            return
+        a = t.analysis
+        text = _("Детектор: {bpm:.2f} BPM · «1» на {t} · уверенность {conf:.0%}",
+                 bpm=a.bpm, t=fmt_time(a.first_downbeat), conf=a.confidence)
+        self.detector.setText(text)
+        key = "—"
+        if t.tonal:
+            key = an.key_name(*t.tonal[:2])
+            if self.semis:
+                key += "  →  " + an.key_name(*t.tonal[:2], self.semis)
+        self.key_l.setText(key)
+        if t.bars:
+            self.length_l.setText(_("{time} · тактов: {n}", time=fmt_time(t.duration)[:-4], n=len(t.bars)))
+
+    def _song_changed(self, *_args):
+        if self.current and self.current.analysis and not self.restoring:
+            self.song_timer.start()
+            self.undo_timer.start()
+
+    def _edit_state(self) -> tuple:
+        """What undo brings back: tempo, the "1", the pauses the user made or edited, removed pauses, markers."""
+        t = self.current
+        return (t.bpm, t.bpm_manual, t.t0, tuple((z.first, z.last, z.bpm, z.beats, z.manual) for z in t.zones or [] if z.kept),
+                frozenset(t.dismissed), tuple(t.markers))
+
+    def _snap_undo(self):
+        if not (self.current and self.current.analysis):
+            return
+        now = self._edit_state()
+        if self.undo_base is not None and now != self.undo_base:
+            self.undo_stack.append(self.undo_base)
+            self.redo_stack.clear()
+        self.undo_base = now
+
+    def _undo(self, redo: bool = False):
+        if self.undo_timer.isActive():
+            self.undo_timer.stop()
+            self._snap_undo()
+        src, dst = (self.redo_stack, self.undo_stack) if redo else (self.undo_stack, self.redo_stack)
+        if not (self.current and src):
+            return
+        dst.append(self.undo_base)
+        self.undo_base = state = src.pop()
+        t = self.current
+        t.bpm, t.bpm_manual, t.t0 = state[0], state[1], state[2]
+        kept = [zn.Zone(a, b, bpm, beats, manual) for a, b, bpm, beats, manual in state[3]]
+        t.dismissed = set(state[4])
+        found = [z for z in t.zones or [] if not z.kept and not any(i in t.dismissed for i in range(z.first, z.last + 1))]
+        t.zones = zn.merge(kept, found)
+        t.covered = _bars_of(t.zones)
+        t.markers = list(state[5])
+        self.wave.markers = t.markers
+        self.restoring = True  # the views below report changes that are this very step
+        try:
+            self._show_track_values()
+            self._refresh()
+        finally:
+            self.restoring = False
+        self.song_timer.start()
+        self._restart_preview()
+
+    def _flush_song(self):
+        if self.song_timer.isActive():
+            self.song_timer.stop()
+            self._save_song()
+
+    def _save_song(self):
+        t = self.current
+        if not (t and t.key):
+            return
+        state = {
+            "bpm": t.bpm, "bpm_manual": t.bpm_manual, "t0": t.t0,
+            "style": self.style_seg.value() if self.style_seg.value() != "midi" else "buildup",
+            "bars": self.bars_seg.value(), "meter": self.meter_seg.value(), "volume": self.volume.value(),
+            "parts": {k: s.value() for k, s in self.parts.items()}, "speed": self.speed, "semis": self.semis,
+            "click_all": self.click_all.isChecked(), "click_voice": self.click_voice.currentData(),
+            "click_db": self.click_db.value(), "fill": self.fill.isChecked(),
+            "zones": [vars(z) for z in t.zones or [] if z.kept], "dismissed": sorted(t.dismissed),
+            "loop": list(self.loop) if self.loop else None, "markers": [list(m) for m in t.markers],
+        }
+        try:
+            songs.save(t.key, state)
+        except OSError:
+            log.exception("song settings not saved")
+
+    def _restore_song(self, t: Track):
+        """Puts back what was set for this song last time; a value that no longer fits is skipped."""
+        d = songs.load(t.key) if t.key else None
+        if not d:
+            return
+        self.restoring = True
+        try:
+            t.bpm, t.bpm_manual, t.t0 = float(d["bpm"]), bool(d.get("bpm_manual")), float(d["t0"])
+            for seg, k in ((self.style_seg, "style"), (self.bars_seg, "bars"), (self.meter_seg, "meter")):
+                if d.get(k) in seg.values:
+                    seg.set_value(d[k])
+            self.volume.setValue(int(d.get("volume", 0)))
+            for k, v in (d.get("parts") or {}).items():
+                if k in self.parts:
+                    self.parts[k].setValue(int(v))
+            self._set_speed(int(d.get("speed", 100)))
+            self._set_semis(int(d.get("semis", 0)))
+            self.click_all.setChecked(bool(d.get("click_all")))
+            i = self.click_voice.findData(d.get("click_voice"))
+            if i >= 0:
+                self.click_voice.setCurrentIndex(i)
+            self.click_db.setValue(int(d.get("click_db", 0)))
+            self.fill.setChecked(bool(d.get("fill", True)))
+            n = len(t.bars)
+            t.zones = [zn.Zone(**z) for z in d.get("zones") or [] if 0 <= z["first"] <= z["last"] < n] or None
+            t.dismissed = {i for i in d.get("dismissed") or [] if 0 <= i < n}
+            t.covered = _bars_of(t.zones)
+            t.markers = [(float(a), str(b)) for a, b in d.get("markers") or []]
+            if d.get("loop"):
+                self.loop, self.loop_on = tuple(d["loop"]), False
+                self._apply_loop()
+            self.status.setText(_("Настройки этой песни восстановлены"))
+        except (KeyError, TypeError, ValueError):
+            log.exception("remembered song settings skipped")
+        finally:
+            self.restoring = False
 
     def _show_track_values(self):
         t = self.current
@@ -3689,11 +4306,14 @@ class Window(QMainWindow):
 
     def _gains(self):
         self.player.gains = {name: keep(s.value()) for name, s in self.parts.items()}
+        self.player.gains["click"] = 0.0 if self.click_mute.isChecked() else 1.0
+        self._song_changed()
 
         # A preview started with all parts as they are has no stems to turn down: rebuild it with them. With
         # the pause fill on, the pause search separates the whole song anyway and rebuilds the preview after,
         # so a second, excerpt-only separation would only cost time.
-        if (self.play_start is not None and not self.player.stems and any(g < 1 for g in self.player.gains.values())
+        if (self.play_start is not None and not self.player.src[1].keys() - {"click"}
+                and any(g < 1 for k, g in self.player.gains.items() if k != "click")
                 and not (self._filling() and self._full_stems() is None) and not cloud_on()):
             self._restart_preview(separate=True)
 
@@ -3703,12 +4323,12 @@ class Window(QMainWindow):
         self.threshold_l.setText(_("{v:+d} дБ", v=self.threshold.value()))
         for s, l in ((self.parts[n], self.part_l[n]) for n in self.parts):
             v = s.value()
-            l.setText(_("как есть") if v == 0 else _("убрать") if v == MUTE else _("{v} дБ", v=v))
+            l.setText(_("как есть") if v == 0 else _("убрать") if v == MUTE else _("{v:+d} дБ", v=v))
 
     def settings(self) -> Settings:
         levels = {}
         for name, s in self.parts.items():
-            if s.value() < 0:
+            if s.value() != 0:
                 levels[name] = float("-inf") if s.value() == MUTE else float(s.value())
         out_root, group = output_prefs()
         return Settings(
@@ -3717,16 +4337,20 @@ class Window(QMainWindow):
             levels=levels, pre_roll="trim" if self.trim.isChecked() else "keep", fmt=export_format(),
             out_root=out_root, group=group, fill=self._filling(), click_all=self.click_all.isChecked(),
             click_voice=self.click_voice.currentData(), click_db=float(self.click_db.value()), fill_build=self.fill_build.isChecked(),
-            threshold=float(self.threshold.value()), speed=self.speed / 100,
+            threshold=float(self.threshold.value()), speed=self.speed / 100, semis=float(self.semis),
+            split=pref_bool(EXPORT_SPLIT, False), normalize=pref_bool(EXPORT_NORM, False),
         )
 
     def _refresh(self, *_args):
+        self._song_changed()
         self._speed_bpm()
         t = self.current
         if not t or not t.analysis:
             return
         try:
-            self.wave.clicks = clicks_for(t, self.settings())
+            clicks = clicks_for(t, self.settings())
+            if clicks != self.wave.clicks:  # a new list redraws the cached click layer
+                self.wave.clicks = clicks
         except Exception as e:  # unreadable or empty MIDI pattern
             self.wave.clicks = []
             self.status.setText(str(e))
@@ -3734,15 +4358,17 @@ class Window(QMainWindow):
         self.wave.zones = t.zones or []
         self.wave.fill = self._filling()
         self.wave.threshold_db = float(self.threshold.value())
-        if self.wave.ref_db is None and self.pcm is not None:
-            self.wave.ref_db = zn.level_db(self.pcm)
+        self.wave.ref_db = t.ref_db
         if self.wave.current_zone is not None and self.wave.current_zone >= len(self.wave.zones):
             self.wave.current_zone = None
         self._nav_changed()
         self.wave.update()
 
-    def _threshold_moved(self, _v):
+    def _threshold_moved(self, v):
+        # Only the band on the waveform follows the slider; the pauses get searched again once it stops
+        self.wave.threshold_db = float(v)
         self.wave.threshold_full = True
+        self.wave.update()
         self.threshold_timer.start()
 
     def _threshold_shown(self):
@@ -3770,13 +4396,19 @@ class Window(QMainWindow):
         self.close_a.setEnabled(self.current is not None)
         self.open_a.setEnabled(not busy)
         self.reveal_a.setEnabled(self.last_saved is not None)
-        self.prog_panel.setVisible(busy)
+        self.prog_panel.setVisible(busy and self.job_shown)
         self._nav_changed()
         self._show_tips()
         self.wave.update()
 
+    def _show_job(self):
+        self.job_shown = self.job is not None
+        self._enable()
+
     def _run(self, fn, *args, on_done):
         self.reveal_b.hide()
+        self.job_shown = False
+        self.show_timer.start()
         self.job = Job(fn, *args)
         self.job.signals.progress.connect(self._progress)
         self.job.signals.done.connect(on_done)
@@ -3838,14 +4470,18 @@ class Window(QMainWindow):
         self.current, self.pcm, self.info, self.stem_cache, self.last_saved = None, None, None, None, None
         self.resume_at, self.zones_pending = None, False
         self.wave.play_t, self.wave.current_zone, self.wave.hover_edge = None, None, None
+        self.loop, self.loop_on = None, False
+        self._apply_loop()
         self._cancel_separation()
-        self.backing_key, self.backing, self.wave_source = None, None, None
+        self.backing_key, self.wave_source = None, None
         self.wave.env, self.wave.t0, self.wave.beats, self.wave.downs, self.wave.clicks = None, None, [], [], []
-        self.wave.bars, self.wave.zones, self.wave.ref_db = [], [], None
+        self.wave.bars, self.wave.zones, self.wave.ref_db, self.wave.markers = [], [], None, []
         self.wave._cache = (None, None)
         self.wave.update()
-        for label in (self.subtitle, self.detector, self.warning, self.file_l, self.status):
+        for label in (self.subtitle, self.detector, self.warning, self.status):
             label.setText("")
+        for label in (self.key_l, self.file_l, self.length_l):
+            label.setText("—")
         self.reveal_b.hide()
 
     def _close_track(self):
@@ -3853,6 +4489,7 @@ class Window(QMainWindow):
         and cut loose at once, so a new file can open right away instead of waiting for its next step."""
         if self.current is None:
             return
+        self._flush_song()
         self._stop()
         for j in (self.job, self.analysis_job):
             if j:
@@ -3867,6 +4504,8 @@ class Window(QMainWindow):
             self.tip_timer.stop()
         self._reset_track()
         self.title.setText("Count-In")
+        self.setWindowTitle("Count-In")
+        self.setWindowFilePath("")
         self.stack.setCurrentIndex(0)
         self._enable()
 
@@ -3881,33 +4520,38 @@ class Window(QMainWindow):
             return
         if self.job or not (self.current and self.current.analysis and self.pcm is not None):
             return
+        if self.loop_on and self.loop:
+            return self._play_at(self.loop[0], preroll=True)
         if self.wave.play_t is not None:
-            return self._play_at(self.wave.play_t)
+            return self._play_at(self.wave.play_t, preroll=True)
         s = self.settings()
+        self.want_play = True
         self._run(preview_job, self.current, s, self.pcm, self.sr, self.stem_cache, self._separate_now(s),
                   on_done=self._preview_ready)
 
     def _preview_ready(self, result):
         self._finish()
         track, base, stems, sr, start, new_cache, clipped = result
-        if track is not self.current:
+        if track is not self.current or not self.want_play:
             return
         if new_cache:
             self.stem_cache = new_cache
-        self.status.setText(clip_note(clipped) or (_("Дорожки можно менять на ходу") if stems else
+        self.status.setText(clip_note(clipped) or (_("Уровни дорожек можно менять на ходу") if stems else
                             _("Пока дорожки разделяются, играет оригинал") if self.sep_job and self.settings().levels
                             else ""))
         self._gains()
         resume, self.resume_at = self.resume_at, None
+        preroll, self.preroll = self.preroll, False
         try:
-            speed = self.settings().speed
-            self.player.play(base, stems, sr, int((resume - start) / speed * sr) if resume is not None else 0)
-            self.play_speed = speed
+            self.player.play(base, stems, sr)
         except Exception as e:  # no output device, unsupported channel count
             log.exception("audio output failed")
             self.status.setText(_("Не удалось воспроизвести: {e}", e=e))
             return
-        self.play_start = start
+        self.play_start, self.play_speed = start, self.settings().speed
+        if resume is not None:
+            self._jump(resume, preroll)
+        self._apply_loop()
         self.play_timer.start()
         self._enable()
 
@@ -3915,6 +4559,10 @@ class Window(QMainWindow):
         if self.player.done:
             self._stop()
             return
+        if self.trainer_a.isChecked() and self.player.laps >= TRAINER_LAPS and self.speed < 100:
+            self.player.laps = 0
+            self._set_speed(self.speed + 5)
+            self.status.setText(_("Тренажёр: скорость {pct}%", pct=self.speed))
         w = self.wave
         w.cursor_t = self.play_start + self.player.position() * self.play_speed
 
@@ -3926,6 +4574,7 @@ class Window(QMainWindow):
         w.update()
 
     def _stop(self):
+        self.want_play = False
         if self.play_start is None:
             return
         self.player.stop()
@@ -3954,8 +4603,13 @@ class Window(QMainWindow):
         info = self.info or io.probe(self.current.path)
         out = target_path(self.current.path, s, info) if what is None else multitrack_dir(self.current.path, s, info)
         ask = _("Файл {name} уже есть. Заменить?") if what is None else _("Папка {name} уже есть. Заменить файлы в ней?")
-        if out.exists() and QMessageBox.question(self, "Count-In", ask.format(name=out.name)) != QMessageBox.Yes:
-            return
+        if out.exists():
+            box = QMessageBox(QMessageBox.Question, "Count-In", ask.format(name=out.name), parent=self)
+            replace_b = box.addButton(_("Заменить"), QMessageBox.AcceptRole)
+            box.setDefaultButton(box.addButton(QMessageBox.Cancel))
+            box.exec()
+            if box.clickedButton() is not replace_b:
+                return
         if what is None:
             self._run(save_job, self.current, s, self.stem_cache, on_done=self._saved)
         else:
@@ -3986,6 +4640,7 @@ class Window(QMainWindow):
 
     def _speaker_icon(self):
         self.speaker.setPixmap(part_icon("muted" if self.out_volume.value() == 0 else "speaker", QColor(127, 127, 127), 20))
+        self.out_pct.setText(f"{self.out_volume.value()}%")
 
     def _save_defaults(self):
         """The current count-in, part levels and pause settings become the start for every track."""
@@ -4003,11 +4658,11 @@ class Window(QMainWindow):
         self.status.setText(_("Настройки сохранены как настройки по умолчанию"))
 
     def _icon_button(self, kind: str, tip: str, slot) -> QPushButton:
-        b = QPushButton(objectName="iconButton", clicked=slot, toolTip=tip)
+        b = QPushButton(objectName="iconButton", clicked=slot, toolTip=tip, accessibleName=tip)
         b.setIcon(QIcon(part_icon(kind, QColor(127, 127, 127), 18)))
         b.setIconSize(QSize(18, 18))
         b.setFixedSize(30, 28)
-        b.setFocusPolicy(Qt.NoFocus)
+        b.setFocusPolicy(Qt.TabFocus)
         b.setCursor(Qt.PointingHandCursor)
         return b
 
@@ -4065,14 +4720,42 @@ class Window(QMainWindow):
         QSettings().setValue(CLICK_DB_KEY, self.click_db.value())
         self._refresh()
         if self.click_all.isChecked():
-            self._restart_preview()
+            self._swap_clicks()
 
     def _click_all_toggled(self, on: bool):
         self._refresh()
         self._enable()
         if not on:
             self._auto_zones()
-        self._restart_preview()
+        self._swap_clicks()
+
+    def _swap_clicks(self):
+        """Rebuilds only the click part of the playing buffer, so a click change is heard at once."""
+        if self.play_start is None:
+            return
+        base, stems = self.player.src
+        if "click" not in stems:
+            self._restart_preview()
+            return
+        sr, s = self.player.sr, self.settings()
+        g = 10 ** (s.volume_db / 20)
+        click = np.zeros(len(base), dtype=np.float32)
+        for c in clicks_for(self.current, s):
+            at = self._out(c.time)
+            if not 0 <= at < len(click):
+                continue
+            pair = self.stick_hits(sr) if c.voice == "stick" else rd.voice_samples(c.voice, sr)
+            x = (pair[0] if c.accent else pair[1]) * (g * c.gain)
+            n = min(len(x), len(click) - at)
+            click[at : at + n] += x[:n]
+        old = stems["click"][0]
+        base = base - old + click[:, None]
+        self.player.src = (base, {**stems, "click": (click[:, None], 0)})
+
+    @staticmethod
+    @lru_cache(maxsize=4)
+    def stick_hits(sr: int):
+        return rd.load_samples(sr)
 
     def _fill_toggled(self, on: bool):
         QSettings().setValue(FILL_KEY, on)
@@ -4145,7 +4828,7 @@ class Window(QMainWindow):
         from .core import worker
 
         if cached:
-            self.status.setText(_("Дорожки взяты из кэша: эту песню уже разделяли"))
+            self.status.setText(_("Дорожки взяты из кэша, эту песню уже разделяли"))
         elif worker.separator().last:
             sec, name = worker.separator().last
             log.info("parts ready in %.1f s with %s", sec, name)
@@ -4190,7 +4873,7 @@ class Window(QMainWindow):
         sl = search_levels(t, s) if st is not None else {}
         search = None
         if t.analysis and s.fill and t.zones_key != search_key(t, s) and (st is not None or not search_levels(t, s)):
-            search = (t.bars, s.threshold, sl, bool(sl) and not t.auto_done)
+            search = (t.bars, s.threshold, sl, bool(sl) and not t.auto_done, t.ref_db)
         if (id(st) if levels else None, tuple(sorted(levels.items()))) == self.backing_key and search is None:
             self.wave.update()
             return
@@ -4205,7 +4888,7 @@ class Window(QMainWindow):
         if seq != self.mix_seq or self.mix_wanted[0] is not self.current:
             return  # the levels moved again or the track changed
         t, key, sl = self.mix_wanted
-        self.backing_key, self.backing = key, backing
+        self.backing_key = key
         self.wave.set_env(env, len(backing) / self.sr)
         if found is None:
             return
@@ -4273,10 +4956,25 @@ class Window(QMainWindow):
             self._restart_preview()
 
     def _span_selected(self, first: int, last: int):
-        """A dragged span becomes a pause (replacing the ones it overlaps); its tempo and meter open at once."""
+        """A dragged span plays round as a loop or becomes a pause."""
         t = self.current
         if not (t and t.bars):
             return
+        menu = QMenu(self)
+        loop = menu.addAction(_("Играть по кругу"))
+        pause = menu.addAction(_("Сделать паузой с хай-хэтом"))
+        chosen = menu.exec(QCursor.pos())
+        if chosen is loop:
+            self.loop, self.loop_on = (t.bars[first].start, t.bars[last].end), True
+            self._apply_loop()
+            if self.play_start is None or not self.loop[0] <= self.wave.cursor_t < self.loop[1]:
+                self._play_at(self.loop[0], preroll=True) if self.play_start is not None else self._play()
+        elif chosen is pause:
+            self._make_pause(first, last)
+
+    def _make_pause(self, first: int, last: int):
+        """A span becomes a pause (replacing the ones it overlaps); its tempo and meter open at once."""
+        t = self.current
         self.click_all.setChecked(False)
         if not self.fill.isChecked():
             self.fill.setChecked(True)
@@ -4322,7 +5020,7 @@ class Window(QMainWindow):
         if self.play_start is None or self.job:
             return
         self.resume_at = self.play_start + self.player.position() * self.play_speed
-        self._stop()
+        self.preroll, self.want_play = False, True  # the old buffer plays on until the new one replaces it
         s = self.settings()
         self._run(preview_job, self.current, s, self.pcm, self.sr, self.stem_cache, separate or bool(s.levels),
                   max(0.0, self.resume_at - 0.5), on_done=self._preview_ready)
@@ -4340,14 +5038,59 @@ class Window(QMainWindow):
         if self.play_start is not None and self.wave.play_t is not None:
             self._play_at(self.wave.play_t)
 
-    def _play_at(self, start: float):
-        """Plays from the song time start."""
+    def _play_at(self, start: float, preroll: bool = False):
+        """Plays from the song time start, at once when the playing buffer holds it; with preroll a bar of
+        clicks in the local tempo leads in."""
         if self.job or not (self.current and self.current.analysis and self.pcm is not None):
             return
+        if self.play_start is not None and self._jump(start, preroll):
+            return
         self._stop()
+        self.resume_at, self.preroll, self.want_play = start, preroll, True
         s = self.settings()
         self._run(preview_job, self.current, s, self.pcm, self.sr, self.stem_cache, self._separate_now(s), start,
                   on_done=self._preview_ready)
+
+    def _out(self, t: float) -> int:
+        """Output sample of song time t in the playing buffer."""
+        return int(round((t - self.play_start) / self.play_speed * self.player.sr))
+
+    def _jump(self, t: float, preroll: bool = False) -> bool:
+        """Moves playback to song time t inside the playing buffer; False when the buffer does not hold it."""
+        i = self._out(t)
+        if not 0 <= i < len(self.player.src[0]):
+            return False
+        ticks = []
+        if preroll and self.preroll_cb.isChecked() and self.current.bars:
+            bars = self.current.bars
+            bar = min(bars, key=lambda b: abs(b.start - t) if b.start <= t + 0.05 else 1e9)
+            n, period = rd.METERS[self.meter_seg.value()][0], bar.period
+            lead = [t - k * period for k in range(n, 0, -1)]
+            if self._out(lead[0]) >= 0:
+                hi, lo = rd.load_samples(self.player.sr)
+                g = 10 ** (self.volume.value() / 20)
+                ticks = [(self._out(b), (hi if k == 0 else lo) * g) for k, b in enumerate(lead)]
+                i = ticks[0][0]
+        self.player.ticks, self.player.pos, self.player.done = ticks, i, False
+        return True
+
+    def _apply_loop(self):
+        playing = self.play_start is not None
+        self.player.loop = ((self._out(self.loop[0]), self._out(self.loop[1]))
+                            if playing and self.loop_on and self.loop else None)
+        self.wave.loop = (*self.loop, self.loop_on) if self.loop else None
+        self.loop_b.setChecked(self.loop_on)
+        self._song_changed()
+        self.loop_b.setEnabled(self.loop is not None)
+        self.wave.update()
+
+    def _toggle_loop(self):
+        if not self.loop:
+            return
+        self.loop_on = not self.loop_on
+        self._apply_loop()
+        if self.loop_on and self.play_start is not None and not self.loop[0] <= self.wave.cursor_t < self.loop[1]:
+            self._play_at(self.loop[0], preroll=True)
 
     def _separate_now(self, s) -> bool:
         """Whether a preview separates its own excerpt: whenever a part is turned down. During the whole-song
@@ -4359,6 +5102,8 @@ class Window(QMainWindow):
             reveal(self.last_saved)
 
     def closeEvent(self, e):
+        self._flush_song()
+        QSettings().setValue(GEOMETRY_KEY, self.saveGeometry())
         # A ready update installs on quit too, like Sparkle does; it just does not relaunch.
         if self.staged:
             update.install_on_exit(update.installed_bundle(), self.staged, relaunch=False)
@@ -4408,10 +5153,10 @@ def window_color(dark: bool) -> QColor:
 
 
 def accent_color(app: QApplication) -> QColor:
-    """Selection blue in dark mode; in light mode that blue is too pale, so the system accent. An accent that
-    blends into the window (white in the light theme, near-black in the dark one) falls back to system blue."""
+    """The system accent, as the system's own checkboxes draw it. An accent that blends into the window (white in
+    the light theme, near-black in the dark one) falls back to system blue."""
     pal, dark = app.palette(), is_dark(app)
-    c = pal.color(QPalette.Active, QPalette.Highlight) if dark else pal.color(QPalette.Accent)
+    c = pal.color(QPalette.Accent)
     if contrast(c, window_color(dark)) < 1.6:
         c = QColor("#0a84ff" if dark else "#007aff")
     return c
@@ -4451,14 +5196,15 @@ def main() -> int:
 
     # The window restyles with the system appearance.
     app.styleHints().colorSchemeChanged.connect(lambda _scheme: app.setStyleSheet(style_sheet(app)))
-    font = app.font()
-    font.setPointSizeF(font.pointSizeF() + 1.5)
-    app.setFont(font)
     app.setStyleSheet(style_sheet(app))
     w = app.window = Window()
     # Only real files: the system may pass its own arguments at launch, and those are no reason for an error.
     w.open_files([p for p in map(Path, sys.argv[1:]) if p.is_file()])
-    w.showMaximized()
+    # Size and place from the last session; the first start fills the screen.
+    if not w.restoreGeometry(QSettings().value(GEOMETRY_KEY, b"")):
+        w.showMaximized()
+    else:
+        w.show()
 
     # CI smoke test: start, show the window, quit; a missing bundled icon fails it.
     if os.environ.get("COUNTIN_SMOKE"):
@@ -4466,6 +5212,13 @@ def main() -> int:
     else:
         w.check_updates()
         QTimer.singleShot(400, lambda: ensure_assets(w))
+
+        # What's New opens once after an update; a fresh install has nothing to compare with
+        st, cur = QSettings(), update.current_version()
+        seen = st.value(SEEN_KEY) or ("0" if st.contains(GEOMETRY_KEY) else None)
+        if seen and changes.version_key(seen) < changes.version_key(cur):
+            QTimer.singleShot(800, lambda: w._whats_new(seen if seen != "0" else None))
+        st.setValue(SEEN_KEY, cur)
     return app.exec()
 
 

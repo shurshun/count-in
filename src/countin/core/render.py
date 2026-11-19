@@ -182,19 +182,22 @@ class Rendered:
     offset: float  # original-song time t maps to output time t / speed + offset
     click_samples: list[int]  # click onsets in the output
     clipped: int  # samples that hit full scale
+    click: np.ndarray | None = None  # the clicks alone, mono, as they went into pcm
 
 
-def stretch(x: np.ndarray, sr: int, speed: float) -> np.ndarray:
-    """(n, channels) audio played at speed (0.8 = 20% slower) with its pitch kept, through Signalsmith
-    Stretch (MIT). Transients stay on time within about a millisecond. The result has round(n / speed)
-    samples."""
-    if speed == 1.0 or not len(x):
+def stretch(x: np.ndarray, sr: int, speed: float, semis: float = 0.0) -> np.ndarray:
+    """(n, channels) audio played at speed (0.8 = 20% slower) with its pitch kept, shifted by semis semitones
+    without changing its length, through Signalsmith Stretch (MIT). Transients stay on time within about a
+    millisecond. The result has round(n / speed) samples."""
+    if (speed == 1.0 and not semis) or not len(x):
         return x
     import python_stretch as ps
 
     st = ps.Signalsmith.Stretch()
     st.preset(x.shape[1], sr)
     st.setTimeFactor(speed)
+    if semis:
+        st.setTransposeSemitones(semis)
     y = np.asarray(st.process(np.ascontiguousarray(x.T, dtype=np.float32))).T
     n = int(round(len(x) / speed))
     return np.ascontiguousarray(y[:n] if len(y) >= n else np.pad(y, ((0, n - len(y)), (0, 0))), dtype=np.float32)
@@ -203,28 +206,33 @@ def stretch(x: np.ndarray, sr: int, speed: float) -> np.ndarray:
 _pool = None
 
 
-def stretch_many(parts: list[np.ndarray], sr: int, speed: float) -> list[np.ndarray]:
-    """stretch() of several signals in parallel processes: Signalsmith holds the GIL, so threads run one at a
-    time, and a whole song takes about 2 s per part. The pool starts on first use and stays."""
+def stretch_many(parts: list[np.ndarray], sr: int, speed: float, semis: float = 0.0) -> list[np.ndarray]:
+    """stretch() in a pool of processes, several signals in parallel. Signalsmith holds the GIL for about 2 s per
+    part of a whole song, which froze the window when it ran in the app's process. The pool starts on first use
+    and stays."""
     global _pool
-    if speed == 1.0 or len(parts) < 2:
-        return [stretch(x, sr, speed) for x in parts]
+    if (speed == 1.0 and not semis) or not parts:
+        return list(parts)
     import multiprocessing as mp
     import os
     from concurrent.futures import ProcessPoolExecutor
 
     try:
         if _pool is None:
+            import atexit
+
             _pool = ProcessPoolExecutor(min(6, os.cpu_count() or 2), mp_context=mp.get_context("spawn"))
-        return list(_pool.map(stretch, parts, [sr] * len(parts), [speed] * len(parts)))
+            atexit.register(_pool.shutdown, wait=False, cancel_futures=True)  # no traceback at quit
+        n = len(parts)
+        return list(_pool.map(stretch, parts, [sr] * n, [speed] * n, [semis] * n))
     except Exception:
         _pool = None
-        return [stretch(x, sr, speed) for x in parts]
+        return [stretch(x, sr, speed, semis) for x in parts]
 
 
 def render(pcm: np.ndarray, sr: int, clicks: list[Click], first_downbeat: float,
            pre_roll: str = "keep", volume_db: float = 0.0,
-           samples: tuple[np.ndarray, np.ndarray] | None = None, speed: float = 1.0) -> Rendered:
+           samples: tuple[np.ndarray, np.ndarray] | None = None, speed: float = 1.0, semis: float = 0.0) -> Rendered:
     """Mix clicks into the song. Audio before the downbeat stays and gets the clicks on top.
 
     trim cuts leading silence first, never past the downbeat.
@@ -243,7 +251,7 @@ def render(pcm: np.ndarray, sr: int, clicks: list[Click], first_downbeat: float,
     pad = max(0, -math.floor((earliest * sr - cut) / speed))
     starts = [int(round((c.time * sr - cut) / speed)) + pad for c in clicks]
 
-    song = stretch(pcm[cut:], sr, speed)
+    song = stretch_many([pcm[cut:]], sr, speed, semis)[0]
     out = np.zeros((pad + len(song), pcm.shape[1]), dtype=np.float32)
     out[pad:] = song
 
@@ -251,6 +259,7 @@ def render(pcm: np.ndarray, sr: int, clicks: list[Click], first_downbeat: float,
     # its shape stays clean, by up to LIMIT_DB; overs left after that (a hot master's own peaks) get counted.
     g = 10 ** (volume_db / 20)
     clipped = 0
+    alone = np.zeros(len(out), dtype=np.float32)
     for c, s in zip(clicks, starts):
         pair = (hi, lo) if c.voice == "stick" else voice_samples(c.voice, sr)
         x = (pair[0] if c.accent else pair[1]) * (g * c.gain)
@@ -264,5 +273,71 @@ def render(pcm: np.ndarray, sr: int, clicks: list[Click], first_downbeat: float,
             x = x * max(k, 10 ** (-LIMIT_DB / 20))
         before = np.abs(y) > 1.0
         y += x
+        alone[s:end] += x[:, 0]
         clipped += int(np.sum((np.abs(y) > 1.0) & ~before))
-    return Rendered(out, (pad - cut / speed) / sr, starts, clipped)
+    return Rendered(out, (pad - cut / speed) / sr, starts, clipped, alone)
+
+
+def click_track(clicks: list[Click], sr: int, start: float, length: int, volume_db: float = 0.0,
+                speed: float = 1.0) -> np.ndarray:
+    """The clicks alone as mono audio of `length` samples, song time `start` at sample 0, at `speed`."""
+    hi, lo = load_samples(sr)
+    out = np.zeros(length, dtype=np.float32)
+    g = 10 ** (volume_db / 20)
+    for c in clicks:
+        s = int(round((c.time - start) / speed * sr))
+        pair = (hi, lo) if c.voice == "stick" else voice_samples(c.voice, sr)
+        x = (pair[0] if c.accent else pair[1]) * (g * c.gain)
+        if 0 <= s < length:
+            n = min(len(x), length - s)
+            out[s : s + n] += x[:n]
+    return out
+
+
+def _k_weight(sr: int, n: int) -> np.ndarray:
+    """|H|² of the BS.1770 K-weighting (high shelf, then high-pass) at the rfft bins of an n-sample signal."""
+    w = 2 * np.pi * np.fft.rfftfreq(n, 1 / sr) / sr
+    z = np.exp(-1j * w)
+
+    def biquad(b, a):
+        return np.abs((b[0] + b[1] * z + b[2] * z * z) / (a[0] + a[1] * z + a[2] * z * z)) ** 2
+
+    A, w0 = 10 ** (4.0 / 40), 2 * np.pi * 1500 / sr
+    al, c, r = np.sin(w0) / (2 / np.sqrt(2)), np.cos(w0), np.sqrt(10 ** (4.0 / 40))
+    shelf = biquad((A * ((A + 1) + (A - 1) * c + 2 * r * al), -2 * A * ((A - 1) + (A + 1) * c), A * ((A + 1) + (A - 1) * c - 2 * r * al)),
+                   ((A + 1) - (A - 1) * c + 2 * r * al, 2 * ((A - 1) - (A + 1) * c), (A + 1) - (A - 1) * c - 2 * r * al))
+    w0 = 2 * np.pi * 38 / sr
+    al, c = np.sin(w0) / (2 * 0.5), np.cos(w0)
+    hp = biquad(((1 + c) / 2, -(1 + c), (1 + c) / 2), (1 + al, -2 * c, 1 - al))
+    return shelf * hp
+
+
+def loudness(pcm: np.ndarray, sr: int) -> float:
+    """Integrated loudness in LUFS (BS.1770-4: K-weighting, 400 ms blocks, absolute and relative gates). The
+    filter runs in the frequency domain with zero phase, which leaves the block energies as they are."""
+    n = len(pcm)
+    if n < int(0.4 * sr):
+        return -70.0
+    gain = _k_weight(sr, n)
+    block, hop = int(0.4 * sr), int(0.1 * sr)
+    starts = np.arange(0, n - block + 1, hop)
+    z = np.zeros(len(starts))
+    for ch in range(pcm.shape[1]):
+        y = np.fft.irfft(np.fft.rfft(pcm[:, ch].astype(np.float64)) * np.sqrt(gain), n) ** 2
+        c = np.concatenate([[0.0], np.cumsum(y)])
+        z += (c[starts + block] - c[starts]) / block
+    lk = -0.691 + 10 * np.log10(z + 1e-12)
+    z = z[lk > -70]
+    if not len(z):
+        return -70.0
+    rel = -0.691 + 10 * np.log10(z.mean()) - 10
+    z = z[-0.691 + 10 * np.log10(z) > rel]
+    return float(-0.691 + 10 * np.log10(z.mean()))
+
+
+def normalize(pcm: np.ndarray, sr: int, target: float = -14.0, peak_db: float = -1.0) -> np.ndarray:
+    """pcm brought to `target` LUFS, as streaming services play songs, but never past peak_db: a dynamic song
+    stays a little quieter instead of getting squashed."""
+    gain = 10 ** ((target - loudness(pcm, sr)) / 20)
+    peak = float(np.abs(pcm).max()) or 1.0
+    return (pcm * min(gain, 10 ** (peak_db / 20) / peak)).astype(np.float32)

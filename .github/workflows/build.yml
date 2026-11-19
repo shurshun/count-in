@@ -308,5 +308,6 @@ jobs:
       - uses: softprops/action-gh-release@v3
         with:
           name: Count-In ${{ github.ref_name }}
+          prerelease: ${{ contains(github.ref_name, 'rc') }}  # v0.10.0rc1 never becomes the latest release
           files: "*.zip"
           fail_on_unmatched_files: true

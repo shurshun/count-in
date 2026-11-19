@@ -37,7 +37,7 @@ PAGES = {
         "description": "Count-In находит темп и первую долю песни, добавляет перед ней отсчёт палочками и убирает гитару и вокал для минусовки. Бесплатно для macOS и Windows, работает без интернета.",
         "og_title": "Count-In — отсчёт перед любой песней",
         "og_description": "Отсчёт палочками, который точно попадает в первую долю, и минусовки без гитары и вокала. Бесплатно для macOS и Windows.",
-        "og_image_alt": "Окно Count-In с волной песни и щелчками отсчёта",
+        "og_image_alt": "Окно Count-In с волной песни и кликами отсчёта",
         "ld_description": "Находит темп и первую долю песни, добавляет отсчёт с точностью до сэмпла и убирает гитару и вокал для минусовки.",
         "locale": "ru_RU", "locale_alt": "en_US",
         "other_lang": "en", "other_url": "../", "other_label": "EN", "theme_label": "Сменить тему",
@@ -154,13 +154,13 @@ GUIDE_IMAGES = {
 GUIDE = {
     "en": {"out": "guide/index.html", "url": "https://count-in.app/guide/", "home": "/", "sfx": "-en",
            "title": "Count-In guide — count-in, pauses and backing tracks",
-           "description": "How to use Count-In: set the first downbeat and tempo, choose a count-in, navigate the song, fill pauses with a hi-hat and turn parts down for a backing track.",
+           "description": "How to use Count-In: set the first downbeat and tempo, choose a count-in, loop a passage, change speed and key, fill pauses with a hi-hat and turn parts down for a backing track.",
            "heading": "How to use Count-In", "lead": "Open a song, check the orange “1”, pick a count-in and save. Everything else is optional; this page walks through it.",
            "window_alt": "Count-In window with a selected pause",
            "other_lang": "ru", "other_url": "/ru/guide/", "other_label": "RU", "theme_label": "Switch theme"},
     "ru": {"out": "ru/guide/index.html", "url": "https://count-in.app/ru/guide/", "home": "/ru/", "sfx": "",
            "title": "Справка Count-In — отсчёт, паузы и минусовки",
-           "description": "Как работать с Count-In: первая доля и темп, отсчёт, навигация по песне, хай-хэт в паузах и минусовки без гитары и вокала.",
+           "description": "Как работать с Count-In: первая доля и темп, отсчёт, петля, скорость и тон, хай-хэт в паузах и минусовки без гитары и вокала.",
            "heading": "Как работать с Count-In", "lead": "Откройте песню, проверьте оранжевую «1», выберите отсчёт и сохраните. Остальное по желанию, и всё это описано ниже.",
            "window_alt": "Окно Count-In с выбранной паузой",
            "other_lang": "en", "other_url": "/guide/", "other_label": "EN", "theme_label": "Сменить тему"},
@@ -193,7 +193,49 @@ def build_guide() -> None:
         print("wrote", out.relative_to(DOCS))
 
 
+CHANGELOG = {
+    "en": {"out": "changelog/index.html", "url": "https://count-in.app/changelog/", "home": "/", "sfx": "-en",
+           "title": "Count-In changelog — what is new in each version",
+           "description": "What changed in each Count-In release.",
+           "heading": "What's new in Count-In", "lead": "Every release, newest first. The app updates itself.",
+           "window_alt": "", "other_lang": "ru", "other_url": "/ru/changelog/", "other_label": "RU",
+           "theme_label": "Switch theme"},
+    "ru": {"out": "ru/changelog/index.html", "url": "https://count-in.app/ru/changelog/", "home": "/ru/", "sfx": "",
+           "title": "Что нового в Count-In — история версий",
+           "description": "Что менялось в каждой версии Count-In.",
+           "heading": "Что нового в Count-In", "lead": "Все версии, новые сверху. Программа обновляется сама.",
+           "window_alt": "", "other_lang": "en", "other_url": "/changelog/", "other_label": "EN",
+           "theme_label": "Сменить тему"},
+}
+
+
+def build_changelog() -> None:
+    """The guide's page with the releases as sections and no window shot."""
+    ch = _module("changes")
+    tpl = (DOCS / "_guide.html").read_text()
+    tpl = tpl.split("\n", 2)[0] + "\n" + tpl.split("\n", 2)[2]
+    tpl = "\n".join(line for line in tpl.split("\n") if "{{window_alt}}" not in line)
+    for lang, g in CHANGELOG.items():
+        i = 0 if lang == "en" else 1
+        toc, body = [], []
+        for v, date, items in ch.RELEASES:
+            sid = "v" + v.replace(".", "-")
+            toc.append(f'    <li><a href="#{sid}">{v}</a></li>')
+            lis = "\n".join(f"      <li>{ch.rich(it[i])}</li>" for it in items)
+            body.append(f'  <section id="{sid}">\n    <h2>{v} <small>{date}</small></h2>\n    <ul>\n{lis}\n    </ul>\n  </section>')
+        html = tpl
+        for k, v in {**g, "lang": lang, "toc": "\n".join(toc), "sections": "\n".join(body)}.items():
+            html = html.replace("{{" + k + "}}", v)
+        assert "{{" not in html, "unfilled placeholder"
+        html = html.replace("<!doctype html>\n", "<!doctype html>\n<!-- Generated from _guide.html by build_site.py -->\n", 1)
+        out = DOCS / g["out"]
+        out.parent.mkdir(parents=True, exist_ok=True)
+        out.write_text(html)
+        print("wrote", out.relative_to(DOCS))
+
+
 if __name__ == "__main__":
     build()
     build_downloads()
     build_guide()
+    build_changelog()

@@ -11,7 +11,7 @@ from pathlib import Path
 import numpy as np
 
 from . import zones as zn
-from .render import METERS, Click, stretch
+from .render import METERS, Click, stretch_many
 
 TPB = 480  # MIDI ticks per quarter note
 DRUMS = 9  # GM drum channel (10 counted from 1)
@@ -129,12 +129,20 @@ def _tempo_track(g: Grid, meter: str, speed: float):
     return track, to_tick
 
 
-def write_tempo(path: Path, g: Grid, meter: str, speed: float = 1.0) -> None:
+def write_tempo(path: Path, g: Grid, meter: str, speed: float = 1.0, markers: list | None = None) -> None:
+    """The tempo map; section markers (song time, name) go in as MIDI markers a DAW shows on its timeline."""
     import mido
 
-    track, _to_tick = _tempo_track(g, meter, speed)
+    track, to_tick = _tempo_track(g, meter, speed)
     mid = mido.MidiFile(type=1, ticks_per_beat=TPB)
     mid.tracks.append(track)
+    if markers:
+        names = mido.MidiTrack([mido.MetaMessage("track_name", name="Sections")])
+        last = 0
+        for at, name in sorted((max(0, to_tick(t)), n) for t, n in markers):
+            names.append(mido.MetaMessage("marker", text=name, time=at - last))
+            last = at
+        mid.tracks.append(names)
     mid.save(str(path))
 
 
@@ -159,13 +167,13 @@ def write_clicks(path: Path, g: Grid, clicks: list[Click], meter: str, speed: fl
     mid.save(str(path))
 
 
-def place(x: np.ndarray, sr: int, g: Grid, speed: float = 1.0) -> np.ndarray:
+def place(xs: list[np.ndarray], sr: int, g: Grid, speed: float = 1.0, semis: float = 0.0) -> list[np.ndarray]:
     """Audio of the whole song (song time 0 at sample 0) moved to output time, with bar 1 at sample 0.
     Silence fills the bars before the song starts; audio before bar 1 (trimmed silence) gets cut."""
     if g.start > 0:
-        return stretch(x[round(g.start * sr):], sr, speed)
-    pad = np.zeros((round(-g.start / speed * sr), x.shape[1]), dtype=np.float32)
-    return np.concatenate([pad, stretch(x, sr, speed)])
+        return stretch_many([x[round(g.start * sr):] for x in xs], sr, speed, semis)
+    out = stretch_many(xs, sr, speed, semis)
+    return [np.concatenate([np.zeros((round(-g.start / speed * sr), x.shape[1]), dtype=np.float32), x]) for x in out]
 
 
 def write_wav(path: Path, x: np.ndarray, sr: int) -> None:

@@ -132,6 +132,59 @@ def _coreml() -> Backend | None:
     return Backend("Core ML (GPU)", lambda x: ml.predict({"stft": x})["mask"])
 
 
+def _adapters() -> list[tuple[int, str, int, bool]]:
+    """Windows GPUs in DXGI order, which DirectML's device_id follows: (index, name, dedicated video memory,
+    software). Plain ctypes COM calls, so no extra package; any failure returns an empty list."""
+    import ctypes
+    from ctypes import wintypes
+
+    class GUID(ctypes.Structure):
+        _fields_ = [("a", wintypes.DWORD), ("b", wintypes.WORD), ("c", wintypes.WORD), ("d", ctypes.c_ubyte * 8)]
+
+    class DESC1(ctypes.Structure):
+        _fields_ = [("Description", wintypes.WCHAR * 128), ("VendorId", wintypes.UINT), ("DeviceId", wintypes.UINT),
+                    ("SubSysId", wintypes.UINT), ("Revision", wintypes.UINT), ("DedicatedVideoMemory", ctypes.c_size_t),
+                    ("DedicatedSystemMemory", ctypes.c_size_t), ("SharedSystemMemory", ctypes.c_size_t),
+                    ("LuidLow", wintypes.DWORD), ("LuidHigh", wintypes.LONG), ("Flags", wintypes.UINT)]
+
+    def method(obj, index, *argtypes):
+        vtable = ctypes.cast(obj, ctypes.POINTER(ctypes.POINTER(ctypes.c_void_p))).contents
+        return ctypes.WINFUNCTYPE(ctypes.c_long, ctypes.c_void_p, *argtypes)(vtable[index])
+
+    iid = GUID(0x770AAE78, 0xF26F, 0x4DBA, (ctypes.c_ubyte * 8)(0xA8, 0x29, 0x25, 0x3C, 0x83, 0xD1, 0xB3, 0x87))
+    factory = ctypes.c_void_p()
+    if ctypes.windll.dxgi.CreateDXGIFactory1(ctypes.byref(iid), ctypes.byref(factory)) != 0:
+        return []
+    out = []
+    try:
+        for i in range(16):
+            adapter = ctypes.c_void_p()
+            if method(factory, 12, wintypes.UINT, ctypes.c_void_p)(factory, i, ctypes.byref(adapter)) != 0:
+                break  # DXGI_ERROR_NOT_FOUND after the last one
+            d = DESC1()
+            if method(adapter, 10, ctypes.c_void_p)(adapter, ctypes.byref(d)) == 0:
+                out.append((i, d.Description, int(d.DedicatedVideoMemory), bool(d.Flags & 2)))
+            method(adapter, 2)(adapter)  # Release
+    finally:
+        method(factory, 2)(factory)
+    return out
+
+
+def best_adapter() -> tuple[int, str] | None:
+    """The hardware GPU with the most dedicated memory: on a laptop with two GPUs that is the discrete one,
+    while DirectML's default (adapter 0, the display GPU) is usually the integrated one. None when only the
+    software rasterizer is there, which runs the network slower than the CPU."""
+    try:
+        gpus = [a for a in _adapters() if not a[3]]
+    except Exception:
+        log.exception("GPU list unavailable")
+        return 0, "default"
+    if not gpus:
+        return None
+    i, name, _mem, _sw = max(gpus, key=lambda a: a[2])
+    return i, name
+
+
 def _directml() -> Backend | None:
     if not assets.path(ONNX).is_file():
         return None
@@ -144,10 +197,15 @@ def _directml() -> Backend | None:
     opts = ort.SessionOptions()
     opts.enable_mem_pattern = False  # DirectML wants both off
     opts.execution_mode = ort.ExecutionMode.ORT_SEQUENTIAL
-    sess = ort.InferenceSession(str(assets.path(ONNX)), opts, providers=["DmlExecutionProvider", "CPUExecutionProvider"])
+    gpu = best_adapter()
+    if gpu is None:
+        log.info("no hardware GPU for DirectML")
+        return None
+    sess = ort.InferenceSession(str(assets.path(ONNX)), opts,
+                                providers=[("DmlExecutionProvider", {"device_id": gpu[0]}), "CPUExecutionProvider"])
     if "DmlExecutionProvider" not in sess.get_providers():
         return None
-    return Backend("DirectML (GPU)", lambda x: sess.run(None, {"stft": x})[0])
+    return Backend(f"DirectML (GPU: {gpu[1]})", lambda x: sess.run(None, {"stft": x})[0])
 
 
 def run(backend: Backend, model, part):

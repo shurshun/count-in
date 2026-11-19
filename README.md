@@ -9,11 +9,16 @@ Count-In finds a song's tempo and first downbeat and puts a drum count-in in fro
 - Count-in of 1 or 2 bars in 4/4, 3/4 or 6/8.
 - Patterns: even, build-up (eighths over the second half of the last bar, louder hit by hit) or your own from a MIDI file.
 - Click through the whole song: a metronome beep, sticks, cowbell, ping or hi-hat on every beat after the count-in, with its own level.
-- A neural network separates the song into guitar, vocals, bass, drums and piano in one pass; each has its own level and a mute button.
+- A neural network separates the song into guitar, vocals, bass, drums and piano in one pass. Each part has a level from removed to +6 dB, a mute button and a solo button.
 - Pauses: bars that go quiet once parts are removed get a hi-hat on every beat, as loud as the music around them, with an optional build-up into the band's entry.
-- Speed: slow the song down to 80% with the pitch kept; the count-in and the hi-hat land on the slowed grid.
-- Separation runs on the GPU: Core ML on a Mac, DirectML on Windows. A song separated once opens instantly next time.
-- Input: mp3, FLAC, ALAC, WAV. Output: MP3 320 kbps, FLAC, ALAC or WAV, with tags and cover art kept.
+- Loop: select bars and play them round. The speed trainer adds 5% every two laps, and a bar of count-in can lead into every start from mid-song.
+- Speed and key: slow the song down to 50% with the pitch kept, or shift it by up to 6 semitones with the tempo kept. The app also shows the song's key.
+- Navigation: a ruler in bars, Go to Bar, and named section markers on keys 1–9.
+- Set list: open several songs at once and step through them with N and P. A page-turner pedal starts and stops playback.
+- Saving: one file, a stage mix with the click on the left and the music on the right, even loudness at −14 LUFS, or a multitrack for a DAW with the parts, the click and the tempo map.
+- The app remembers the settings of every song. Undo and redo cover the tempo, the "1", pauses and markers.
+- Separation runs on the GPU, through Core ML on a Mac and DirectML on Windows. A song separated once opens instantly next time.
+- Input: mp3, FLAC, ALAC (M4A), WAV, AIFF, OGG. Output: MP3 320 kbps, FLAC, ALAC or WAV, with tags and cover art kept.
 - Works offline. The network is used for the one-time model download and for updates.
 
 News, releases and feedback: the Telegram channel [@count_in_app](https://t.me/count_in_app).
@@ -40,12 +45,35 @@ The macOS build is signed and notarized by Apple. The Windows build is not signe
 
 The app follows the system appearance and has a [dark theme](docs/screenshots/main-dark-en.png) too.
 
-1. Drop a track onto the window or open it with ⌘O. The app analyzes it and starts separating the parts in the background right away; a card over the waveform shows the progress and tips.
+1. Drop a track onto the window, click the drop area or open it with ⌘O. Recent songs are listed there too. The app analyzes it and starts separating the parts in the background right away; a card over the waveform shows the progress and tips.
 2. Check the orange "1" marker on the waveform. If the detector got it wrong, drag the marker to the right beat or use the arrows in the Tempo card; the round arrow brings back what the detector found. The wheel zooms, dragging pans, the overview under the waveform shows the whole song.
-3. Pick the count-in pattern, length and meter. Blue marks on the waveform show where the clicks will sound.
-4. For a backing track, lower the part sliders in the Backing track card. With "Fill pauses with hi-hat" on, quiet stretches get a hi-hat; the silence threshold fits itself to the song, and the − and + buttons in the bar under the waveform remove or add a pause.
-5. Press Play or Space. A click on the waveform or the overview sets the playhead, ← and → jump between pauses, and the speed control slows the song down. Levels change while it plays.
-6. Press Save or ⌘S. By default the file goes next to the original, and Finder or Explorer opens with it selected; turn that off in Settings. Save asks for a backing track as one file, in the source format or as MP3, FLAC, ALAC or WAV, or a multitrack for a DAW: the parts as WAV plus the click grid and tempo map as MIDI, all starting on bar 1. The window shows the file or folder name before it saves.
+3. Pick the count-in pattern, length and meter. Blue marks on the waveform show where the clicks will sound. Tempo, the "1", pauses and markers can be undone with ⌘Z.
+4. For a backing track, lower the part sliders in the Backing track card. A slider also goes up to +6 dB, and the S button plays a part alone. With "Fill pauses with hi-hat" on, quiet stretches get a hi-hat; the silence threshold fits itself to the song, and the − and + buttons in the bar under the waveform remove or add a pause.
+5. Press Play or Space. A click on the waveform or the overview moves the playhead at once, even while the song plays, and ← and → jump between pauses. Levels change while it plays.
+6. To practise a passage, drag across its bars with Shift and choose Play in a Loop. Speed slows the song down to 50%, Key shifts it by semitones, and the speed trainer in the Playback menu speeds the loop up step by step.
+7. Press M to name a section at the playhead, then jump to it with keys 1–9. The ruler under the waveform counts bars, and ⌘G goes to a bar by its number.
+8. Press Save or ⌘S. By default the file goes next to the original, and Finder or Explorer opens with it selected; turn that off in Settings. Save offers a backing track as one file or a multitrack for a DAW. The one file can be in the source format, MP3, FLAC, ALAC or WAV, at an even loudness of −14 LUFS, or a stage mix with the click on the left and the music on the right. The multitrack holds the parts as WAV, the click grid and tempo map as MIDI and, if you like, the click as a WAV, all starting on bar 1. The window shows the file or folder name before it saves.
+
+The app remembers what you set for each song and brings it back when the song opens again. Several songs opened at once make a set list.
+
+### Keys
+
+| Key | What it does |
+|---|---|
+| Space, PageDown | play or stop |
+| Home | back to the count-in |
+| PageUp | play again from the loop start, the playhead or the count-in |
+| ← → | previous and next pause |
+| L | loop on and off |
+| M | add a section marker |
+| 1–9 | jump to a section marker |
+| N, P | next and previous song of the set list |
+| ⌘G | go to a bar |
+| ⌘[ ⌘] | slower and faster |
+| ⌘Z, ⇧⌘Z | undo and redo |
+| ⌘+ ⌘− ⌘0 | zoom in, zoom out, whole track |
+
+On Windows, Ctrl works in place of ⌘, and Ctrl+Y redoes a change. PageDown and PageUp are the keys a page-turner pedal sends.
 
 In Settings (⌘,) you can pick one output folder and have files sorted into Artist / Year - Album subfolders from the source tags; each level is a checkbox.
 
@@ -62,10 +90,12 @@ When the detector is unsure, an orange hint appears above the waveform. ×2 and 
 | Count-in only | `Song_countin.mp3` |
 | Backing track | `Song_backing_guitar-off_vocals-6dB.mp3` |
 | Slowed to 80% | `Song_backing_guitar-off_80pct.mp3` |
+| Two semitones up | `Song_countin_+2st.mp3` |
+| Stage mix | `Song_countin_stage.mp3` |
 
 ### Processing time
 
-The count-in and analysis take seconds. Separation starts as soon as a track opens and runs on the GPU: about 50 seconds for a 3-minute song on an Apple Silicon Mac (Core ML), on Windows through DirectML on any DirectX 12 graphics card. You can listen and edit while it runs; a preview excerpt gets separated ahead of the rest. A song separated once comes from the cache next time; Settings show its size and clear it.
+The count-in and analysis take seconds. Separation starts as soon as a track opens and runs on the GPU: about 50 seconds for a 3-minute song on an Apple Silicon Mac (Core ML), on Windows through DirectML on any DirectX 12 graphics card. On a laptop with two graphics cards the app picks the discrete one. You can listen and edit while it runs; the part you are listening to gets separated ahead of the rest. A song separated once comes from the cache next time; Settings show its size and clear it.
 
 On first launch the app downloads its models once: about 780 MB on a Mac, plus a 712 MB GPU model on Windows. An `assets` folder next to the app works too, for a copy on a flash drive.
 
@@ -161,13 +191,18 @@ Count-In находит темп и первую сильную долю пес�
 - Отсчёт на 1 или 2 такта, размер 4/4, 3/4 или 6/8.
 - Рисунок: ровный, «нарастание» (восьмые во второй половине последнего такта, каждый удар громче предыдущего) или свой из MIDI-файла.
 - Клик на всю песню: метроном, палочки, ковбелл, пинг или хай-хэт на каждую долю после отсчёта, со своей громкостью.
-- Нейросеть за один проход разделяет песню на гитару, вокал, бас, барабаны и пианино; у каждой дорожки свой уровень и кнопка отключения.
+- Нейросеть за один проход разделяет песню на гитару, вокал, бас, барабаны и пианино. У каждой дорожки есть уровень от «убрать» до +6 дБ, кнопка отключения и кнопка соло.
 - Паузы: такты, где без убранных инструментов тихо, получают хай-хэт на каждую долю, громкостью как музыка вокруг, и по желанию нарастание к вступлению группы.
-- Скорость: песню можно замедлить до 80% без смены тона, отсчёт и хай-хэт встают на замедленную сетку.
-- Разделение идёт на видеокарте: Core ML на Mac, DirectML на Windows. Песню, которую уже разделяли, программа открывает сразу.
-- Вход: mp3, FLAC, ALAC, WAV. Выход: MP3 320 kbps, FLAC, ALAC или WAV, теги и обложка сохраняются.
+- Петля: выделите такты и играйте их по кругу. Тренажёр скорости прибавляет 5% каждые два круга, а перед стартом с середины песни может звучать такт отсчёта.
+- Скорость и тон: песню можно замедлить до 50% без смены тона или сдвинуть на полутона, до шести вверх или вниз, без смены темпа. Программа показывает и тональность песни.
+- Навигация: линейка в тактах, переход к такту по номеру и именованные метки частей на клавишах 1–9.
+- Сет-лист: откройте несколько песен сразу и листайте их клавишами N и P. Педаль для перелистывания нот запускает и останавливает прослушивание.
+- Сохранение: один файл, микс для сцены с кликом слева и музыкой справа, ровная громкость −14 LUFS или мультитрек для DAW с дорожками, кликом и темповой картой.
+- Программа помнит настройки каждой песни. Отмена и повтор действуют на темп, «1», паузы и метки.
+- Разделение идёт на видеокарте, через Core ML на Mac и DirectML на Windows. Песню, которую уже разделяли, программа открывает сразу.
+- Вход: mp3, FLAC, ALAC (M4A), WAV, AIFF, OGG. Выход: MP3 320 kbps, FLAC, ALAC или WAV, теги и обложка сохраняются.
 - Работает без интернета. Сеть нужна для одной загрузки моделей и для обновлений.
-- Интерфейс на русском и английском: язык берётся из системы, его можно сменить в настройках. [Справка](https://count-in.app/ru/guide/) со скриншотами описывает все возможности, программа открывает её из меню «Справка» (F1).
+- Интерфейс на русском и английском. Язык берётся из системы, его можно сменить в настройках. [Справка](https://count-in.app/ru/guide/) со скриншотами описывает все возможности, программа открывает её из меню «Справка» (F1).
 
 ### Скачать
 
@@ -187,20 +222,43 @@ Count-In находит темп и первую сильную долю пес�
 
 ![Главное окно](docs/screenshots/main-light.png)
 
-Приложение следует оформлению системы, есть и [тёмная тема](docs/screenshots/main-dark.png).
+Программа следует оформлению системы, есть и [тёмная тема](docs/screenshots/main-dark.png).
 
-1. Перетащите трек в окно или откройте его через ⌘O. Приложение анализирует его и сразу начинает в фоне разделять на дорожки; карточка поверх волны показывает прогресс и советы.
+1. Перетащите трек в окно, щёлкните по области для перетаскивания или откройте его через ⌘O. Там же есть список недавних песен. Программа анализирует трек и сразу начинает в фоне разделять на дорожки; карточка поверх волны показывает прогресс и советы.
 2. Проверьте оранжевый маркер «1» на волне. Если детектор ошибся, перетащите маркер на нужную долю или сдвиньте стрелками в карточке «Темп»; круглая стрелка возвращает найденное детектором. Колесо меняет масштаб, перетаскивание сдвигает волну, обзор трека под волной показывает всю песню.
-3. Выберите рисунок, длину и размер отсчёта. Синие отметки на волне показывают, где прозвучат клики.
-4. Для бэктрека опустите ползунки в карточке «Бэктрек». С галочкой «Заполнять паузы хай-хэтом» тихие места получают хай-хэт; порог тишины подбирается сам, кнопки − и + под волной убирают и добавляют паузы.
-5. Нажмите Play или пробел. Щелчок по волне или обзору трека ставит курсор, ← и → переходят по паузам, блок «Скорость» замедляет песню. Уровни меняются на ходу.
-6. Нажмите «Сохранить» или ⌘S. По умолчанию файл ложится рядом с исходником, а Finder или Проводник открывается с ним; это отключается в настройках. Окно сохранения предлагает бэктрек одним файлом, в формате исходника, MP3, FLAC, ALAC или WAV, или мультитрек для DAW: партии в WAV, сетку кликов и темповую карту в MIDI, все с первого такта. Имя файла или папки видно до сохранения.
+3. Выберите рисунок, длину и размер отсчёта. Синие отметки на волне показывают, где прозвучат клики. Правку темпа, «1», пауз и меток отменяет ⌘Z.
+4. Для бэктрека опустите ползунки в карточке «Бэктрек». Ползунок поднимается и до +6 дБ, а кнопка S оставляет дорожку одну. С галочкой «Заполнять паузы хай-хэтом» тихие места получают хай-хэт; порог тишины подбирается сам, кнопки − и + под волной убирают и добавляют паузы.
+5. Нажмите Play или пробел. Щелчок по волне или обзору трека сразу переносит плейхед, даже во время прослушивания, ← и → переходят по паузам. Уровни меняются на ходу.
+6. Чтобы разучить фрагмент, протяните по его тактам с Shift и выберите «Играть по кругу». Блок «Скорость» замедляет песню до 50%, блок «Тон» сдвигает её на полутона, а тренажёр скорости в меню «Воспроизведение» шаг за шагом ускоряет петлю.
+7. Клавиша M ставит под плейхедом метку части с названием, клавиши 1–9 переходят к меткам. Линейка под волной считает такты, ⌘G переходит к такту по номеру.
+8. Нажмите «Сохранить» или ⌘S. По умолчанию файл ложится рядом с исходником, а Finder или Проводник открывается с ним; это отключается в настройках. Окно сохранения предлагает бэктрек одним файлом или мультитрек для DAW. Один файл пишется в формате исходника, MP3, FLAC, ALAC или WAV, по желанию с ровной громкостью −14 LUFS или как микс для сцены с кликом слева и музыкой справа. В мультитреке лежат дорожки в WAV, сетка кликов и темповая карта в MIDI и по желанию клик отдельным WAV, все с первого такта. Имя файла или папки видно до сохранения.
+
+Программа помнит, что вы настроили в каждой песне, и возвращает это при следующем открытии. Несколько песен, открытых сразу, становятся сет-листом.
+
+#### Клавиши
+
+| Клавиша | Что делает |
+|---|---|
+| Пробел, PageDown | прослушать или остановить |
+| Home | к отсчёту |
+| PageUp | играть сначала: с начала петли, с плейхеда или с отсчёта |
+| ← → | предыдущая и следующая пауза |
+| L | включить или выключить петлю |
+| M | поставить метку части |
+| 1–9 | перейти к метке части |
+| N, P | следующая и предыдущая песня сет-листа |
+| ⌘G | перейти к такту |
+| ⌘[ ⌘] | медленнее и быстрее |
+| ⌘Z, ⇧⌘Z | отменить и повторить |
+| ⌘+ ⌘− ⌘0 | приблизить, отдалить, весь трек |
+
+На Windows вместо ⌘ работает Ctrl, а правку повторяет Ctrl+Y. PageDown и PageUp посылает педаль для перелистывания нот.
 
 В настройках (⌘,) можно один раз выбрать папку для всех файлов и раскладывать их по подпапкам «Исполнитель / Год - Альбом» по тегам исходника, каждый уровень включается галочкой.
 
 ![Настройки](docs/screenshots/prefs-light.png)
 
-В нижней панели видны формат файла, битрейт или разрядность, частота дискретизации, длительность и версия приложения.
+В нижней панели видны формат файла, битрейт или разрядность, частота дискретизации, длительность и версия программы.
 
 Если детектор не уверен в результате, над волной появляется оранжевая подсказка. Кнопки ×2 и ÷2 исправляют удвоенный или половинный темп, Tap задаёт темп постукиванием.
 
@@ -211,10 +269,12 @@ Count-In находит темп и первую сильную долю пес�
 | Только отсчёт | `Песня_countin.mp3` |
 | Бэктрек | `Песня_backing_guitar-off_vocals-6dB.mp3` |
 | Замедлено до 80% | `Песня_backing_guitar-off_80pct.mp3` |
+| На два полутона выше | `Песня_countin_+2st.mp3` |
+| Микс для сцены | `Песня_countin_stage.mp3` |
 
 #### Время обработки
 
-Отсчёт и анализ занимают секунды. Разделение начинается сразу после открытия трека и идёт на видеокарте: около 50 секунд на 3-минутную песню на Mac с Apple Silicon (Core ML), на Windows через DirectML на любой видеокарте с DirectX 12. Пока оно идёт, можно слушать и править; отрывок для прослушивания разделяется вне очереди. Песня, которую уже разделяли, берётся из кэша; его размер и очистка есть в настройках.
+Отсчёт и анализ занимают секунды. Разделение начинается сразу после открытия трека и идёт на видеокарте: около 50 секунд на 3-минутную песню на Mac с Apple Silicon (Core ML), на Windows через DirectML на любой видеокарте с DirectX 12. На ноутбуке с двумя видеокартами программа выбирает дискретную. Пока оно идёт, можно слушать и править; отрывок для прослушивания разделяется вне очереди. Песня, которую уже разделяли, берётся из кэша; его размер и очистка есть в настройках.
 
 При первом запуске программа один раз скачивает модели: около 780 МБ на Mac и ещё 712 МБ модели для видеокарты на Windows. Подходит и папка `assets` рядом с программой, например на флешке.
 
@@ -222,9 +282,9 @@ Count-In находит темп и первую сильную долю пес�
 
 #### Обновления
 
-При запуске приложение проверяет, нет ли новой версии на GitHub, и в фоне скачивает её, сверяя SHA-256 с релизом. Когда загрузка готова, справа внизу слева от версии появляется круглый голубой значок, а в меню — пункт «Перезапустить и обновить». Если не перезапускать, обновление установится при выходе. «Проверить обновления…» находится в меню приложения на macOS и в меню «Справка» на Windows.
+При запуске программа проверяет, нет ли новой версии на GitHub, и в фоне скачивает её, сверяя SHA-256 с релизом. Когда загрузка готова, справа внизу слева от версии появляется круглый голубой значок, а в меню — пункт «Перезапустить и обновить». Если не перезапускать, обновление установится при выходе. «Проверить обновления…» находится в меню программы на macOS и в меню «Справка» на Windows.
 
-Само обновляется только приложение из папки, куда можно писать. Если на macOS запускать его прямо из «Загрузок», не перенося, или из защищённой папки, значок открывает страницу загрузки.
+Сама обновляется только программа из папки, куда можно писать. Если на macOS запускать её прямо из «Загрузок», не перенося, или из защищённой папки, значок открывает страницу загрузки.
 
 #### Сообщить о проблеме
 
@@ -256,7 +316,7 @@ uv run countin-verify out.mp3 --last-click 2.22526   # проверка, где 
 | Флаг | Что делает |
 |---|---|
 | `--bars 1\|2` | длина отсчёта |
-| `--meter 4/4\|3/4\|6/8` | размер; 6/8 щёлкает шесть восьмых на две доли |
+| `--meter 4/4\|3/4\|6/8` | размер; в 6/8 звучит шесть восьмых на две доли |
 | `--style even\|buildup` | ровный отсчёт или нарастание |
 | `--pattern file.mid` | рисунок из MIDI, длина округляется до целых тактов |
 | `--bpm`, `--first-beat SEC` | ручная правка темпа и первой доли |
@@ -279,7 +339,7 @@ uv run pytest                  # вместе с прогоном нейросе
 uv run pyinstaller packaging/countin.spec --noconfirm --distpath build/dist --workpath build/work  # приложение и CLI в одном бандле
 ```
 
-CI (`.github/workflows/build.yml`) собирает Windows x64 и macOS arm64 для каждого PR с изменениями кода и прогоняет CLI из бандла от начала до конца; PR только с документацией сборку не запускают. Чтобы выпустить релиз, поднимите `version` в `pyproject.toml` и поставьте тег `v<версия>`. CI опубликует оба архива в Releases, а проверка обновлений в приложении сравнивает именно эту версию.
+CI (`.github/workflows/build.yml`) собирает Windows x64 и macOS arm64 для каждого PR с изменениями кода и прогоняет CLI из бандла от начала до конца; PR только с документацией сборку не запускают. Чтобы выпустить релиз, поднимите `version` в `pyproject.toml` и поставьте тег `v<версия>`. CI опубликует оба архива в Releases, а проверка обновлений в программе сравнивает именно эту версию.
 
 ### Лицензия
 

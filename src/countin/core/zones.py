@@ -108,9 +108,9 @@ def level_db(x: np.ndarray) -> float:
     return float(20 * np.log10(np.sqrt(np.mean(np.square(x, dtype=np.float64))) + 1e-12))
 
 
-def bar_levels(pcm: np.ndarray, sr: int, bars: list[Bar]) -> list[float]:
-    """Level of every bar in dB against the whole song's level."""
-    ref = level_db(pcm)
+def bar_levels(pcm: np.ndarray, sr: int, bars: list[Bar], ref: float | None = None) -> list[float]:
+    """Level of every bar in dB against the whole song's level (ref, when already known)."""
+    ref = level_db(pcm) if ref is None else ref
     return [level_db(pcm[int(b.start * sr) : int(b.end * sr)]) - ref if b.end > b.start else -120.0 for b in bars]
 
 

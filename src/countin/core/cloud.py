@@ -167,14 +167,14 @@ def separate(pcm: np.ndarray, sr: int, song_hash: str, report, cancelled, overla
             else:
                 raise CloudError(job.get("error") or job["status"])
     else:
-        report(_("Партии этой песни уже есть на сервере"), 0, 0)
+        report(_("Дорожки этой песни уже есть на сервере"), 0, 0)
     out = {}
     names = list(job["stems"])
     for i, name in enumerate(names):
         if cancelled():
             raise Cancelled
         got = _call("GET", job["stems"][name], token, timeout=600,
-                    progress=lambda d, n, i=i: report(_("Скачивание партий"), int((i + (d / n if n else 0)) * STEPS / len(names)),
+                    progress=lambda d, n, i=i: report(_("Скачивание дорожек"), int((i + (d / n if n else 0)) * STEPS / len(names)),
                                                       STEPS))
         x, _sr = sf.read(io.BytesIO(got), dtype="float32", always_2d=True)
         x = x[: len(pcm)]

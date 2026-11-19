@@ -183,3 +183,40 @@ def analyze(pcm: np.ndarray, sr: int) -> Analysis:
         confidence=activation * regularity * agreement, activation=activation, regularity=regularity,
         beats_per_bar=bpb, bar_agreement=agreement, alt_downbeat=alt, snap_ms=snap_ms, notes=notes,
     )
+
+
+# Krumhansl-Kessler key profiles: how strongly each scale degree belongs to a major or a minor key.
+MAJOR = np.array([6.35, 2.23, 3.48, 2.33, 4.38, 4.09, 2.52, 5.19, 2.39, 3.66, 2.29, 2.88])
+MINOR = np.array([6.33, 2.68, 3.52, 5.38, 2.60, 3.53, 2.54, 4.75, 3.98, 2.69, 3.34, 3.17])
+NOTES = ("C", "C#", "D", "Eb", "E", "F", "F#", "G", "Ab", "A", "Bb", "B")
+
+
+def detect_key(pcm: np.ndarray, sr: int) -> tuple[int, bool, float]:
+    """(tonic pitch class, minor, confidence 0..1) from the song's average chroma matched against the 24
+    rotated key profiles. No model: about 0.3 s for a 4-minute song."""
+    import soxr
+
+    rate = 11025
+    x = soxr.resample(pcm.mean(axis=1), sr, rate).astype(np.float32)
+    n, hop = 8192, 4096
+    if len(x) < n:
+        return 0, False, 0.0
+    frames = np.lib.stride_tricks.sliding_window_view(x, n)[::hop] * np.hanning(n).astype(np.float32)
+    power = np.abs(np.fft.rfft(frames, axis=1)) ** 2
+    f = np.fft.rfftfreq(n, 1 / rate)
+    band = (f >= 55) & (f <= 2000)
+    pc = np.round(12 * np.log2(f[band] / 440.0) + 69).astype(int) % 12
+    chroma = np.zeros((len(power), 12))
+    for k in range(12):
+        chroma[:, k] = power[:, band][:, pc == k].sum(axis=1)
+    chroma /= chroma.sum(axis=1, keepdims=True) + 1e-12  # each frame counts the same, loud or quiet
+    profile = chroma.mean(axis=0)
+    scores = [(np.corrcoef(profile, np.roll(p, t))[0, 1], t, minor)
+              for minor, p in ((False, MAJOR), (True, MINOR)) for t in range(12)]
+    scores.sort(reverse=True)
+    best, second = scores[0][0], scores[1][0]
+    return scores[0][1], scores[0][2], float(np.clip((best - second) * 5 + best * 0.5, 0, 1))
+
+
+def key_name(tonic: int, minor: bool, semis: int = 0) -> str:
+    return NOTES[(tonic + semis) % 12] + ("m" if minor else "")
