@@ -121,7 +121,13 @@ QPushButton#primary:disabled { background: rgba(127,127,127,0.25); }
 QPushButton#tool { border: 1px solid @BORDER@; border-radius: 9px; padding: 8px 18px; font-size: 15px;
                    background: @CARD@; min-height: 22px; }
 QPushButton#tool:disabled { color: gray; }
-QFrame#hsep { background: @BORDER@; }
+QPushButton#headBtn { border: 1px solid @BORDER@; border-radius: 9px; background: rgba(127,127,127,0.10);
+                      font-size: 14px; font-weight: 600; min-height: 28px; padding: 0 12px; }
+QPushButton#headBtn:hover { background: rgba(127,127,127,0.22); }
+QPushButton#headBtn:disabled { color: rgba(127,127,127,0.6); }
+QPushButton#headBtn[accent="true"] { background: @ACCENT@; color: @ACCENT_TEXT@; border-color: @ACCENT@; }
+QPushButton#headBtn[accent="true"]:disabled { background: rgba(127,127,127,0.10); color: rgba(127,127,127,0.6);
+                                              border-color: @BORDER@; }
 QPushButton#solo { border: 1px solid rgba(127,127,127,0.3); border-radius: 6px; padding: 0; font-weight: 600; }
 QPushButton#solo:checked { background: @ACCENT@; border-color: @ACCENT@; color: white; }
 QPushButton#small { border: 1px solid rgba(127,127,127,0.3); border-radius: 6px; padding: 2px 8px;
@@ -3044,7 +3050,7 @@ class Window(QMainWindow):
 
     def _header(self) -> QWidget:
         """Three cards like the ones under the waveform: the song and what the detector found, its key and
-        file, then the speaker level and the file buttons."""
+        file, then the speaker level over the file buttons."""
         head = QWidget(objectName="header")
         h = QHBoxLayout(head)
         h.setContentsMargins(22, 12, 22, 4)
@@ -3052,7 +3058,7 @@ class Window(QMainWindow):
 
         song = QFrame(objectName="card")
         sv = QVBoxLayout(song)
-        sv.setContentsMargins(16, 10, 16, 10)
+        sv.setContentsMargins(14, 12, 14, 12)
         sv.setSpacing(2)
         self.title = QLabel("Count-In", objectName="title")
         self.subtitle = QLabel(objectName="subtitle")
@@ -3073,11 +3079,9 @@ class Window(QMainWindow):
         self.info_card.hide()  # shown once a track opens
         h.addWidget(self.info_card, 0)
 
-        acts = QFrame(objectName="card")
-        av = QVBoxLayout(acts)
-        av.setContentsMargins(16, 12, 16, 12)
-        av.setSpacing(10)
         # Speaker level of the playback; never part of the saved file
+        self.out_pct = QLabel(objectName="unit")
+        acts, g = card(_("Громкость вывода"), self.out_pct)
         self.speaker = QLabel(toolTip=_("Громкость прослушивания"))
         self.out_volume = QSlider(Qt.Horizontal, minimum=0, maximum=100, minimumWidth=120,
                                   toolTip=_("Громкость прослушивания"), accessibleName=_("Громкость прослушивания"))
@@ -3085,29 +3089,23 @@ class Window(QMainWindow):
         self.out_volume.setFocusPolicy(Qt.TabFocus)
         self.out_volume.valueChanged.connect(self._output_volume)
         self._speaker_icon()
-        vol = QHBoxLayout()
-        vol.setSpacing(8)
-        vol.addWidget(self.speaker, 0, Qt.AlignVCenter)
-        vol.addWidget(QLabel(_("Громкость вывода"), objectName="field"), 0, Qt.AlignVCenter)
-        vol.addWidget(self.out_volume, 1, Qt.AlignVCenter)
-        av.addLayout(vol)
-        av.addStretch()
-        sep = QHBoxLayout()
-        sep.setContentsMargins(24, 0, 24, 0)  # a short rule, clear of the card's edges
-        sep.addWidget(QFrame(objectName="hsep", fixedHeight=1))
-        av.addLayout(sep)
-        av.addStretch()
-        self.open_b = QPushButton(_("Открыть…"), objectName="tool", clicked=self._open_dialog)
-        self.save_b = QPushButton(_("Сохранить"), objectName="tool", clicked=self._save,
+        g.addWidget(self.speaker, 0, 0, Qt.AlignVCenter)
+        g.addWidget(self.out_volume, 0, 1, Qt.AlignVCenter)
+
+        # File buttons along the card's bottom edge, under the same rule the tempo card uses
+        self.open_b = QPushButton(_("Открыть…"), objectName="headBtn", clicked=self._open_dialog)
+        self.save_b = QPushButton(_("Сохранить"), objectName="headBtn", clicked=self._save,
                                   toolTip=QKeySequence(QKeySequence.Save).toString(QKeySequence.NativeText))
-        self.close_b = QPushButton(_("Закрыть"), objectName="tool", clicked=self._close_track,
+        self.save_b.setProperty("accent", True)
+        self.close_b = QPushButton(_("Закрыть"), objectName="headBtn", clicked=self._close_track,
                                    toolTip=QKeySequence(QKeySequence.Close).toString(QKeySequence.NativeText))
         buttons = QHBoxLayout()
         buttons.setSpacing(8)
         for b in (self.open_b, self.close_b, self.save_b):  # Play lives in the transport bar under the waveform
             b.setFocusPolicy(Qt.TabFocus)
-            buttons.addWidget(b)
-        av.addLayout(buttons)
+            buttons.addWidget(b, 1)
+        acts.layout().addWidget(QFrame(objectName="hline"))
+        acts.layout().addLayout(buttons)
         h.addWidget(acts, 0)
         return head
 
@@ -4614,6 +4612,7 @@ class Window(QMainWindow):
 
     def _speaker_icon(self):
         self.speaker.setPixmap(part_icon("muted" if self.out_volume.value() == 0 else "speaker", QColor(127, 127, 127), 20))
+        self.out_pct.setText(f"{self.out_volume.value()}%")
 
     def _save_defaults(self):
         """The current count-in, part levels and pause settings become the start for every track."""
