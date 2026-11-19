@@ -20,6 +20,8 @@ export interface Env {
   TELEGRAM_CHAT: string;
   RUNPOD_QUEUE: Queue<Step>;
   ADMIN_KEY: string;
+  MUSIC_ORIGIN: string;
+  MUSIC_SECRET: string;
 }
 
 const STEMS = ["guitar", "vocals", "bass", "drums", "piano"];
@@ -103,8 +105,64 @@ const stemLinks = (id: string) => Object.fromEntries(STEMS.map((s) => [s, `/v1/j
 
 // --- app routes ---
 
+function musicEnabled(env: Env): boolean {
+  return Boolean(env.MUSIC_ORIGIN && env.MUSIC_SECRET);
+}
+
+async function music(env: Env, t: Token, req: Request, url: URL): Promise<Response> {
+  if (!musicEnabled(env)) return fail(403, "Music search is disabled");
+  const path = url.pathname.slice("/v1/music".length);
+  const get = /^\/(artists|artists\/\d+\/tracks|tracks\/\d+\/quality|jobs\/[a-f0-9]{32}(\/audio)?)$/;
+  const allowed = (req.method === "GET" && get.test(path))
+    || (req.method === "POST" && path === "/jobs")
+    || (req.method === "DELETE" && /^\/jobs\/[a-f0-9]{32}$/.test(path));
+  if (!allowed) return fail(404, "not found");
+  const origin = new URL(env.MUSIC_ORIGIN);
+  origin.pathname = "/import" + path;
+  const query = url.searchParams.get("q");
+  if (query !== null) origin.searchParams.set("q", query.slice(0, 100));
+  let body: string | undefined;
+  if (req.method === "POST") {
+    // Fixed, small JSON body. The client cannot supply an origin path or URL.
+    const reader = req.body?.getReader();
+    if (!reader) return fail(400, "track_id required");
+    const decoder = new TextDecoder();
+    let input = "";
+    for (;;) {
+      const { value, done } = await reader.read();
+      if (done) break;
+      if (input.length + value.length > 128) {
+        await reader.cancel();
+        return fail(413, "request too large");
+      }
+      input += decoder.decode(value, { stream: true });
+    }
+    let track: number;
+    try { track = JSON.parse(input + decoder.decode()).track_id; } catch { return fail(400, "invalid JSON"); }
+    if (!Number.isSafeInteger(track) || track < 1) return fail(422, "invalid track_id");
+    body = JSON.stringify({ track_id: track });
+  }
+  const r = await fetch(origin, {
+    method: req.method, body, redirect: "manual",
+    headers: {
+      "content-type": "application/json",
+      "x-music-secret": env.MUSIC_SECRET,
+      "x-music-owner": await hmac(env.MUSIC_SECRET, t.hash),
+      "x-musicbox-client": "1",
+    },
+  });
+  if (r.status >= 300 && r.status < 400) return fail(502, "Unexpected redirect from music origin");
+  const headers = new Headers({ "cache-control": "private, no-store" });
+  for (const field of ["content-type", "content-length", "content-disposition"]) {
+    const value = r.headers.get(field);
+    if (value) headers.set(field, value);
+  }
+  return new Response(r.body, { status: r.status, headers });
+}
+
 async function me(env: Env, t: Token) {
-  return json({ name: t.name, used: await used(env, t), limit: t.monthly_limit, max_seconds: Number(env.MAX_SECONDS) });
+  return json({ name: t.name, used: await used(env, t), limit: t.monthly_limit, max_seconds: Number(env.MAX_SECONDS),
+    music_search: musicEnabled(env) });
 }
 
 async function create(env: Env, t: Token, req: Request) {
@@ -338,6 +396,7 @@ export default {
         return fail(401, "invalid or revoked key");
       }
       if (p[1] === "me" && req.method === "GET") return await me(env, t);
+      if (p[1] === "music") return await music(env, t, req, url);
       if (p[1] !== "jobs") return fail(404, "not found");
       if (p.length === 2 && req.method === "POST") return await create(env, t, req);
       const id = p[2];
