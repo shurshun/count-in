@@ -1,6 +1,7 @@
 """Builds index.html (English) and ru/index.html (Russian) from _page.html,
 download/{mac,windows}/index.html from _download.html, and the user guide guide/index.html and
-ru/guide/index.html from _guide.html with the app's own help text (src/countin/help.py).
+ru/guide/index.html from _guide.html with the app's own help text (src/countin/help.py), and the changelog
+from _changelog.html and src/countin/changes.py.
 
     python3 docs/build_site.py
 
@@ -193,41 +194,50 @@ def build_guide() -> None:
         print("wrote", out.relative_to(DOCS))
 
 
+MONTHS = {"en": "January February March April May June July August September October November December".split(),
+          "ru": "января февраля марта апреля мая июня июля августа сентября октября ноября декабря".split()}
+
 CHANGELOG = {
-    "en": {"out": "changelog/index.html", "url": "https://count-in.app/changelog/", "home": "/", "sfx": "-en",
+    "en": {"out": "changelog/index.html", "url": "https://count-in.app/changelog/", "home": "/",
            "title": "Count-In changelog — what is new in each version",
            "description": "What changed in each Count-In release.",
            "heading": "What's new in Count-In", "lead": "Every release, newest first. The app updates itself.",
-           "window_alt": "", "other_lang": "ru", "other_url": "/ru/changelog/", "other_label": "RU",
-           "theme_label": "Switch theme"},
-    "ru": {"out": "ru/changelog/index.html", "url": "https://count-in.app/ru/changelog/", "home": "/ru/", "sfx": "",
+           "guide_label": "Guide", "latest": "Latest",
+           "footer": 'Release downloads are on <a href="https://github.com/shurshun/count-in/releases">GitHub</a>.',
+           "other_lang": "ru", "other_url": "/ru/changelog/", "other_label": "RU", "theme_label": "Switch theme"},
+    "ru": {"out": "ru/changelog/index.html", "url": "https://count-in.app/ru/changelog/", "home": "/ru/",
            "title": "Что нового в Count-In — история версий",
            "description": "Что менялось в каждой версии Count-In.",
            "heading": "Что нового в Count-In", "lead": "Все версии, новые сверху. Программа обновляется сама.",
-           "window_alt": "", "other_lang": "en", "other_url": "/changelog/", "other_label": "EN",
-           "theme_label": "Сменить тему"},
+           "guide_label": "Справка", "latest": "Последняя",
+           "footer": 'Файлы всех версий — на <a href="https://github.com/shurshun/count-in/releases">GitHub</a>.',
+           "other_lang": "en", "other_url": "/changelog/", "other_label": "EN", "theme_label": "Сменить тему"},
 }
 
 
 def build_changelog() -> None:
-    """The guide's page with the releases as sections and no window shot."""
+    """changelog/index.html and ru/changelog/index.html from _changelog.html and src/countin/changes.py."""
     ch = _module("changes")
-    tpl = (DOCS / "_guide.html").read_text()
+    tpl = (DOCS / "_changelog.html").read_text()
     tpl = tpl.split("\n", 2)[0] + "\n" + tpl.split("\n", 2)[2]
-    tpl = "\n".join(line for line in tpl.split("\n") if "{{window_alt}}" not in line)
     for lang, g in CHANGELOG.items():
         i = 0 if lang == "en" else 1
         toc, body = [], []
-        for v, date, items in ch.RELEASES:
+        for n, (v, date, items) in enumerate(ch.RELEASES):
             sid = "v" + v.replace(".", "-")
+            y, m, d = (int(x) for x in date.split("-"))
+            day = f"{MONTHS[lang][m - 1]} {d}, {y}" if lang == "en" else f"{d} {MONTHS[lang][m - 1]} {y}"
+            tag = f'\n        <span class="tag">{g["latest"]}</span>' if n == 0 else ""
             toc.append(f'    <li><a href="#{sid}">{v}</a></li>')
-            lis = "\n".join(f"      <li>{ch.rich(it[i])}</li>" for it in items)
-            body.append(f'  <section id="{sid}">\n    <h2>{v} <small>{date}</small></h2>\n    <ul>\n{lis}\n    </ul>\n  </section>')
+            lis = "\n".join(f"        <li>{ch.rich(it[i])}</li>" for it in items)
+            body.append(f'    <section class="card release{" latest" if n == 0 else ""}" id="{sid}">\n'
+                        f'      <header>\n        <h2>{v}</h2>\n        <time datetime="{date}">{day}</time>{tag}\n'
+                        f'      </header>\n      <ul>\n{lis}\n      </ul>\n    </section>')
         html = tpl
-        for k, v in {**g, "lang": lang, "toc": "\n".join(toc), "sections": "\n".join(body)}.items():
+        for k, v in {**g, "lang": lang, "toc": "\n".join(toc), "releases": "\n".join(body)}.items():
             html = html.replace("{{" + k + "}}", v)
         assert "{{" not in html, "unfilled placeholder"
-        html = html.replace("<!doctype html>\n", "<!doctype html>\n<!-- Generated from _guide.html by build_site.py -->\n", 1)
+        html = html.replace("<!doctype html>\n", "<!doctype html>\n<!-- Generated from _changelog.html by build_site.py -->\n", 1)
         out = DOCS / g["out"]
         out.parent.mkdir(parents=True, exist_ok=True)
         out.write_text(html)
