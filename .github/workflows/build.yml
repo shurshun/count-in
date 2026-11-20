@@ -158,6 +158,12 @@ jobs:
           path: ~/Library/Application Support/Count-In/assets/separator/BS-Roformer-SW-core.mlmodelc
           key: coreml-${{ steps.image.outputs.image }}-${{ steps.lock.outputs.hash }}-${{ hashFiles('packaging/countin.spec', 'src/countin/core/accel.py', 'src/countin/core/stems.py', 'src/countin/core/roformer/**') }}
 
+      - name: SOCKS5 proxy (manual dev builds)
+        if: github.event_name == 'workflow_dispatch'
+        shell: bash
+        env:
+          COUNTIN_SOCKS: ${{ secrets.COUNTIN_SOCKS }}
+        run: if [ -n "$COUNTIN_SOCKS" ]; then printf '%s' "$COUNTIN_SOCKS" > socks.txt; fi
       - run: uv run pyinstaller packaging/countin.spec --noconfirm --distpath dist --workpath build/work
 
       # Smoke test of the shipped bundle: 12 s of clicks at 120 BPM through detection, separation and mp3 export.

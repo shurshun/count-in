@@ -22,6 +22,9 @@ datas += [(str(icons / v / "png"), f"assets/icons/{v}/png") for v in ("light", "
 
 # MIT requires the license text to travel with every copy.
 datas.append((str(root / "LICENSE"), "."))
+# Dev builds route cloud traffic through a SOCKS5 proxy; CI writes the file from a secret.
+if (root / "socks.txt").exists():
+    datas.append((str(root / "socks.txt"), "."))
 
 # Package metadata carries the version the update check compares against.
 datas += copy_metadata("countin")

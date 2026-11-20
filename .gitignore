@@ -16,3 +16,6 @@ samples/*
 # Promo video project: dependencies and scratch renders
 promo/node_modules/
 promo/out/
+
+# SOCKS5 proxy for dev builds, written by CI from a secret
+socks.txt

@@ -13,15 +13,28 @@ import socket
 import ssl
 import time
 import urllib.error
+import urllib.parse
 import urllib.request
 
 import numpy as np
 
 API = os.environ.get("COUNTIN_API", "https://api.count-in.app")
 
-# COUNTIN_RELAY names a server that forwards TCP 443 to Cloudflare, for networks that cut long connections to it.
-# TLS still names the API host, so the certificate check stays the same. Unset connects directly.
-RELAY = os.environ.get("COUNTIN_RELAY", "")
+# Some networks cut long connections to Cloudflare, so cloud traffic can go through a SOCKS5 proxy:
+# socks5://user:password@host:port in COUNTIN_SOCKS, else in socks.txt that dev builds bundle. Empty connects directly.
+# TLS still runs end to end with the API host, so the proxy sees only encrypted bytes.
+def _socks_url() -> str:
+    if "COUNTIN_SOCKS" in os.environ:
+        return os.environ["COUNTIN_SOCKS"].strip()
+    from .io import resource
+
+    try:
+        return resource("socks.txt").read_text().strip()
+    except OSError:
+        return ""
+
+
+SOCKS = urllib.parse.urlsplit(_socks_url())
 SERVICE = "Count-In"
 ACCOUNT = "api-key"
 POLL_S = 2.0
@@ -67,21 +80,58 @@ def _tls() -> ssl.SSLContext | None:
     return truststore.SSLContext(ssl.PROTOCOL_TLS_CLIENT)
 
 
-class _RelayConnection(http.client.HTTPSConnection):
+def _socks_connect(host: str, port: int, timeout: float) -> socket.socket:
+    """A TCP stream to host:port through the SOCKS5 proxy, with a user and password (RFC 1928, 1929)."""
+    sock = socket.create_connection((SOCKS.hostname, SOCKS.port or 1080), timeout)
+
+    def read(n: int) -> bytes:
+        data = b""
+        while len(data) < n:
+            chunk = sock.recv(n - len(data))
+            if not chunk:
+                raise OSError("SOCKS proxy closed the connection")
+            data += chunk
+        return data
+
+    try:
+        user = urllib.parse.unquote(SOCKS.username or "").encode()
+        password = urllib.parse.unquote(SOCKS.password or "").encode()
+        sock.sendall(b"\x05\x01\x02" if user else b"\x05\x01\x00")
+        method = read(2)[1]
+        if method == 2:
+            sock.sendall(bytes([1, len(user)]) + user + bytes([len(password)]) + password)
+            if read(2)[1] != 0:
+                raise OSError("SOCKS proxy refused the password")
+        elif method != 0:
+            raise OSError("SOCKS proxy wants another login method")
+        name = host.encode()
+        sock.sendall(b"\x05\x01\x00\x03" + bytes([len(name)]) + name + port.to_bytes(2, "big"))
+        reply = read(4)
+        if reply[1] != 0:
+            raise OSError(f"SOCKS proxy could not connect, code {reply[1]}")
+        read({1: 4, 4: 16}.get(reply[3]) or read(1)[0])
+        read(2)
+        return sock
+    except BaseException:
+        sock.close()
+        raise
+
+
+class _SocksConnection(http.client.HTTPSConnection):
     def connect(self):
-        sock = socket.create_connection((RELAY, self.port or 443), self.timeout)
+        sock = _socks_connect(self.host, self.port or 443, self.timeout)
         self.sock = self._context.wrap_socket(sock, server_hostname=self.host)
 
 
-class _RelayHandler(urllib.request.HTTPSHandler):
+class _SocksHandler(urllib.request.HTTPSHandler):
     def https_open(self, req):
-        return self.do_open(_RelayConnection, req, context=self._context)
+        return self.do_open(_SocksConnection, req, context=self._context)
 
 
 def _open(req: urllib.request.Request, timeout: float):
-    if not RELAY or not req.full_url.startswith("https://"):
+    if not SOCKS.hostname or not req.full_url.startswith("https://"):
         return urllib.request.urlopen(req, timeout=timeout, context=_tls())
-    return urllib.request.build_opener(_RelayHandler(context=_tls())).open(req, timeout=timeout)
+    return urllib.request.build_opener(_SocksHandler(context=_tls())).open(req, timeout=timeout)
 
 
 class _Upload(io.BytesIO):
