@@ -231,6 +231,7 @@ EN = {
     "Детектор: {bpm:.2f} BPM · «1» на {t} · уверенность {conf:.0%}":
         "Detector: {bpm:.2f} BPM · “1” at {t} · confidence {conf:.0%}",
     "детектор не уверен, проверьте маркер «1» на слух": "the detector is unsure, check the “1” marker by ear",
+    "Ритм не определён. Выставь BPM и маркер «1» вручную.": "No steady beat detected. Set the BPM and the “1” marker manually.",
     "Разделяю отрывок": "Separating the excerpt",
     "Сборка отрывка": "Building the excerpt",
     "Сборка дорожек": "Building the parts",

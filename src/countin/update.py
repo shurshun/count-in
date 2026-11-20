@@ -19,6 +19,7 @@ import truststore
 
 REPO = "shurshun/count-in"
 TIMEOUT = 10.0
+DEV_RELEASE_TAG = "dev-0.10.0-1"
 
 
 @dataclass
@@ -66,8 +67,28 @@ def newer_release(data: dict, current: str) -> Release | None:
     return Release(tag.lstrip("vV"), url, digest.removeprefix("sha256:") if digest.startswith("sha256:") else "")
 
 
-# Test pre-release builds never check, show the badge or update themselves; the latest release lacks their features.
-PRERELEASE = True
+UPDATE_CHANNEL = os.environ.get("COUNTIN_UPDATE_CHANNEL", "dev" if ".dev" in current_version() else "stable")
+
+
+def newer_dev_release(data: dict, current: str) -> Release | None:
+    """Read the build number from the assets because the public dev tag stays fixed."""
+    if data.get("tag_name") != DEV_RELEASE_TAG or not data.get("prerelease") or data.get("draft"):
+        return None
+    pattern = rf"Count-In-dev-(\d+(?:\.\d+){{2}}\.dev\d+)-{re.escape(asset_suffix())}"
+    versions = [match[1] for asset in data.get("assets", [])
+                if (match := re.fullmatch(pattern, asset.get("name", ""))) and asset.get("state") == "uploaded"]
+    if not versions:
+        return None
+
+    def order(value: str) -> tuple:
+        base, _, build = value.partition(".dev")
+        return parse(base)[0], int(build) if build.isdecimal() else float("inf")
+
+    latest = max(versions, key=order)
+    if order(latest) <= order(current):
+        return None
+    # Open the public dev release page so a ZIP cannot replace an adjacent stable installation.
+    return Release(latest, f"https://github.com/{REPO}/releases/tag/{DEV_RELEASE_TAG}")
 
 
 def check() -> Release | None:
@@ -76,12 +97,16 @@ def check() -> Release | None:
     TLS trusts the operating system's certificate store (Keychain, Windows store) through truststore.
     The bundled Python's own OpenSSL would look in a folder that exists only where python.org Python is installed.
     """
-    if PRERELEASE:
-        return None
-    req = urllib.request.Request(f"https://api.github.com/repos/{REPO}/releases/latest",
+    if UPDATE_CHANNEL == "dev":
+        endpoint, select = f"tags/{DEV_RELEASE_TAG}", newer_dev_release
+    elif UPDATE_CHANNEL == "stable":
+        endpoint, select = "latest", newer_release
+    else:
+        raise ValueError("COUNTIN_UPDATE_CHANNEL must be dev or stable")
+    req = urllib.request.Request(f"https://api.github.com/repos/{REPO}/releases/{endpoint}",
                                  headers={"Accept": "application/vnd.github+json", "User-Agent": "Count-In"})
     with urllib.request.urlopen(req, timeout=TIMEOUT, context=_tls()) as r:
-        return newer_release(json.load(r), current_version())
+        return select(json.load(r), current_version())
 
 
 def _tls() -> ssl.SSLContext:

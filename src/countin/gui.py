@@ -269,6 +269,12 @@ class Settings:
     threshold: float = zn.QUIET_DB  # dB below the song average that counts as a pause
 
 
+def song_grid_beats(t: Track) -> np.ndarray:
+    if t.analysis.manual:
+        return np.arange(t.t0, t.duration, 60.0 / t.bpm)
+    return t.analysis.beats
+
+
 def clicks_for(t: Track, s: Settings) -> list[rd.Click]:
     period = 60.0 / t.bpm
     if s.style == "midi" and s.pattern:
@@ -276,10 +282,10 @@ def clicks_for(t: Track, s: Settings) -> list[rd.Click]:
     else:
         grid = rd.buildup_grid if s.style == "buildup" else rd.click_grid
         clicks = grid(t.t0, period, s.bars, s.meter)
-    if s.click_all and t.bars:
+    if s.click_all and (t.bars or (t.analysis and t.analysis.manual)):
         from .core import daw
 
-        clicks += daw.song_clicks(t.analysis.beats, t.t0, period, rd.METERS[s.meter][0], s.click_voice,
+        clicks += daw.song_clicks(song_grid_beats(t), t.t0, period, rd.METERS[s.meter][0], s.click_voice,
                                   10 ** (s.click_db / 20))
     elif s.fill and t.zones:
         clicks += zn.zone_clicks(t.bars, t.zones, t.t0, t.bar_db, s.fill_build)
@@ -351,6 +357,7 @@ NOTES = {
     "bar length varies between downbeats": "длина такта плавает",
     "later downbeats disagree with the first one; candidate": "следующие сильные доли не сходятся с первой, кандидат",
     "no clear attack at the downbeat, using the beat grid": "на доле нет чёткой атаки, маркер стоит по сетке",
+    "beat grid starts later in the song; check the downbeat marker": "сетка начинается позже, проверьте маркер «1»",
 }
 
 
@@ -435,7 +442,11 @@ def analyze_job(job: Job, track: Track):
         pcm, info = io.decode(track.path)
         sr = info.sr
         track.duration = len(pcm) / sr
-        track.analysis = an.analyze(pcm, sr)
+        try:
+            track.analysis = an.analyze(pcm, sr)
+        except an.RhythmError:
+            empty = np.empty(0)
+            track.analysis = an.Analysis(empty, empty, track.bpm, track.t0, 0, 0, 0, 0, manual=True)
         track.key = songs.key(track.path)
         track.tonal = an.detect_key(pcm, sr)
         track.bars = zn.bars_from(track.analysis.beats, track.analysis.downbeats, track.duration)
@@ -638,7 +649,7 @@ def export_job(job: Job, t: Track, s: Settings, cached, what: dict):
         t.zones, t.zones_key = find_zones(t, pcm, info.sr, st, s), zones_key(s)
     clicks = clicks_for(t, s)
     cut = rd.leading_silence(pcm, info.sr) if s.pre_roll == "trim" else 0.0
-    g = daw.grid(t.analysis.beats, t.bars, t.zones if s.fill else None, t.t0, 60.0 / t.bpm, s.meter,
+    g = daw.grid(song_grid_beats(t), t.bars, t.zones if s.fill else None, t.t0, 60.0 / t.bpm, s.meter,
                  min([min(t.t0, cut)] + [c.time for c in clicks]))
     folder = multitrack_dir(t.path, s, info)
     folder.mkdir(parents=True, exist_ok=True)
@@ -4241,7 +4252,9 @@ class Window(QMainWindow):
         self.wave.beats, self.wave.downs, self.wave.bars = list(a.beats), list(a.downbeats), t.bars
         self._show_detector()
         notes = [translate(n) for n in a.notes]
-        if a.confidence < 0.4:
+        if a.manual:
+            notes.append(_("Ритм не определён. Выставь BPM и маркер «1» вручную."))
+        elif a.confidence < 0.4:
             notes.insert(0, _("детектор не уверен, проверьте маркер «1» на слух"))
         self.warning.setText("; ".join(notes))
         self.warning.setToolTip("; ".join(notes))
@@ -4267,7 +4280,7 @@ class Window(QMainWindow):
         a = t.analysis
         text = _("Детектор: {bpm:.2f} BPM · «1» на {t} · уверенность {conf:.0%}",
                  bpm=a.bpm, t=fmt_time(a.first_downbeat), conf=a.confidence)
-        self.detector.setText(text)
+        self.detector.setText("" if a.manual else text)
         key = "—"
         if t.tonal:
             key = an.key_name(*t.tonal[:2])
