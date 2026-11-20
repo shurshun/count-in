@@ -22,9 +22,6 @@ datas += [(str(icons / v / "png"), f"assets/icons/{v}/png") for v in ("light", "
 
 # MIT requires the license text to travel with every copy.
 datas.append((str(root / "LICENSE"), "."))
-# Dev builds route cloud traffic through a SOCKS5 proxy; CI writes the file from a secret.
-if (root / "socks.txt").exists():
-    datas.append((str(root / "socks.txt"), "."))
 
 # Package metadata carries the version the update check compares against.
 datas += copy_metadata("countin")
@@ -47,10 +44,13 @@ app_exe = EXE(pyz, scripts_for("countin_app"), [], exclude_binaries=True, name="
 cli_exe = EXE(pyz, scripts_for("countin_cli"), [], exclude_binaries=True, name="countin", console=True)
 coll = COLLECT(app_exe, cli_exe, a.binaries, a.datas, name="Count-In")
 if sys.platform == "darwin":
+    url_types = {"CFBundleURLTypes": [{"CFBundleURLName": "local.countin.dev.proxy",
+                                     "CFBundleURLSchemes": ["countin-dev"]}]} if ".dev" in version else {}
     app = BUNDLE(coll, name="Count-In.app", bundle_identifier="local.countin",
                  icon=str(icons / "light" / "macos" / "Count-In.icns"),
                  # The CLI is the last EXE, so PyInstaller would mark the bundle background-only.
                  info_plist={"NSHighResolutionCapable": True, "LSBackgroundOnly": False, "LSMinimumSystemVersion": "14.0",
                              "CFBundleShortVersionString": re.match(r"[\d.]*\d", version).group(),  # 0.10.0rc1 -> 0.10.0
+                             **url_types,
                              "CFBundleDocumentTypes": [{"CFBundleTypeName": "Audio", "CFBundleTypeRole": "Viewer",
                                                         "LSItemContentTypes": ["public.audio"]}]})

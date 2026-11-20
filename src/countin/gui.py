@@ -10,6 +10,7 @@ import time
 from dataclasses import dataclass, field, replace
 from functools import lru_cache
 from pathlib import Path
+from urllib.parse import quote
 
 import numpy as np
 from PySide6.QtCore import QEvent, QLineF, QLocale, QObject, QSettings, QStandardPaths, QUrl, QPointF, QRectF, QRunnable, QSize, Qt, QThreadPool, QTimer, Signal
@@ -2699,8 +2700,48 @@ class CloudKeyDialog(QDialog):
         self.accept()
 
 
+class ProxyLinkDialog(QDialog):
+    def __init__(self, parent, authority: str, username: str):
+        super().__init__(parent)
+        self.setWindowTitle(_("Прокси для облака"))
+        self.authority, self.username = authority, username
+        layout = QVBoxLayout(self)
+        endpoint = QLabel(_("Прокси из ссылки: {host} · {user}", host=authority, user=username),
+                          textFormat=Qt.PlainText, wordWrap=True)
+        layout.addWidget(endpoint)
+        self.password = QLineEdit(placeholderText=_("Пароль прокси"), echoMode=QLineEdit.Password)
+        self.password.setAccessibleName(_("Пароль прокси"))
+        layout.addWidget(self.password)
+        self.note = QLabel(objectName="field", wordWrap=True)
+        layout.addWidget(self.note)
+        buttons = QHBoxLayout()
+        buttons.addStretch()
+        save = QPushButton(_("Сохранить"), objectName="primary", enabled=False, clicked=self._save)
+        self.password.textChanged.connect(lambda value: save.setEnabled(bool(value)))
+        add_buttons(buttons, QPushButton(_("Отмена"), objectName="tool", clicked=self.reject), save)
+        layout.addLayout(buttons)
+        self.password.setFocus()
+
+    def _save(self):
+        from .core import cloud
+
+        password = self.password.text()
+        if not password:
+            return
+        value = f"socks5://{quote(self.username, safe='')}:{quote(password, safe='')}@{self.authority}"
+        try:
+            cloud.set_proxy_url(value)
+        except ValueError:
+            self.note.setText(_("Пароль прокси слишком длинный."))
+        except Exception:
+            self.note.setText(_("Не удалось сохранить прокси в системном хранилище."))
+        else:
+            self.password.clear()
+            self.accept()
+
+
 class PrefsDialog(QDialog):
-    """Output folder and layout, app icon. Every change is saved at once."""
+    """Application preferences."""
 
     def __init__(self, parent):
         super().__init__(parent)
@@ -2774,6 +2815,21 @@ class PrefsDialog(QDialog):
         v.addWidget(out)
         v.addWidget(look)
         v.addWidget(cache)
+        from .core import cloud
+
+        proxy_box, proxy_grid = card(_("Прокси для облака"))
+        self.proxy_edit = QLineEdit(placeholderText="socks5://user:password@host:port",
+                                    echoMode=QLineEdit.Password)
+        self.proxy_note = QLabel(_("Оставь поле пустым, чтобы отключить SOCKS5."),
+                                objectName="field", wordWrap=True)
+        try:
+            self.proxy_edit.setText(cloud.proxy_url())
+        except OSError:
+            self.proxy_note.setText(_("Не удалось прочитать прокси из системного хранилища."))
+        proxy_save = QPushButton(_("Сохранить"), objectName="small", clicked=self._save_proxy)
+        row(proxy_grid, "SOCKS5", self.proxy_edit, proxy_save)
+        proxy_grid.addWidget(self.proxy_note, proxy_grid.rowCount(), 0, 1, 2)
+        v.addWidget(proxy_box)
         if cloud_key():
             box, g4 = card(_("Ключ Count-In"))
             self.cloud = QCheckBox(_("Разделять песни на сервере Count-In"), checked=pref_bool(CLOUD_KEY, False))
@@ -2795,8 +2851,6 @@ class PrefsDialog(QDialog):
             g4.addWidget(self.remove_key, 4, 0, 1, 2, Qt.AlignLeft)
             self.key_box = box
             v.addWidget(box)
-            from .core import cloud
-
             self.cloud_job = Job(lambda _job: cloud.me())
             self.cloud_job.signals.done.connect(self._cloud_info)
             self.cloud_job.signals.failed.connect(self._cloud_refused)
@@ -2804,6 +2858,20 @@ class PrefsDialog(QDialog):
         if sys.platform != "darwin":  # Mac settings windows save at once and close by the title bar
             v.addWidget(close, 0, Qt.AlignRight)
         self._update()
+
+    def _save_proxy(self):
+        from .core import cloud
+
+        value = self.proxy_edit.text().strip()
+        try:
+            cloud.set_proxy_url(value)
+        except ValueError:
+            self.proxy_note.setText(_("Введи адрес вида socks5://user:password@host:port."))
+        except Exception:
+            self.proxy_note.setText(_("Не удалось сохранить прокси в системном хранилище."))
+        else:
+            self.proxy_edit.setText(value)
+            self.proxy_note.setText(_("Прокси сохранён.") if value else _("SOCKS5 отключён."))
 
     def _save(self, key, value):
         QSettings().setValue(key, value)
@@ -3869,6 +3937,30 @@ class Window(QMainWindow):
     def _prefs(self):
         PrefsDialog(self).exec()
         self.check_music_access()
+
+    def open_proxy_link(self, link: str):
+        from .core import cloud
+
+        try:
+            authority, username = cloud.proxy_link(link)
+        except ValueError:
+            QMessageBox.warning(self, _("Прокси для облака"), _("Не удалось прочитать ссылку на прокси."))
+            return
+        dialog = getattr(self, "proxy_link_dialog", None)
+        if dialog is not None:
+            dialog.raise_()
+            dialog.activateWindow()
+            return
+        dialog = self.proxy_link_dialog = ProxyLinkDialog(self, authority, username)
+        dialog.accepted.connect(self.check_music_access)
+        dialog.finished.connect(self._proxy_link_closed)
+        dialog.open()
+        dialog.raise_()
+        dialog.activateWindow()
+
+    def _proxy_link_closed(self, _result):
+        self.proxy_link_dialog.deleteLater()
+        self.proxy_link_dialog = None
 
     def _cloud_key(self):
         CloudKeyDialog(self).exec()
@@ -5252,15 +5344,39 @@ class Window(QMainWindow):
 
 
 class App(QApplication):
-    """Takes files dropped on the Dock icon or opened with Finder."""
+    """Receives file and URL events from macOS."""
 
     window: Window | None = None
+    pending_proxy_link: str | None = None
+    dev_links = False
 
     def event(self, e):
-        if e.type() == QEvent.FileOpen and self.window:
-            self.window.open_files([Path(e.file())])
-            return True
+        if e.type() == QEvent.FileOpen:
+            url = e.url()
+            if self.dev_links and url.scheme() == "countin-dev":
+                self.receive_proxy_link(bytes(url.toEncoded()).decode("ascii"))
+                return True
+            if self.window and e.file():
+                self.window.open_files([Path(e.file())])
+                return True
         return super().event(e)
+
+    def receive_proxy_link(self, link: str):
+        if self.window is None:
+            self.pending_proxy_link = link
+        else:
+            QTimer.singleShot(0, lambda: self.window.open_proxy_link(link))
+
+
+def register_windows_proxy_links():
+    import winreg
+
+    # The ZIP build has no installer. Register the current executable for this Windows user.
+    with winreg.CreateKey(winreg.HKEY_CURRENT_USER, r"Software\Classes\countin-dev") as key:
+        winreg.SetValueEx(key, "", 0, winreg.REG_SZ, "URL:Count-In Dev")
+        winreg.SetValueEx(key, "URL Protocol", 0, winreg.REG_SZ, "")
+        with winreg.CreateKey(key, r"shell\open\command") as command:
+            winreg.SetValueEx(command, "", 0, winreg.REG_SZ, f'"{sys.executable}" --proxy-link "%1"')
 
 
 def is_dark(app: QApplication) -> bool:
@@ -5320,6 +5436,7 @@ def style_sheet(app: QApplication) -> str:
 
 
 def main() -> int:
+    App.dev_links = ".dev" in update.current_version()
     app = App(sys.argv)
     app.setOrganizationName("Count-In")
     app.setApplicationName("Count-In")
@@ -5327,18 +5444,31 @@ def main() -> int:
 
     setup_log()
     i18n.set_language(QSettings().value(LANG_KEY, "system"))
+    if app.dev_links and sys.platform == "win32" and getattr(sys, "frozen", False):
+        try:
+            register_windows_proxy_links()
+        except OSError:
+            log.warning("Could not register Count-In dev links")
 
     # The window restyles with the system appearance.
     app.styleHints().colorSchemeChanged.connect(lambda _scheme: app.setStyleSheet(style_sheet(app)))
     app.setStyleSheet(style_sheet(app))
     w = app.window = Window()
     # Only real files: the system may pass its own arguments at launch, and those are no reason for an error.
-    w.open_files([p for p in map(Path, sys.argv[1:]) if p.is_file()])
+    args = sys.argv[1:]
+    if app.dev_links and args and args[0] == "--proxy-link":
+        if len(args) == 2:
+            app.receive_proxy_link(args[1])
+    else:
+        w.open_files([path for path in map(Path, args) if path.is_file()])
     # Size and place from the last session; the first start fills the screen.
     if not w.restoreGeometry(QSettings().value(GEOMETRY_KEY, b"")):
         w.showMaximized()
     else:
         w.show()
+    if app.pending_proxy_link is not None:
+        app.receive_proxy_link(app.pending_proxy_link)
+        app.pending_proxy_link = None
 
     # CI smoke test: start, show the window, quit; a missing bundled icon fails it.
     if os.environ.get("COUNTIN_SMOKE"):

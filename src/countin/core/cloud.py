@@ -7,8 +7,10 @@ nothing from the monthly limit. Parts come back as 16-bit FLAC, the same as the 
 
 import http.client
 import io
+import ipaddress
 import json
 import os
+import re
 import socket
 import ssl
 import time
@@ -20,23 +22,9 @@ import numpy as np
 
 API = os.environ.get("COUNTIN_API", "https://api.count-in.app")
 
-# Some networks cut long connections to Cloudflare, so cloud traffic can go through a SOCKS5 proxy:
-# socks5://user:password@host:port in COUNTIN_SOCKS, else in socks.txt that dev builds bundle. Empty connects directly.
-# TLS still runs end to end with the API host, so the proxy sees only encrypted bytes.
-def _socks_url() -> str:
-    if "COUNTIN_SOCKS" in os.environ:
-        return os.environ["COUNTIN_SOCKS"].strip()
-    from .io import resource
-
-    try:
-        return resource("socks.txt").read_text().strip()
-    except OSError:
-        return ""
-
-
-SOCKS = urllib.parse.urlsplit(_socks_url())
 SERVICE = "Count-In"
 ACCOUNT = "api-key"
+PROXY_ACCOUNT = "socks5-proxy"
 POLL_S = 2.0
 OVERLAPS = (2, 4, 8)  # windows per chunk the backend accepts; more is slower and a little cleaner
 BLOCK = 256 * 1024
@@ -72,6 +60,69 @@ def set_key(value: str | None) -> None:
             pass
 
 
+def proxy_url() -> str:
+    import keyring
+
+    try:
+        return keyring.get_password(SERVICE, PROXY_ACCOUNT) or ""
+    except keyring.errors.NoKeyringError:
+        return ""
+    except Exception:
+        raise OSError("Could not read the proxy from system credential storage") from None
+
+
+def _parse_proxy(value: str) -> urllib.parse.SplitResult:
+    try:
+        proxy = urllib.parse.urlsplit(value)
+        if (proxy.scheme != "socks5" or not proxy.hostname or proxy.port == 0
+                or proxy.path or proxy.query or proxy.fragment
+                or any(char.isspace() for char in value)):
+            raise ValueError
+        if proxy.username is not None:
+            for field in (proxy.username, proxy.password):
+                if not field or len(urllib.parse.unquote(field).encode()) > 255:
+                    raise ValueError
+        return proxy
+    except ValueError:
+        raise ValueError("Invalid SOCKS5 proxy URL") from None
+
+
+def set_proxy_url(value: str) -> None:
+    import keyring
+
+    if value:
+        _parse_proxy(value)
+        keyring.set_password(SERVICE, PROXY_ACCOUNT, value)
+    elif proxy_url():
+        keyring.delete_password(SERVICE, PROXY_ACCOUNT)
+
+
+def proxy_link(value: str) -> tuple[str, str]:
+    """Return the SOCKS5 authority and username from a dev setup link."""
+    try:
+        link = urllib.parse.urlsplit(value)
+        if (link.scheme != "countin-dev" or link.netloc != "proxy"
+                or link.path not in ("", "/") or link.fragment):
+            raise ValueError
+        pairs = urllib.parse.parse_qsl(link.query, strict_parsing=True, max_num_fields=3, errors="strict")
+        fields = dict(pairs)
+        if len(pairs) != 3 or fields.keys() != {"host", "port", "user"}:
+            raise ValueError
+        host, port, user = fields["host"], fields["port"], fields["user"]
+        if ":" in host:
+            if "%" in host:
+                raise ValueError
+            host = f"[{ipaddress.IPv6Address(host.removeprefix('[').removesuffix(']'))}]"
+        elif not re.fullmatch(r"[a-zA-Z0-9.-]{1,253}", host):
+            raise ValueError
+        if (not re.fullmatch(r"[0-9]{1,5}", port) or not 1 <= int(port) <= 65535
+                or not user.isprintable() or len(user.encode()) > 255):
+            raise ValueError
+        return f"{host}:{int(port)}", user
+    except ValueError:
+        raise ValueError("Invalid proxy setup link") from None
+
+
 def _tls() -> ssl.SSLContext | None:
     if API.startswith("http://"):
         return None
@@ -80,9 +131,9 @@ def _tls() -> ssl.SSLContext | None:
     return truststore.SSLContext(ssl.PROTOCOL_TLS_CLIENT)
 
 
-def _socks_connect(host: str, port: int, timeout: float) -> socket.socket:
-    """A TCP stream to host:port through the SOCKS5 proxy, with a user and password (RFC 1928, 1929)."""
-    sock = socket.create_connection((SOCKS.hostname, SOCKS.port or 1080), timeout)
+def _socks_connect(proxy: urllib.parse.SplitResult, host: str, port: int, timeout: float) -> socket.socket:
+    """Open a TCP stream through SOCKS5 (RFC 1928 and RFC 1929)."""
+    sock = socket.create_connection((proxy.hostname, proxy.port or 1080), timeout)
 
     def read(n: int) -> bytes:
         data = b""
@@ -94,15 +145,15 @@ def _socks_connect(host: str, port: int, timeout: float) -> socket.socket:
         return data
 
     try:
-        user = urllib.parse.unquote(SOCKS.username or "").encode()
-        password = urllib.parse.unquote(SOCKS.password or "").encode()
+        user = urllib.parse.unquote(proxy.username or "").encode()
+        password = urllib.parse.unquote(proxy.password or "").encode()
         sock.sendall(b"\x05\x01\x02" if user else b"\x05\x01\x00")
         method = read(2)[1]
-        if method == 2:
+        if method == 2 and user:
             sock.sendall(bytes([1, len(user)]) + user + bytes([len(password)]) + password)
             if read(2)[1] != 0:
                 raise OSError("SOCKS proxy refused the password")
-        elif method != 0:
+        elif method != 0 or user:
             raise OSError("SOCKS proxy wants another login method")
         name = host.encode()
         sock.sendall(b"\x05\x01\x00\x03" + bytes([len(name)]) + name + port.to_bytes(2, "big"))
@@ -118,20 +169,39 @@ def _socks_connect(host: str, port: int, timeout: float) -> socket.socket:
 
 
 class _SocksConnection(http.client.HTTPSConnection):
+    def __init__(self, host, *, proxy, **kwargs):
+        super().__init__(host, **kwargs)
+        self.proxy = proxy
+
     def connect(self):
-        sock = _socks_connect(self.host, self.port or 443, self.timeout)
-        self.sock = self._context.wrap_socket(sock, server_hostname=self.host)
+        sock = _socks_connect(self.proxy, self.host, self.port or 443, self.timeout)
+        try:
+            self.sock = self._context.wrap_socket(sock, server_hostname=self.host)
+        except BaseException:
+            sock.close()
+            raise
 
 
 class _SocksHandler(urllib.request.HTTPSHandler):
+    def __init__(self, proxy, *, context):
+        super().__init__(context=context)
+        self.proxy = proxy
+
     def https_open(self, req):
-        return self.do_open(_SocksConnection, req, context=self._context)
+        return self.do_open(_SocksConnection, req, proxy=self.proxy, context=self._context)
 
 
 def _open(req: urllib.request.Request, timeout: float):
-    if not SOCKS.hostname or not req.full_url.startswith("https://"):
+    value = proxy_url() if req.type == "https" else ""
+    if not value:
         return urllib.request.urlopen(req, timeout=timeout, context=_tls())
-    return urllib.request.build_opener(_SocksHandler(context=_tls())).open(req, timeout=timeout)
+    try:
+        proxy = _parse_proxy(value)
+    except ValueError as exc:
+        raise OSError(str(exc)) from None
+    return urllib.request.build_opener(
+        urllib.request.ProxyHandler({}), _SocksHandler(proxy, context=_tls())
+    ).open(req, timeout=timeout)
 
 
 class _Upload(io.BytesIO):
