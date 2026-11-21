@@ -282,12 +282,22 @@ jobs:
           set -euo pipefail
           [[ "$DEV_VERSION" =~ ^[0-9]+\.[0-9]+\.[0-9]+\.dev[0-9]+$ ]]
           tag=dev-0.10.0-1
-          gh release view "$tag" --json isDraft,isPrerelease --jq 'if .isPrerelease and (.isDraft | not) then true else error("Expected a public prerelease") end'
+          release=$(gh api "repos/$GH_REPO/releases/tags/$tag")
+          jq -e '.prerelease and (.draft | not)' <<< "$release" >/dev/null
           for platform in windows-x64 macos-arm64; do
             test -s "Count-In-$platform.zip"
             mv "Count-In-$platform.zip" "Count-In-dev-$DEV_VERSION-$platform.zip"
           done
-          gh release upload "$tag" "Count-In-dev-$DEV_VERSION-windows-x64.zip" "Count-In-dev-$DEV_VERSION-macos-arm64.zip"
+          for platform in windows-x64 macos-arm64; do
+            asset="Count-In-dev-$DEV_VERSION-$platform.zip"
+            existing=$(jq -r --arg asset "$asset" '.assets[] | select(.name == $asset) | .digest // "missing"' <<< "$release")
+            if [[ -z "$existing" ]]; then
+              gh release upload "$tag" "$asset"
+            else
+              digest=$(sha256sum "$asset" | cut -d ' ' -f 1)
+              [[ "$existing" == "sha256:$digest" ]] || { echo "Different archive already published: $asset" >&2; exit 1; }
+            fi
+          done
           if [[ -n "$STABLE_TAG" && "$(gh api "repos/$GH_REPO/releases/latest" --jq .tag_name)" != "$STABLE_TAG" ]]; then
             echo "::notice::A newer stable release is already current. The archives were uploaded without replacing the dev download links."
             exit 0
