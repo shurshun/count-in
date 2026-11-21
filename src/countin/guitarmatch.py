@@ -345,7 +345,6 @@ class GuitarMatchDialog(QDialog):
         self.add_b.setText(_("Убрать из трека") if on else _("Добавить в трек"))
         self.window_.status.setText(_("Ваша гитара в треке: она войдёт в прослушивание и в сохранение") if on
                                     else _("Ваша гитара убрана из трека"))
-        self.window_._auto_volume()
         self.window_._restart_preview()
         self._enable()
 

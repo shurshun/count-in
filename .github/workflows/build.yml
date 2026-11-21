@@ -7,6 +7,15 @@ on:
   pull_request:
     paths-ignore: ["**.md", "docs/**", "promo/**"]
   workflow_dispatch:
+    inputs:
+      dev_build_number:
+        description: "Public dev build number (optional, defaults to the workflow run number)"
+        type: string
+        required: false
+      publish_dev:
+        description: "Publish both dev builds on the public dev prerelease"
+        type: boolean
+        default: false
 
 jobs:
   # A PR that only bumps the version needs no new bundles: the tag build makes the release ones.
@@ -89,6 +98,8 @@ jobs:
             name: Count-In-macos-arm64
             cli: dist/Count-In.app/Contents/MacOS/countin
     runs-on: ${{ matrix.os }}
+    outputs:
+      dev_version: ${{ steps.dev-version.outputs.version }}
     permissions:
       contents: read
     defaults:
@@ -131,8 +142,15 @@ jobs:
         run: brew install lame mpg123 && packaging/build_ffmpeg.sh
 
       - name: set dev build version
+        id: dev-version
         if: github.event_name == 'workflow_dispatch' && github.ref == 'refs/heads/dev-0.10'
-        run: uv version --no-sync --bump patch --bump "dev=$GITHUB_RUN_NUMBER"
+        env:
+          DEV_BUILD_NUMBER: ${{ inputs.dev_build_number }}
+        run: |
+          number=${DEV_BUILD_NUMBER:-$GITHUB_RUN_NUMBER}
+          [[ "$number" =~ ^[1-9][0-9]*$ ]] || { echo "Invalid dev build number" >&2; exit 1; }
+          uv version --no-sync --bump patch --bump "dev=$number"
+          echo "version=$(uv version --short)" >> "$GITHUB_OUTPUT"
 
       - run: uv sync --locked
       - run: uv run pytest -m 'not slow' -q
@@ -214,6 +232,44 @@ jobs:
         with:
           path: ${{ matrix.name }}.zip
           archive: false
+
+  publish-dev:
+    if: github.event_name == 'workflow_dispatch' && github.ref == 'refs/heads/dev-0.10' && inputs.publish_dev
+    needs: build
+    runs-on: ubuntu-latest
+    permissions:
+      actions: read
+      contents: write
+    env:
+      GH_TOKEN: ${{ github.token }}
+      GH_REPO: ${{ github.repository }}
+      DEV_VERSION: ${{ needs.build.outputs.dev_version }}
+    steps:
+      - uses: actions/download-artifact@v8
+        with:
+          pattern: Count-In-*.zip
+          merge-multiple: true
+          skip-decompress: true
+      - name: Publish verified dev archives
+        run: |
+          set -euo pipefail
+          [[ "$DEV_VERSION" =~ ^[0-9]+\.[0-9]+\.[0-9]+\.dev[0-9]+$ ]]
+          tag=dev-0.10.0-1
+          gh release view "$tag" --json isDraft,isPrerelease --jq 'if .isPrerelease and (.isDraft | not) then true else error("Expected a public prerelease") end'
+          for platform in windows-x64 macos-arm64; do
+            test -s "Count-In-$platform.zip"
+            mv "Count-In-$platform.zip" "Count-In-dev-$DEV_VERSION-$platform.zip"
+          done
+          gh release upload "$tag" "Count-In-dev-$DEV_VERSION-windows-x64.zip" "Count-In-dev-$DEV_VERSION-macos-arm64.zip"
+          previous=$(gh release view "$tag" --json body --jq .body)
+          base="https://github.com/$GH_REPO/releases/download/$tag"
+          {
+            printf 'Тестовая сборка Count-In %s из ветки dev-0.10.\n\n' "$DEV_VERSION"
+            printf '[Windows x64](%s/Count-In-dev-%s-windows-x64.zip) · [macOS Apple Silicon](%s/Count-In-dev-%s-macos-arm64.zip)\n\n' "$base" "$DEV_VERSION" "$base" "$DEV_VERSION"
+            printf '%s\n\n' '- Темпотрек с редактированием и сохранением BPM, размера и сетки по участкам. Tap Tempo работает в петле и озвучивает нажатия.' '- Улучшены затакт, возврат к отсчёту и повторное воспроизведение. У отсчёта и метронома отдельные звуки и громкость.' '- Настройки Cloud Proxy доступны после ввода ключа Count-In.'
+            tail -n +5 <<< "$previous"
+          } > release-notes.md
+          gh release edit "$tag" --title "Count-In dev $DEV_VERSION" --notes-file release-notes.md --prerelease --latest=false
 
   # Signs, notarizes and staples the macOS bundle, built here or reused from the PR run. The signing secrets live
   # in the `release` environment, which only v* tags may use, so PR builds stay unsigned.

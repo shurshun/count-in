@@ -7,6 +7,7 @@ import sys
 import threading
 import random
 import time
+from collections import deque
 from dataclasses import dataclass, field, replace
 from functools import lru_cache
 from pathlib import Path
@@ -24,10 +25,11 @@ from PySide6.QtWidgets import (
 from . import changes, i18n, update
 from .i18n import _
 from .help import HELP, TIPS
+from .tempo_lane import TempoLane
 from .core import analyze as an
 from .core import io
 from .core import render as rd
-from .core import songs
+from .core import songs, tempo
 from .core import zones as zn
 from .core import assets
 from .core.io import resource
@@ -243,6 +245,14 @@ class Track:
     key: str | None = None  # the file's content hash; what the user set is kept under it (core/songs.py)
     markers: list = field(default_factory=list)  # (song time, name) of the song's sections
     extra: np.ndarray | None = None  # the player's own guitar, EQ'd and lined up with the song; preview and save mix it in
+    sections: list[tempo.Section] = field(default_factory=list)
+    proposed: list[tempo.Section] = field(default_factory=list)
+    dismissed_times: list = field(default_factory=list)
+    energy: np.ndarray | None = None  # cumulative mean-square energy in ~10 ms blocks for changed bar edges
+
+
+COUNT_VOICE_DEFAULT = "stick"
+METRONOME_VOICE_DEFAULT = "hihat"
 
 
 @dataclass
@@ -259,14 +269,15 @@ class Settings:
     group: tuple[bool, bool, bool] | None = None  # (artist, year, album) folders under out_root
     fill: bool = True  # hi-hat in the pauses, found automatically
     click_all: bool = False  # a click on every beat of the song; the pauses then need no fill
-    click_voice: str = "beep"  # rd.VOICES key of the song click
-    click_db: float = 0.0  # song click level on top of the count-in volume
+    click_voice: str = METRONOME_VOICE_DEFAULT
+    click_db: float = 0.0  # song click level, independent of the count-in
     fill_build: bool = True  # the last bar of each pause runs into the entry in eighths
     speed: float = 1.0  # playback and export speed, pitch kept (0.8 = 20% slower)
     semis: float = 0.0  # transposition in semitones, tempo kept
     split: bool = False  # backing track with the click alone on the left and the music in mono on the right
     normalize: bool = False  # the saved backing track at −14 LUFS, peaks at most −1 dB
     threshold: float = zn.QUIET_DB  # dB below the song average that counts as a pause
+    count_voice: str = COUNT_VOICE_DEFAULT
 
 
 def song_grid_beats(t: Track) -> np.ndarray:
@@ -282,7 +293,15 @@ def clicks_for(t: Track, s: Settings) -> list[rd.Click]:
     else:
         grid = rd.buildup_grid if s.style == "buildup" else rd.click_grid
         clicks = grid(t.t0, period, s.bars, s.meter)
-    if s.click_all and (t.bars or (t.analysis and t.analysis.manual)):
+    if t.analysis and abs(t.t0 - t.analysis.first_downbeat) < 0.001:
+        clicks = rd.before_pickup(clicks, t.analysis.pickup_start, period * rd.METERS[s.meter][0])
+    count_gain = 10 ** (s.volume_db / 20)
+    clicks = [replace(c, voice=s.count_voice, gain=c.gain * count_gain) for c in clicks]
+    if s.click_all and t.sections:
+        gain = 10 ** (s.click_db / 20)
+        clicks += [rd.Click(at, i == 0 and b.accent, gain, s.click_voice) for b in t.bars
+                   for i, at in enumerate(b.beats)]
+    elif s.click_all and (t.bars or (t.analysis and t.analysis.manual)):
         from .core import daw
 
         clicks += daw.song_clicks(song_grid_beats(t), t.t0, period, rd.METERS[s.meter][0], s.click_voice,
@@ -319,6 +338,13 @@ def find_zones(t: Track, pcm: np.ndarray, sr: int, st: dict[str, np.ndarray] | N
     if backing is None:
         backing = stems.attenuate(pcm, st, s.levels) if s.levels and st else pcm
     return zn.zones_from(zn.quiet_bars(backing, sr, t.bars, t.ref_db, s.threshold))
+
+
+def export_zones(t, pcm, sr, st, s):
+    if s.fill and t.bars and t.zones_key is None:
+        found = find_zones(t, pcm, sr, st, s)
+        kept = [z for z in t.zones or [] if z.kept]
+        t.zones = zn.merge(kept, [z for z in found if not any(i in t.dismissed for i in range(z.first, z.last + 1))])
 
 
 def mix_job(job: "Job", seq: int, pcm: np.ndarray, sr: int, st, levels: dict, search):
@@ -380,7 +406,7 @@ def reveal(path: Path) -> None:
 
 
 def clip_note(clipped: int) -> str:
-    return _("Клики перегружают звук в {n} сэмплах, убавьте громкость отсчёта", n=clipped) if clipped else ""
+    return _("Клики перегружают звук в {n} сэмплах, убавьте громкость отсчёта или метронома", n=clipped) if clipped else ""
 
 
 def log_path() -> Path:
@@ -409,6 +435,7 @@ class Job(QRunnable):
     def __init__(self, fn, *args):
         super().__init__()
         self.fn, self.args = fn, args
+        self.track_source = None
         self.signals = Job.Signals()
         self.cancelled = threading.Event()
 
@@ -419,7 +446,10 @@ class Job(QRunnable):
 
     def run(self):
         try:
-            self.signals.done.emit(self.fn(self, *self.args))
+            result = self.fn(self, *self.args)
+            if self.track_source is not None:
+                result = (self.track_source, *result[1:])
+            self.signals.done.emit(result)
         except Cancelled:
             try:
                 self.signals.cancelled.emit()
@@ -433,7 +463,7 @@ class Job(QRunnable):
                 pass
 
 
-def analyze_job(job: Job, track: Track):
+def analyze_job(job: Job, track: Track, default_meter="4/4"):
     """Returns (track, pcm, sr, waveform peaks); the UI keeps the PCM, so the file is decoded once and never on
     the UI thread, and the waveform peaks get made here too."""
     job.report(_("Анализ: {name}", name=track.path.name))
@@ -442,16 +472,21 @@ def analyze_job(job: Job, track: Track):
         pcm, info = io.decode(track.path)
         sr = info.sr
         track.duration = len(pcm) / sr
+        raw = an.detect(pcm, sr)
         try:
-            track.analysis = an.analyze(pcm, sr)
+            track.analysis = an.analyze(pcm, sr, raw)
         except an.RhythmError:
-            empty = np.empty(0)
-            track.analysis = an.Analysis(empty, empty, track.bpm, track.t0, 0, 0, 0, 0, manual=True)
+            track.analysis = an.Analysis(raw[0], raw[1], track.bpm, track.t0, 0, 0, 0, 0, manual=True)
         track.key = songs.key(track.path)
         track.tonal = an.detect_key(pcm, sr)
         track.bars = zn.bars_from(track.analysis.beats, track.analysis.downbeats, track.duration)
         track.ref_db = zn.level_db(pcm)
-        track.bar_db = zn.bar_levels(pcm, sr, track.bars, track.ref_db)
+        track.proposed = tempo.propose(track.analysis.beats, track.analysis.downbeats, track.duration,
+                                       track.analysis.first_downbeat, default_meter)
+        block = max(1, sr // 100)
+        chunks = pcm[:len(pcm) // block * block].reshape(-1, block, pcm.shape[1])
+        power = np.einsum("ijk,ijk->i", chunks, chunks) / (block * pcm.shape[1])
+        track.energy = np.r_[0.0, np.cumsum(power, dtype=float)]
         env = peaks_per_ms(pcm, sr)
     except Exception as e:
         log.exception("analysis of %s failed", track.path)
@@ -530,6 +565,14 @@ def _covers(cached, i0: int, i1: int) -> bool:
     return bool(cached) and cached[0] <= i0 and cached[0] + len(cached[1]["guitar"]) >= i1
 
 
+@dataclass
+class PreviewState:
+    start: float
+    sound: tuple
+    stem_cache: tuple | None
+    extra: np.ndarray | None
+
+
 def preview_job(job: Job, track: Track, s: Settings, pcm: np.ndarray, sr: int, cached, separate: bool,
                 at: float | None = None):
     """The whole song from the count-in, with stems kept apart so the player can mix them live, rendered at
@@ -538,7 +581,7 @@ def preview_job(job: Job, track: Track, s: Settings, pcm: np.ndarray, sr: int, c
     the downbeat).
 
     Returns (song with clicks, {stem: (array, output offset)}, sr, original-song time of the first sample, new
-    stem cache, clipped samples). Output time runs at s.speed: song time = start + output time * speed.
+    stem cache, clipped samples, preview state). Output time runs at s.speed.
     """
     clicks = clicks_for(track, s)
     dur = len(pcm) / sr
@@ -574,15 +617,14 @@ def preview_job(job: Job, track: Track, s: Settings, pcm: np.ndarray, sr: int, c
         part = dict(zip(part, slow))
         song = rest + sum(part.values()) if part else rest
     hits = rd.load_samples(sr)
-    r = rd.render(song, sr, win, 0.0, "keep", s.volume_db, hits)
+    r = rd.render(song, sr, win, 0.0, samples=hits)
 
     # The click plays as its own part at full level: mute, solo and its level work live, and over a loud master
     # it stays audible, while the saved file turns a click down to fit (render's limiter)
     click = np.zeros(len(r.pcm), dtype=np.float32)
-    g = 10 ** (s.volume_db / 20)
     for c, at in zip(win, r.click_samples):
         pair = hits if c.voice == "stick" else rd.voice_samples(c.voice, sr)
-        x = (pair[0] if c.accent else pair[1]) * (g * c.gain)
+        x = (pair[0] if c.accent else pair[1]) * c.gain
         n = min(len(x), len(click) - at)
         click[at : at + n] += x[:n]
     base = r.pcm - r.click[:, None] + click[:, None]
@@ -591,7 +633,9 @@ def preview_job(job: Job, track: Track, s: Settings, pcm: np.ndarray, sr: int, c
     a = int(round(r.offset * sr))
     stems_out = {k: (v, a) for k, v in part.items()}
     stems_out["click"] = (click[:, None], 0)
-    return track, base, stems_out, sr, lo_t - r.offset * s.speed, new_cache, r.clipped
+    state = PreviewState(lo_t - r.offset * s.speed, (s.speed, s.semis, clicks),
+                         new_cache if new_cache is not None else cached, track.extra)
+    return track, base, stems_out, sr, state.start, new_cache, r.clipped, state
 
 
 def target_path(song: Path, s: Settings, info: io.AudioInfo) -> Path:
@@ -609,20 +653,19 @@ def save_job(job: Job, t: Track, s: Settings, cached):
 
     job.report(_("{name}: чтение", name=t.path.name))
     pcm, info = io.decode(t.path)
-    full = None
+    full, st = None, None
     if s.levels:
         st = cached[1] if _covers(cached, 0, len(pcm)) else _stems(job, pcm, info.sr, _("{name}: разделение", name=t.path.name), song=t.path)
         full = (0, st)
-        if s.fill and t.zones is None:
-            t.zones, t.zones_key = find_zones(t, pcm, info.sr, st, s), zones_key(s)
+    export_zones(t, pcm, info.sr, st, s)
+    if s.levels:
         pcm = stems.attenuate(pcm, st, s.levels)
     if t.extra is not None and len(t.extra) == len(pcm):
         pcm = pcm + t.extra
     job.report(_("{name}: запись", name=t.path.name))
     if s.speed != 1.0 or s.semis:
         job.report(_("{name}: замедление", name=t.path.name))
-    r = rd.render(pcm, info.sr, clicks_for(t, s), t.t0, s.pre_roll, s.volume_db, rd.load_samples(info.sr), s.speed,
-                  s.semis)
+    r = rd.render(pcm, info.sr, clicks_for(t, s), t.t0, s.pre_roll, speed=s.speed, semis=s.semis)
     out = target_path(t.path, s, info)
     out.parent.mkdir(parents=True, exist_ok=True)
     pcm_out = r.pcm
@@ -653,8 +696,7 @@ def export_job(job: Job, t: Track, s: Settings, cached, what: dict):
     if what["parts"] or s.levels:
         st = cached[1] if _covers(cached, 0, len(pcm)) else _stems(job, pcm, info.sr, _("{name}: разделение", name=t.path.name), song=t.path)
         full = (0, st)
-    if s.fill and t.zones is None:
-        t.zones, t.zones_key = find_zones(t, pcm, info.sr, st, s), zones_key(s)
+    export_zones(t, pcm, info.sr, st, s)
     clicks = clicks_for(t, s)
     cut = rd.leading_silence(pcm, info.sr) if s.pre_roll == "trim" else 0.0
     g = daw.grid(song_grid_beats(t), t.bars, t.zones if s.fill else None, t.t0, 60.0 / t.bpm, s.meter,
@@ -669,7 +711,7 @@ def export_job(job: Job, t: Track, s: Settings, cached, what: dict):
         daw.write_wav(folder / f"{name}.wav", x, info.sr)
     if what.get("clickwav"):
         n = round(max(t.duration - g.start, 0) / s.speed * info.sr) + info.sr
-        daw.write_wav(folder / "click.wav", rd.click_track(clicks, info.sr, g.start, n, s.volume_db, s.speed)[:, None], info.sr)
+        daw.write_wav(folder / "click.wav", rd.click_track(clicks, info.sr, g.start, n, speed=s.speed)[:, None], info.sr)
     if what["click"]:
         daw.write_clicks(folder / "click.mid", g, clicks, s.meter, s.speed)
     if what["tempo"]:
@@ -757,6 +799,9 @@ class Player:
         self.loop: tuple[int, int] | None = None  # output samples [start, end) played round
         self.ticks: list[tuple[int, np.ndarray]] = []  # clicks mixed live: (output sample, mono hit)
         self.laps = 0  # times the loop came round
+        self.low_latency = False
+        self.hits: deque[np.ndarray] = deque()
+        self.hit_tails: list[np.ndarray] = []
         self.solo: set[str] = set()  # stems played alone; empty plays the whole mix
 
     def play(self, base: np.ndarray, stems: dict, sr: int, start: int = 0):
@@ -779,7 +824,8 @@ class Player:
 
         # A large buffer keeps audio smooth while the GUI thread holds the interpreter.
         self.stream = sd.OutputStream(samplerate=sr, channels=base.shape[1], dtype="float32",
-                                      blocksize=2048, latency="high", callback=self._fill)
+                                      blocksize=256 if self.low_latency else 2048,
+                                      latency="low" if self.low_latency else "high", callback=self._fill)
         Player.streams += 1
         self.stream.start()
 
@@ -821,6 +867,16 @@ class Player:
             elif b >= len(base):
                 self.done = True
         x = out[:n]
+        if self.hits or self.hit_tails:
+            while self.hits:
+                self.hit_tails.append(self.hits.popleft())
+            tails = []
+            for hit in self.hit_tails:
+                mixed = min(n, len(hit))
+                x[:mixed] += hit[:mixed, None]
+                if mixed < len(hit):
+                    tails.append(hit[mixed:])
+            self.hit_tails = tails
         x *= self.volume
         if not np.isfinite(x).all():  # one NaN makes Core Audio click and fall silent for the rest of the stream
             self.bad += 1
@@ -838,6 +894,8 @@ class Player:
             Player.streams -= 1
             s.stop()
             s.close()
+            self.hits.clear()
+            self.hit_tails.clear()
             if self.dry or self.bad:
                 log.warning("preview audio ran dry in %d blocks, %d blocks had NaN or inf", self.dry, self.bad)
 
@@ -1188,7 +1246,8 @@ class Overview(QWidget):
         p.setClipPath(clip)
         p.fillRect(0, 0, w, h, QColor(127, 127, 127, 22))
         for i, z in enumerate(wv.zones):
-            xa, xb = self.x_of(wv.bars[z.first].start), self.x_of(wv.bars[z.last].end)
+            a, b = zn.bounds(wv.bars, z)
+            xa, xb = self.x_of(a), self.x_of(b)
             c = QColor(GREEN)
             c.setAlpha(230 if i == wv.current_zone else 130)
             p.fillRect(QRectF(xa, 0, max(xb - xa, 2), h), c)
@@ -1249,6 +1308,7 @@ class Wave(QWidget):
     zonesEdited = Signal(object)
     zoneClicked = Signal(int)
     spanSelected = Signal(int, int)  # first and last bar of a span dragged with Shift or along the ruler
+    phaseDragged = Signal(float, float)
     markerMenu = Signal(int)  # a right-click on section marker i
     playFrom = Signal(float)
     playheadClicked = Signal()  # the user put the playhead somewhere by a click  # double-click: play from here
@@ -1259,6 +1319,7 @@ class Wave(QWidget):
         super().__init__()
         self.setMinimumHeight(220)
         self.setMouseTracking(True)
+        self.setToolTip(_("Option / Alt: потяните сетку, край или середину паузы для свободного сдвига."))
         self.env = None  # peak per millisecond
         self.duration = 0.0
         self.v0, self.v1 = 0.0, 10.0
@@ -1289,6 +1350,7 @@ class Wave(QWidget):
         self.hover_edge = None  # (pause index, side) under the pointer
         self.closes: list[tuple[QRectF, int]] = []  # remove buttons in pause headers
         self.press_x = 0.0
+        self.lane = None
 
     def playhead_color(self) -> QColor:
         return self.palette().text().color()
@@ -1312,6 +1374,8 @@ class Wave(QWidget):
         span = min(b - a, hi - lo)
         a = min(max(a, lo), hi - span)
         self.v0, self.v1 = a, a + span
+        if self.lane is not None:
+            self.lane.update()
         self.update()
 
     def _place_overlay(self):
@@ -1456,7 +1520,8 @@ class Wave(QWidget):
         edge = QColor(GREEN)
         edge.setAlpha(200 if self.fill else 80)
         for i, z in enumerate(self.zones):
-            xa, xb = self.x_of(self.bars[z.first].start), self.x_of(self.bars[z.last].end)
+            a, b = zn.bounds(self.bars, z)
+            xa, xb = self.x_of(a), self.x_of(b)
             fill.setAlpha((78 if i == self.current_zone else 34) if self.fill else 18)
             p.fillRect(QRectF(xa, 0, xb - xa, wh), fill)
             p.setPen(QPen(edge, 3 if i == self.current_zone else 2))
@@ -1601,7 +1666,8 @@ class Wave(QWidget):
             p.setPen(Qt.NoPen)
             p.setBrush(QColor(36, 138, 61, 245 if cur else 150))
             p.drawRect(head)
-            text = _("Пауза {n}", n=i + 1) + f" · {n}/4 · {bpm:.0f} BPM" + (" ✎" if z.bpm or z.beats else "")
+            meter = f"{n}/4" if z.beats else self.bars[z.first].meter or f"{n}/4"
+            text = _("Пауза {n}", n=i + 1) + f" · {meter} · {bpm:.0f} BPM" + (" ✎" if z.kept else "")
             room = QRectF(max(xa, 0) + 9, 0, xb - max(xa, 0) - (34 if cur else 14), 22)
             p.setPen(white)
             p.drawText(room, Qt.AlignVCenter | Qt.AlignLeft,
@@ -1648,9 +1714,10 @@ class Wave(QWidget):
     def _near_edge(self, x: float):
         """(pause index, side) of a pause edge within 6 px, or None."""
         for i, z in enumerate(self.zones):
-            if abs(x - self.x_of(self.bars[z.first].start)) < 9:
+            a, b = zn.bounds(self.bars, z)
+            if abs(x - self.x_of(a)) < 9:
                 return i, "start"
-            if abs(x - self.x_of(self.bars[z.last].end)) < 9:
+            if abs(x - self.x_of(b)) < 9:
                 return i, "end"
         return None
 
@@ -1670,10 +1737,10 @@ class Wave(QWidget):
             return
         for z in self.zones:
             if z.bpm is None and z.beats is None and z.last == bar - 1:
-                z.last, z.manual = last, True
+                z.last, z.end, z.manual = last, self.bars[last].end, True
                 return self._set_zones(self.zones)
             if z.bpm is None and z.beats is None and z.first == last + 1:
-                z.first, z.manual = bar, True
+                z.first, z.start, z.manual = bar, self.bars[bar].start, True
                 return self._set_zones(self.zones)
         self._set_zones(self.zones + [zn.Zone(bar, last, manual=True)])
 
@@ -1681,6 +1748,20 @@ class Wave(QWidget):
         if isinstance(QApplication.focusWidget(), QAbstractSpinBox):
             QApplication.focusWidget().clearFocus()  # a click on the waveform ends typing in a number field
         x, pos = e.position().x(), e.position()
+        if e.button() == Qt.LeftButton and e.modifiers() & Qt.AltModifier and self.bars:
+            at = self.t_of(x)
+            hit = self._near_edge(x)
+            i = hit[0] if hit else next((j for j, z in enumerate(self.zones)
+                                         if zn.bounds(self.bars, z)[0] <= at < zn.bounds(self.bars, z)[1]), None)
+            if i is not None:
+                z = self.zones[i]
+                self.current_zone = i
+                self.drag = ("free-zone", z, hit[1] if hit else "both", at, *zn.bounds(self.bars, z))
+            elif self._near_marker(x) and pos.y() < 22:
+                self.drag = "marker"
+            else:
+                self.drag = ("phase", at, x)
+            return
         if e.button() == Qt.RightButton:
             m = next((i for box, i in self.marker_boxes if box.contains(pos)), None)
             if m is not None:
@@ -1731,8 +1812,30 @@ class Wave(QWidget):
                 if abs(self.x_of(b) - x) < 6:
                     t = b
             self.t0 = float(np.clip(t, 0.0, max(self.duration - 0.01, 0.0)))
-            self.t0Changed.emit(self.t0)
             self.update()
+        elif self.drag and self.drag[0] == "free-zone":
+            _, z, side, at, a, b = self.drag
+            if z not in self.zones:
+                self.drag = None
+                return
+            dt = self.t_of(x) - at
+            lo = max((zn.bounds(self.bars, o)[1] for o in self.zones if o is not z and zn.bounds(self.bars, o)[1] <= a),
+                     default=0.0)
+            hi = min((zn.bounds(self.bars, o)[0] for o in self.zones if o is not z and zn.bounds(self.bars, o)[0] >= b),
+                     default=self.duration)
+            if side == "both":
+                dt = float(np.clip(dt, lo - a, hi - b))
+                a, b = a + dt, b + dt
+            elif side == "start":
+                a = float(np.clip(a + dt, lo, b - .001))
+            else:
+                b = float(np.clip(b + dt, a + .001, hi))
+            moved = zn.mapped(z, self.bars, a, b)
+            z.first, z.last, z.start, z.end = moved.first, moved.last, a, b
+            z.free = z.manual = True
+            self.update()
+        elif self.drag and self.drag[0] == "phase":
+            self.setCursor(Qt.SizeHorCursor)
         elif self.drag and self.drag[0] == "select":
             t = self.t_of(x)
             i = self._bar_at(t)
@@ -1753,8 +1856,10 @@ class Wave(QWidget):
             hi = min([o.first - 1 for o in others if o.first > z.last], default=len(self.bars) - 1)
             if side == "start":
                 z.first = min(range(lo, z.last + 1), key=lambda k: abs(self.bars[k].start - t))
+                z.start = self.bars[z.first].start
             else:
                 z.last = min(range(z.first, hi + 1), key=lambda k: abs(self.bars[k].end - t))
+                z.end = self.bars[z.last].end
             z.manual = True
             self.update()
         elif self.drag:
@@ -1775,14 +1880,23 @@ class Wave(QWidget):
             self.playFrom.emit(self.t_of(e.position().x()))
 
     def mouseReleaseEvent(self, e):
-        if self.drag and self.drag[0] == "select" and self.sel:
+        if self.drag == "marker":
+            self.t0Changed.emit(self.t0)
+        elif self.drag and self.drag[0] == "phase":
+            at, x0 = self.drag[1:]
+            if abs(e.position().x() - x0) > 2:
+                self.phaseDragged.emit(at, self.t_of(e.position().x()) - at)
+            else:
+                self.set_playhead(at, snap=False)
+                self.playheadClicked.emit()
+        elif self.drag and self.drag[0] == "select" and self.sel:
             a, b = self.sel
             moved = abs(e.position().x() - self.drag[2]) > 4  # a plain click on the ruler makes nothing
             self.sel = None
             self.update()
             if moved:
                 self.spanSelected.emit(a, b)
-        elif self.drag and self.drag[0] == "edge":
+        elif self.drag and self.drag[0] in ("edge", "free-zone"):
             self.zonesEdited.emit(self.zones)
         elif self.drag and self.drag[0] == "pan" and abs(e.position().x() - self.press_x) < 4:
             self.set_playhead(self.t_of(e.position().x()), snap=not e.modifiers() & Qt.AltModifier)
@@ -2033,17 +2147,16 @@ FILL_KEY = "fill/enabled"
 CLOUD_KEY = "cloud/enabled"
 CLOUD_OVERLAP = "cloud/overlap"
 FILL_BUILD_KEY = "fill/buildup"
-CLICK_VOICE_KEY = "click/voice"
 PREROLL_KEY = "click/preroll"
 GEOMETRY_KEY = "window/geometry"
 RECENT_KEY = "recent/files"
 BOOST = 6  # dB a part slider goes above the mix
 TRAINER_LAPS = 2  # loop passes before the speed trainer adds 5%
-CLICK_DB_KEY = "click/volume"
 OUTPUT_VOLUME_KEY = "playback/volume"
 DEFAULTS = "defaults/"  # prefix for the settings saved with "Save as default"
 THRESHOLD_KEY = "fill/threshold"
-VOLUME_AUTO_KEY = "clicks/auto_volume"
+LEGACY_VOLUME_AUTO_KEY = "clicks/auto_volume"
+COUNT_VOLUME_KEY = "count_in_volume"
 OUT_LEVELS = {"output/artist": "Исполнитель", "output/year": "Год", "output/album": "Альбом"}
 
 
@@ -2054,6 +2167,24 @@ def output_volume() -> float:
 
 def pref_bool(key: str, default: bool) -> bool:
     return QSettings().value(key, default) in (True, "true", "1", 1)
+
+
+def click_voice_picker(default: str) -> QComboBox:
+    combo = QComboBox()
+    for key, title in rd.VOICES.items():
+        combo.addItem(_(title), key)
+    combo.setCurrentIndex(combo.findData(default))
+    return combo
+
+
+def count_volume(stored, legacy=0) -> int:
+    """Ignore the legacy level when the old Auto mode could have set it."""
+    if stored is None:
+        stored = 0 if pref_bool(LEGACY_VOLUME_AUTO_KEY, True) else legacy
+    try:
+        return int(stored)
+    except (TypeError, ValueError):
+        return 0
 
 
 def output_prefs() -> tuple[Path | None, tuple[bool, bool, bool] | None]:
@@ -2172,16 +2303,20 @@ class TapDialog(QDialog):
     """Tap tempo over the playing song: Space taps, and once the taps stop the song carries on with a click
     at the tapped tempo and phase. Closing stops it; Apply keeps the tempo."""
 
-    def __init__(self, parent, pcm: np.ndarray, sr: int, start: float, bpm: float):
+    def __init__(self, parent, pcm: np.ndarray, sr: int, start: float, end: float, bpm: float, speed: float):
         super().__init__(parent)
         self.setWindowTitle(_("Темп на слух"))
         self.setMinimumWidth(460)
-        self.pcm, self.sr, self.bpm = pcm, sr, bpm
-        self.taps: list[float] = []  # song times of the taps
+        source = pcm[round(start * sr):round(end * sr)]
+        self.pcm = rd.stretch(source, sr, speed) if speed != 1 else source
+        self.sr, self.bpm, self.speed = sr, bpm, speed
+        self.taps: list[float] = []  # unwrapped elapsed playback time, including completed laps
+        self.valid = False
         self.clicking = False
         self.player = Player()
+        self.player.low_latency = True
         self.player.volume = output_volume()
-        self.offset = 0.0  # song time of the first sample the player got
+        self.hit = rd.load_samples(sr)[1]
         self.wall0 = time.monotonic()
 
         v = QVBoxLayout(self)
@@ -2192,7 +2327,8 @@ class TapDialog(QDialog):
         f.setBold(True)
         self.value.setFont(f)
         v.addWidget(self.value)
-        v.addWidget(QLabel("BPM", objectName="field", alignment=Qt.AlignCenter))
+        v.addWidget(QLabel(_("Исходный BPM · {a}–{b} · {speed}%", a=fmt_short(start), b=fmt_short(end),
+                             speed=round(100 * speed)), objectName="field", alignment=Qt.AlignCenter))
         self.hint = QLabel(objectName="subtitle", alignment=Qt.AlignCenter, wordWrap=True)
         v.addWidget(self.hint)
         h = QHBoxLayout()
@@ -2200,35 +2336,36 @@ class TapDialog(QDialog):
         pair = [QPushButton(text, objectName=name, clicked=slot, focusPolicy=Qt.TabFocus, autoDefault=False)
                 for text, slot, name in ((_("Отмена"), self.reject, "tool"), (_("Применить"), self.accept, "primary"))]
         add_buttons(h, *pair)
+        self.apply_b = pair[1]
+        self.apply_b.setEnabled(False)
         v.addLayout(h)
         self._show_hint()
 
         self.timer = QTimer(self, interval=100, timeout=self._check)
         self.timer.start()
-        self._play_from(start, clicks=False)
+        self.player.loop = (0, len(self.pcm))
+        self._play_loop(False)
+        self.wall0 = time.monotonic()
 
     def _now(self) -> float:
         """Song time heard right now. The wall clock, not the player's block counter: blocks are 43 ms coarse."""
         lag = self.player.stream.latency if self.player.stream else 0.0
-        return self.offset + max(0.0, time.monotonic() - self.wall0 - lag)
+        return max(0.0, time.monotonic() - self.wall0 - lag)
 
-    def _play_from(self, t: float, clicks: bool):
-        """Plays the song from t, with the tapped click on top when clicks is set."""
-        i0 = int(max(0.0, t) * self.sr)
-        part = self.pcm[i0:].copy()
-        if clicks and len(self.taps) >= 2:
-            hi, lo = rd.load_samples(self.sr)
-            p = 60.0 / self.bpm
-            k = int(np.ceil((t - self.taps[-1]) / p))
-            for n in range(k, k + int(len(part) / self.sr / p) + 1):
-                s = int(round((self.taps[-1] + n * p) * self.sr)) - i0
-                if 0 <= s < len(part):
-                    x = lo[: len(part) - s]
-                    part[s : s + len(x)] += x[:, None]
-        self.offset, self.clicking = i0 / self.sr, clicks
+    def _play_loop(self, clicks: bool):
+        part = self.pcm
+        if clicks:
+            part = part.copy()
+            lo = self.hit
+            p = 60 / (self.bpm * self.speed)
+            phase = (self.taps[-1] % (len(part) / self.sr)) % p
+            for at in np.arange(phase, len(part) / self.sr, p):
+                s = round(at * self.sr)
+                n = min(len(lo), len(part) - s)
+                part[s:s + n] += lo[:n, None]
+        self.clicking = clicks
         try:
-            self.player.play(part, {}, self.sr)
-            self.wall0 = time.monotonic()
+            self.player.play(part, {}, self.sr, self.player.pos % len(part))
         except Exception as e:  # no output device
             self.hint.setText(_("Не удалось воспроизвести: {e}", e=e))
 
@@ -2237,17 +2374,23 @@ class TapDialog(QDialog):
                           else _("Играет клик с настуканным темпом. Пробел, чтобы настучать заново"))
 
     def keyPressEvent(self, e):
-        if e.key() != Qt.Key_Space or e.isAutoRepeat():
+        if e.key() != Qt.Key_Space:
             return super().keyPressEvent(e)
+        e.accept()
+        if e.isAutoRepeat():
+            return
         now = self._now()
-        if self.clicking or (self.taps and now - self.taps[-1] > 2.0):
+        if self.clicking or (self.taps and now - self.taps[-1] > max(2.5, 2.5 * 60 / (self.bpm * self.speed))):
             self.taps = []
             if self.clicking:
-                self._play_from(now, clicks=False)
-                now = self._now()
+                self._play_loop(False)
+        self.player.hits.append(self.hit)
         self.taps = (self.taps + [now])[-12:]
-        if len(self.taps) >= 3:
-            self.bpm = float(np.clip(60.0 / float(np.median(np.diff(self.taps))), 30, 320))
+        measured = tempo.tapped_bpm(self.taps, self.speed)
+        self.valid = measured is not None
+        self.apply_b.setEnabled(self.valid)
+        if self.valid:
+            self.bpm = measured
             self.value.setText(f"{self.bpm:.1f}")
         self._show_hint()
 
@@ -2255,8 +2398,8 @@ class TapDialog(QDialog):
         """Two beats without a tap: the tapping is over, the click takes over at the tapped tempo."""
         if self.player.done:
             self.timer.stop()
-        elif not self.clicking and len(self.taps) >= 3 and self._now() - self.taps[-1] > 2 * 60.0 / self.bpm:
-            self._play_from(self._now(), clicks=True)
+        elif self.valid and not self.clicking and self._now() - self.taps[-1] > 2 * 60.0 / (self.bpm * self.speed):
+            self._play_loop(True)
             self._show_hint()
 
     def done(self, r):
@@ -2745,7 +2888,7 @@ class ProxyLinkDialog(QDialog):
         from .core import cloud
 
         password = self.password.text()
-        if not password:
+        if not password or not cloud_key():
             return
         value = f"socks5://{quote(self.username, safe='')}:{quote(password, safe='')}@{self.authority}"
         try:
@@ -2836,20 +2979,20 @@ class PrefsDialog(QDialog):
         v.addWidget(cache)
         from .core import cloud
 
-        proxy_box, proxy_grid = card(_("Прокси для облака"))
-        self.proxy_edit = QLineEdit(placeholderText="socks5://user:password@host:port",
-                                    echoMode=QLineEdit.Password)
-        self.proxy_note = QLabel(_("Оставь поле пустым, чтобы отключить SOCKS5."),
-                                objectName="field", wordWrap=True)
-        try:
-            self.proxy_edit.setText(cloud.proxy_url())
-        except OSError:
-            self.proxy_note.setText(_("Не удалось прочитать прокси из системного хранилища."))
-        proxy_save = QPushButton(_("Сохранить"), objectName="small", clicked=self._save_proxy)
-        row(proxy_grid, "SOCKS5", self.proxy_edit, proxy_save)
-        proxy_grid.addWidget(self.proxy_note, proxy_grid.rowCount(), 0, 1, 2)
-        v.addWidget(proxy_box)
         if cloud_key():
+            self.proxy_box, proxy_grid = card(_("Прокси для облака"))
+            self.proxy_edit = QLineEdit(placeholderText="socks5://user:password@host:port",
+                                        echoMode=QLineEdit.Password)
+            self.proxy_note = QLabel(_("Оставь поле пустым, чтобы отключить SOCKS5."),
+                                    objectName="field", wordWrap=True)
+            try:
+                self.proxy_edit.setText(cloud.proxy_url())
+            except OSError:
+                self.proxy_note.setText(_("Не удалось прочитать прокси из системного хранилища."))
+            proxy_save = QPushButton(_("Сохранить"), objectName="small", clicked=self._save_proxy)
+            row(proxy_grid, "SOCKS5", self.proxy_edit, proxy_save)
+            proxy_grid.addWidget(self.proxy_note, proxy_grid.rowCount(), 0, 1, 2)
+            v.addWidget(self.proxy_box)
             box, g4 = card(_("Ключ Count-In"))
             self.cloud = QCheckBox(_("Разделять песни на сервере Count-In"), checked=pref_bool(CLOUD_KEY, False))
             self.cloud.toggled.connect(self._cloud_toggled)
@@ -2881,6 +3024,8 @@ class PrefsDialog(QDialog):
     def _save_proxy(self):
         from .core import cloud
 
+        if not cloud_key():
+            return
         value = self.proxy_edit.text().strip()
         try:
             cloud.set_proxy_url(value)
@@ -2925,6 +3070,8 @@ class PrefsDialog(QDialog):
         cloud.set_key(None)
         QSettings().setValue(CLOUD_KEY, False)
         self.key_box.hide()
+        self.proxy_box.hide()
+        self.proxy_edit.clear()
         self.parent().check_music_access()
 
     def _cloud_refused(self, error: str):
@@ -3021,6 +3168,7 @@ class Window(QMainWindow):
         self.after_sep: list = []  # actions that need the whole-song stems, run when they arrive
         self.player = Player()
         self.play_start = None
+        self.ready_preview: PreviewState | None = None
         self.play_speed = 1.0  # speed of the preview now playing: song time = start + position * speed
         self.speed = 100  # playback and export speed in percent
         self.semis = 0  # transposition in semitones
@@ -3031,6 +3179,8 @@ class Window(QMainWindow):
         self.want_play = False  # a preview job is on its way to the speakers; Stop cancels that
         self.loop: tuple[float, float] | None = None  # song times played round while loop_on
         self.loop_on = False
+        self.section_i = 0
+        self.tempo_span = None  # an explicit selection, independent of the transport's stored loop
         self.job_shown = False  # the progress card shows only for jobs that take a while
         self.show_timer = QTimer(self, singleShot=True, interval=300, timeout=self._show_job)
         self.song_timer = QTimer(self, singleShot=True, interval=800, timeout=self._save_song)
@@ -3064,7 +3214,8 @@ class Window(QMainWindow):
 
     def eventFilter(self, obj, e):
         if (e.type() == QEvent.KeyPress and e.key() == Qt.Key_Space and not e.isAutoRepeat()
-                and not e.modifiers() and QApplication.activeModalWidget() is None):
+                and not e.modifiers() and QApplication.activeModalWidget() is None
+                and QApplication.activePopupWidget() is None):
             # Key events go to the focused widget first, so obj is what would type the space.
             if not isinstance(obj, (QLineEdit, QAbstractSpinBox)):
                 self._play()
@@ -3598,7 +3749,8 @@ class Window(QMainWindow):
         if t is None or not t.bpm or self.speed == 100:
             self.speed_bpm_l.setText("")
             return
-        self.speed_bpm_l.setText(_("→ {bpm} BPM", bpm=QLocale().toString(t.bpm * self.speed / 100, "f", 1)))
+        bpm = t.sections[self.section_i].bpm if t.sections else t.bpm
+        self.speed_bpm_l.setText(_("→ {bpm} BPM", bpm=QLocale().toString(bpm * self.speed / 100, "f", 1)))
 
     def _nav_changed(self):
         """Shows the play position and the current pause in the transport bar."""
@@ -3626,7 +3778,7 @@ class Window(QMainWindow):
             i = w.current_zone + d
         else:
             t = w.cursor_t if w.cursor_t is not None else w.play_t if w.play_t is not None else 0.0
-            starts = [w.bars[z.first].start for z in w.zones]
+            starts = [zn.bounds(w.bars, z)[0] for z in w.zones]
             i = sum(a <= t for a in starts) - (1 if d < 0 else 0)
         self._go_pause(int(np.clip(i, 0, len(w.zones) - 1)))
 
@@ -3634,7 +3786,7 @@ class Window(QMainWindow):
         """Makes pause i the current one, brings it into view and plays from the bar before it."""
         w = self.wave
         z = w.zones[i]
-        a, b = w.bars[z.first].start, w.bars[z.last].end
+        a, b = zn.bounds(w.bars, z)
         w.current_zone, w.play_t = i, w.bars[max(z.first - 1, 0)].start
         span = max(w.v1 - w.v0, (b - a) * 1.6)
         w.show_range((a + b - span) / 2, (a + b + span) / 2)
@@ -3648,6 +3800,10 @@ class Window(QMainWindow):
         w.play_t, w.current_zone = None, None
         if t and t.analysis:
             lead = min((c.time for c in w.clicks), default=t.t0)
+            w.play_t = lead
+            if self.loop_on:
+                self.loop_on = False
+                self._apply_loop()
             w.show_range(lead - 1.0, lead - 1.0 + (w.v1 - w.v0))
         self._nav_changed()
 
@@ -3684,6 +3840,7 @@ class Window(QMainWindow):
         """Large tempo readout with steppers and a tap pad; under it the first downbeat with one-beat shifts
         and the detector's other candidate."""
         self.bpm_spin = QDoubleSpinBox(decimals=2, minimum=30, maximum=320, singleStep=0.1)
+        self.bpm_spin.setKeyboardTracking(False)
         self.bpm_spin.valueChanged.connect(self._bpm_edited)
         self.t0_spin = QDoubleSpinBox(decimals=3, maximum=36000, singleStep=0.001, suffix=_(" с"))
         self.t0_spin.valueChanged.connect(self._t0_edited)
@@ -3763,6 +3920,14 @@ class Window(QMainWindow):
         self.warning = QLabel(objectName="warning")
         self.warning.setFixedHeight(self.warning.fontMetrics().height() + 4)
         self.wave = Wave()
+        self.lane = self.wave.lane = TempoLane(self.wave)
+        self.lane.selected.connect(self._select_section)
+        self.lane.splitAt.connect(self._split_section)
+        self.lane.moved.connect(self._move_section)
+        self.lane.joined.connect(self._join_section)
+        self.lane.shifted.connect(self._shift_section)
+        self.lane.editRequested.connect(self._edit_tempo_section)
+        self.wave.phaseDragged.connect(self._wave_phase)
         self.wave.t0Changed.connect(self._marker_moved)
         self.wave.overlay = self._progress_panel()
         self.wave.overlay.setParent(self.wave)
@@ -3787,26 +3952,26 @@ class Window(QMainWindow):
         row(g, _("Длина"), self.bars_seg)
         self.meter_seg = Segmented([(m, m) for m in rd.METERS], "4/4")
         self.meter_seg.changed.connect(self._meter_changed)
-        row(g, _("Размер"), self.meter_seg)
-        self.volume = QSlider(Qt.Horizontal, minimum=-24, maximum=6, value=0, minimumWidth=90)
+        row(g, _("Размер участка"), self.meter_seg)
+        self.count_voice = click_voice_picker(COUNT_VOICE_DEFAULT)
+        row(g, _("Звук отсчёта"), self.count_voice)
+        self.volume = QSlider(Qt.Horizontal, minimum=-24, maximum=6, value=0, minimumWidth=90, tracking=False)
         self.volume_l = QLabel(minimumWidth=60)
-        self.vol_auto = QCheckBox(_("Авто"), checked=pref_bool(VOLUME_AUTO_KEY, True))
-        self.vol_auto.setToolTip(_("Громкость отсчёта подбирается сама: клики громкие, но вместе с песней не "
-                                   "перегружают звук. Снимите галочку, чтобы задать громкость вручную."))
-        self.vol_auto.toggled.connect(self._vol_auto_toggled)
-        self.volume.setEnabled(not self.vol_auto.isChecked())
-        row(g, _("Громкость"), self.volume, self.volume_l, self.vol_auto)
+        row(g, _("Громкость"), self.volume, self.volume_l)
+        self.preroll_cb = QCheckBox(_("Такт отсчёта при старте с середины"), objectName="rowCheck",
+                                    checked=pref_bool(PREROLL_KEY, True))
+        self.preroll_cb.setToolTip(_("Когда песня играет с плейхеда или петля начинается заново, перед этим местом звучит такт клика в его темпе."))
+        self.preroll_cb.toggled.connect(lambda on: QSettings().setValue(PREROLL_KEY, on))
+        g.addWidget(self.preroll_cb, g.rowCount(), 0, 1, 2, Qt.AlignLeft | Qt.AlignVCenter)
+
+        g.addWidget(QFrame(objectName="hline"), g.rowCount(), 0, 1, 2)
+        g.addWidget(QLabel(_("Метроном"), objectName="cardTitle"), g.rowCount(), 0, 1, 2)
         self.click_all = QCheckBox(_("Клик на всю песню"), objectName="rowCheck")
         self.click_all.setToolTip(_("Клик на каждую долю после отсчёта, до конца песни. Заполнение пауз при этом не нужно."))
         g.addWidget(self.click_all, g.rowCount(), 0, 1, 2, Qt.AlignLeft | Qt.AlignVCenter)
-        self.click_voice = QComboBox()
-        for key, title in rd.VOICES.items():
-            self.click_voice.addItem(_(title), key)
-        voice = QSettings().value(CLICK_VOICE_KEY, "beep")
-        self.click_voice.setCurrentIndex(list(rd.VOICES).index(voice) if voice in rd.VOICES else 0)
+        self.click_voice = click_voice_picker(METRONOME_VOICE_DEFAULT)
         row(g, _("Звук клика"), self.click_voice)
-        self.click_db = QSlider(Qt.Horizontal, minimum=-12, maximum=12, minimumWidth=90)
-        self.click_db.setValue(int(QSettings().value(CLICK_DB_KEY, 0)))
+        self.click_db = QSlider(Qt.Horizontal, minimum=-12, maximum=12, minimumWidth=90, tracking=False)
         self.click_db_l = QLabel(minimumWidth=60)
         self.click_mute = QPushButton(objectName="small", checkable=True, focusPolicy=Qt.TabFocus, fixedSize=QSize(30, 22),
                                       toolTip=_("Выключить клик в прослушивании: отсчёт, паузы и клик песни"),
@@ -3818,11 +3983,6 @@ class Window(QMainWindow):
         click_solo.toggled.connect(lambda on: self._solo("click", on))
         self.solo_b_click = click_solo
         row(g, _("Громкость клика"), self.click_mute, click_solo, self.click_db, self.click_db_l)
-        self.preroll_cb = QCheckBox(_("Такт отсчёта при старте с середины"), objectName="rowCheck",
-                                    checked=pref_bool(PREROLL_KEY, True))
-        self.preroll_cb.setToolTip(_("Когда песня играет с плейхеда или петля начинается заново, перед этим местом звучит такт клика в его темпе."))
-        self.preroll_cb.toggled.connect(lambda on: QSettings().setValue(PREROLL_KEY, on))
-        g.addWidget(self.preroll_cb, g.rowCount(), 0, 1, 2, Qt.AlignLeft | Qt.AlignVCenter)
         self.pattern: Path | None = None
 
         save_b = self._icon_button("save", _("Сохранить эти настройки как настройки по умолчанию"), self._save_defaults)
@@ -3873,11 +4033,11 @@ class Window(QMainWindow):
         self.trim.toggled.connect(self._refresh)
         self.fill.toggled.connect(self._fill_toggled)
         self.click_all.toggled.connect(self._click_all_toggled)
+        self.count_voice.currentIndexChanged.connect(self._click_sound)
         self.click_voice.currentIndexChanged.connect(self._click_sound)
+        self.volume.valueChanged.connect(self._click_sound)
         self.click_db.valueChanged.connect(self._labels)
-        self.click_db.valueChanged.connect(self._refresh)
-        self.click_db.sliderReleased.connect(self._click_sound)
-        self.click_db.valueChanged.connect(lambda v: QSettings().setValue(CLICK_DB_KEY, v))
+        self.click_db.valueChanged.connect(self._click_sound)
         self.wave.zonesEdited.connect(self._zones_edited)
         self.wave.zoneClicked.connect(self._edit_zone)
         self.wave.spanSelected.connect(self._span_selected)
@@ -3906,6 +4066,7 @@ class Window(QMainWindow):
         v = QVBoxLayout(page)
         v.setContentsMargins(22, 4, 22, 12)
         v.setSpacing(8)
+        v.addWidget(self.lane)
         v.addWidget(self.wave, 1)
         v.addWidget(Overview(self.wave, 46))
         v.addWidget(self._transport())
@@ -3960,6 +4121,9 @@ class Window(QMainWindow):
     def open_proxy_link(self, link: str):
         from .core import cloud
 
+        if not cloud_key():
+            self.status.setText(_("Чтобы настроить прокси, сначала добавьте ключ Count-In."))
+            return
         try:
             authority, username = cloud.proxy_link(link)
         except ValueError:
@@ -4225,7 +4389,7 @@ class Window(QMainWindow):
             self._show_file()
         except RuntimeError as e:
             self.file_l.setText(str(e)[:120])
-        self.analysis_job = Job(analyze_job, t)
+        self.analysis_job = Job(analyze_job, t, self.meter_seg.value())
         self.analysis_job.signals.done.connect(self._analyzed)
         self.analysis_pool.start(self.analysis_job)
         self._enable()
@@ -4257,7 +4421,7 @@ class Window(QMainWindow):
         self.pcm, self.sr = pcm, sr
         a = t.analysis
         self.wave.set_env(env, len(pcm) / sr)
-        self.wave.beats, self.wave.downs, self.wave.bars = list(a.beats), list(a.downbeats), t.bars
+        t.sections = list(t.proposed)
         self._show_detector()
         notes = [translate(n) for n in a.notes]
         if a.manual:
@@ -4269,6 +4433,8 @@ class Window(QMainWindow):
 
         self.alt_b.setVisible(a.alt_downbeat is not None)
         self._restore_song(t)
+        self._regrid()
+        self._show_detector()
         self.wave.markers = t.markers
         self.undo_stack, self.redo_stack, self.undo_base = [], [], self._edit_state()
         self._show_track_values()
@@ -4288,7 +4454,12 @@ class Window(QMainWindow):
         a = t.analysis
         text = _("Детектор: {bpm:.2f} BPM · «1» на {t} · уверенность {conf:.0%}",
                  bpm=a.bpm, t=fmt_time(a.first_downbeat), conf=a.confidence)
-        self.detector.setText("" if a.manual else text)
+        if t.sections:
+            sec = t.sections[min(self.section_i, len(t.sections) - 1)]
+            origin = _("Вручную") if sec.fixed or sec.meter_manual else _("Авто") if sec.certain else _("Темп приблизительный")
+            text = _("{origin} · {bpm:.1f} BPM · {meter}", origin=origin, bpm=sec.bpm,
+                     meter=sec.meter if sec.meter_known else sec.meter + "?")
+        self.detector.setText(text if t.sections or not a.manual else "")
         key = "—"
         if t.tonal:
             key = an.key_name(*t.tonal[:2])
@@ -4306,8 +4477,9 @@ class Window(QMainWindow):
     def _edit_state(self) -> tuple:
         """What undo brings back: tempo, the "1", the pauses the user made or edited, removed pauses, markers."""
         t = self.current
-        return (t.bpm, t.bpm_manual, t.t0, tuple((z.first, z.last, z.bpm, z.beats, z.manual) for z in t.zones or [] if z.kept),
-                frozenset(t.dismissed), tuple(t.markers))
+        kept = tuple((z.first, z.last, z.bpm, z.beats, z.manual, z.start, z.end, z.free) for z in t.zones or [] if z.kept)
+        return (t.bpm, t.bpm_manual, t.t0, kept,
+                tuple(t.dismissed_times), tuple(t.markers), tuple(t.sections))
 
     def _snap_undo(self):
         if not (self.current and self.current.analysis):
@@ -4329,20 +4501,19 @@ class Window(QMainWindow):
         self.undo_base = state = src.pop()
         t = self.current
         t.bpm, t.bpm_manual, t.t0 = state[0], state[1], state[2]
-        kept = [zn.Zone(a, b, bpm, beats, manual) for a, b, bpm, beats, manual in state[3]]
-        t.dismissed = set(state[4])
-        found = [z for z in t.zones or [] if not z.kept and not any(i in t.dismissed for i in range(z.first, z.last + 1))]
-        t.zones = zn.merge(kept, found)
-        t.covered = _bars_of(t.zones)
+        t.zones = [zn.Zone(*row) for row in state[3]]
+        t.dismissed_times, t.sections = list(state[4]), list(state[6])
         t.markers = list(state[5])
         self.wave.markers = t.markers
         self.restoring = True  # the views below report changes that are this very step
         try:
+            self._regrid()
             self._show_track_values()
             self._refresh()
         finally:
             self.restoring = False
         self.song_timer.start()
+        self._auto_zones()
         self._restart_preview()
 
     def _flush_song(self):
@@ -4355,9 +4526,12 @@ class Window(QMainWindow):
         if not (t and t.key):
             return
         state = {
+            "rhythm_version": 1, "sections": [vars(s) for s in t.sections],
+            "dismissed_times": t.dismissed_times,
             "bpm": t.bpm, "bpm_manual": t.bpm_manual, "t0": t.t0,
             "style": self.style_seg.value() if self.style_seg.value() != "midi" else "buildup",
-            "bars": self.bars_seg.value(), "meter": self.meter_seg.value(), "volume": self.volume.value(),
+            "bars": self.bars_seg.value(), "meter": self.settings().meter, "volume": self.volume.value(),
+            COUNT_VOLUME_KEY: self.volume.value(), "count_voice": self.count_voice.currentData(),
             "parts": {k: s.value() for k, s in self.parts.items()}, "speed": self.speed, "semis": self.semis,
             "click_all": self.click_all.isChecked(), "click_voice": self.click_voice.currentData(),
             "click_db": self.click_db.value(), "fill": self.fill.isChecked(),
@@ -4380,7 +4554,10 @@ class Window(QMainWindow):
             for seg, k in ((self.style_seg, "style"), (self.bars_seg, "bars"), (self.meter_seg, "meter")):
                 if d.get(k) in seg.values:
                     seg.set_value(d[k])
-            self.volume.setValue(int(d.get("volume", 0)))
+            self.volume.setValue(count_volume(d.get(COUNT_VOLUME_KEY), d.get("volume", 0)))
+            voice = self.count_voice.findData(d.get("count_voice"))
+            if voice >= 0:
+                self.count_voice.setCurrentIndex(voice)
             for k, v in (d.get("parts") or {}).items():
                 if k in self.parts:
                     self.parts[k].setValue(int(v))
@@ -4390,11 +4567,31 @@ class Window(QMainWindow):
             i = self.click_voice.findData(d.get("click_voice"))
             if i >= 0:
                 self.click_voice.setCurrentIndex(i)
-            self.click_db.setValue(int(d.get("click_db", 0)))
+            self.click_db.setValue(int(d.get("click_db", self.click_db.value())))
             self.fill.setChecked(bool(d.get("fill", True)))
-            n = len(t.bars)
-            t.zones = [zn.Zone(**z) for z in d.get("zones") or [] if 0 <= z["first"] <= z["last"] < n] or None
-            t.dismissed = {i for i in d.get("dismissed") or [] if 0 <= i < n}
+            saved = tempo.from_json(d.get("sections"), t.duration)
+            if saved:
+                t.sections = saved
+            else:
+                lead = tempo.index(t.sections, t.t0)
+                t.sections[lead] = replace(t.sections[lead], anchor=t.t0)
+                if t.bpm_manual and 30 <= t.bpm <= 320:
+                    t.sections = [tempo.Section(0, t.bpm, self.meter_seg.value(), t.t0, meter_known=True)]
+                elif d.get("meter") in rd.METERS:
+                    t.sections = [replace(s, meter=d["meter"]) if not s.meter_known else s for s in t.sections]
+            old = t.bars  # the detector grid whose indices were used by the legacy file
+            t.zones = []
+            for row in d.get("zones") or []:
+                z = zn.Zone(**row)
+                if z.start is not None and z.end is not None and 0 <= z.start < z.end <= t.duration + 1e-6:
+                    t.zones.append(z)
+                elif 0 <= z.first <= z.last < len(old):
+                    a, b = zn.bounds(old, z)
+                    t.zones.append(replace(z, start=a, end=b))
+            if "dismissed_times" in d:
+                t.dismissed_times = [(a, b) for a, b in d["dismissed_times"] if 0 <= a < b <= t.duration + 1e-6]
+            else:
+                t.dismissed_times = [(old[i].start, old[i].end) for i in d.get("dismissed") or [] if 0 <= i < len(old)]
             t.covered = _bars_of(t.zones)
             t.markers = [(float(a), str(b)) for a, b in d.get("markers") or []]
             if d.get("loop"):
@@ -4408,96 +4605,287 @@ class Window(QMainWindow):
 
     def _show_track_values(self):
         t = self.current
-        for spin, v in ((self.bpm_spin, t.bpm), (self.t0_spin, t.t0)):
-            spin.blockSignals(True)
-            spin.setValue(v)
-            spin.blockSignals(False)
+        self._section_values()
+        self.t0_spin.blockSignals(True)
+        self.t0_spin.setValue(t.t0)
+        self.t0_spin.blockSignals(False)
         self._refresh()
 
     # --- edits ---
 
+    def _section_values(self):
+        t = self.current
+        if not t or not t.sections:
+            return
+        self.section_i = min(self.section_i, len(t.sections) - 1)
+        section = t.sections[self.section_i]
+        self.bpm_spin.blockSignals(True)
+        self.bpm_spin.setValue(section.bpm)
+        self.bpm_spin.blockSignals(False)
+        self.meter_seg.set_value(section.meter)
+        self.lane.sections, self.lane.active = t.sections, self.section_i
+        self.lane.update()
+
+    def _regrid(self):
+        t = self.current
+        kept = [(z, zn.bounds(t.bars, z)) for z in t.zones or [] if z.kept]
+        t.bars = tempo.bars(t.sections, t.analysis.beats, t.t0, t.duration)
+        t.bpm = t.sections[tempo.index(t.sections, t.t0)].bpm
+        t.zones = [zn.mapped(z, t.bars, a, b) for z, (a, b) in kept] if t.bars else []
+        t.dismissed = {i for i, bar in enumerate(t.bars)
+                       if any(a <= (bar.start + bar.end) / 2 < b for a, b in t.dismissed_times)}
+        t.covered = _bars_of(t.zones)
+        t.zones_key = None
+        self.mix_seq += 1
+        if t.energy is not None and len(t.energy) > 1:
+            scale = self.sr / max(1, self.sr // 100)
+            edges = np.clip(np.rint(np.array([b.start for b in t.bars] + [t.duration]) * scale).astype(int),
+                            0, len(t.energy) - 1)
+            power = np.diff(t.energy[edges]) / np.maximum(1, np.diff(edges))
+            t.bar_db = (10 * np.log10(np.maximum(power, 1e-24)) - t.ref_db).tolist()
+        self.wave.bars = t.bars
+        self.wave.beats = [p for b in t.bars for p in b.beats]
+        self.wave.downs = [b.start for b in t.bars if b.accent]
+        self.wave.current_zone = None
+        self._section_values()
+
+    def _set_map(self, sections, t0=None):
+        if not sections or (sections == self.current.sections and (t0 is None or t0 == self.current.t0)):
+            return
+        old_lead = min((c.time for c in self.wave.clicks), default=self.current.t0)
+        self._snap_undo()
+        if t0 is not None:
+            self.current.t0 = t0
+        self.current.sections = sections
+        self._regrid()
+        self._show_track_values()
+        self._show_detector()
+        self._snap_undo()
+        self._auto_zones()
+        if self.play_start is not None:
+            new_lead = min((c.time for c in self.wave.clicks), default=self.current.t0)
+            if new_lead < min(old_lead, self.play_start) - .001:
+                self._restart_preview()
+            else:
+                self._swap_clicks()
+
+    def _select_section(self, i):
+        self.section_i = i
+        self.tempo_span = self._section_bounds()
+        self._section_values()
+        self._show_detector()
+        self._speed_bpm()
+
+    def _edit_tempo_section(self, i, position):
+        t = self.current
+        if not t or not 0 <= i < len(t.sections):
+            return
+        self._select_section(i)
+        sections = t.sections
+        section = sections[i]
+        a, b = self._section_bounds()
+
+        popup = QDialog(self, Qt.Popup)
+        popup.setAttribute(Qt.WA_DeleteOnClose)
+        popup.setWindowTitle(_("Темп и размер"))
+        layout = QVBoxLayout(popup)
+        layout.setContentsMargins(0, 0, 0, 0)
+        panel, grid = card(_("Темп и размер"))
+        panel.setMinimumWidth(280)
+        layout.addWidget(panel)
+        grid.addWidget(QLabel(f"{fmt_short(a)} – {fmt_short(b)}", objectName="field"), 0, 0, 1, 2)
+        bpm = QDoubleSpinBox(minimum=30, maximum=320, decimals=2, singleStep=.1, value=section.bpm)
+        bpm.setAccessibleName("BPM")
+        bpm.setStyleSheet("QDoubleSpinBox { font-size: 22px; font-weight: 650; }")
+        initial_bpm = bpm.value()
+        unit = QLabel("♩. BPM" if section.meter == "6/8" else "♩ BPM", objectName="field")
+        grid.addWidget(unit, 1, 0)
+        grid.addWidget(bpm, 1, 1)
+        meter = QComboBox()
+        meter.addItems(list(rd.METERS))
+        meter.setCurrentText(section.meter)
+        meter.setAccessibleName(_("Размер участка"))
+        grid.addWidget(QLabel(_("Размер участка"), objectName="field"), 2, 0)
+        grid.addWidget(meter, 2, 1)
+        meter_touched = False
+
+        def choose_meter(_index):
+            nonlocal meter_touched
+            meter_touched = True
+            unit.setText("♩. BPM" if meter.currentText() == "6/8" else "♩ BPM")
+
+        meter.activated.connect(choose_meter)
+
+        def tap():
+            popup.reject()
+            QTimer.singleShot(0, lambda: self._tap_span(t, (a, b)) if t.sections is sections else None)
+
+        grid.addWidget(QPushButton(_("Настучать темп участка"), objectName="tool", clicked=tap), 3, 0, 1, 2)
+        buttons = QHBoxLayout()
+        buttons.addStretch()
+        add_buttons(buttons,
+                    QPushButton(_("Отмена"), objectName="tool", clicked=popup.reject),
+                    QPushButton(_("Готово"), objectName="primary", default=True, clicked=popup.accept))
+        grid.addLayout(buttons, 4, 0, 1, 2)
+
+        def apply():
+            if t is not self.current or sections is not t.sections:
+                return
+            bpm.interpretText()
+            new_bpm = bpm.value() if bpm.value() != initial_bpm else None
+            new_meter = meter.currentText() if meter_touched else None
+            if new_bpm is not None or new_meter is not None:
+                self._set_map(tempo.edit_span(sections, a, b, t.duration, bpm=new_bpm, meter=new_meter, grid=t.bars))
+
+        popup.accepted.connect(apply)
+        popup.adjustSize()
+        screen = QApplication.screenAt(position) or self.screen()
+        area = screen.availableGeometry()
+        x = min(max(position.x(), area.left()), max(area.left(), area.right() - popup.width() + 1))
+        y = position.y() + 8
+        if y + popup.height() > area.bottom():
+            y = position.y() - self.lane.height() - popup.height()
+        popup.move(x, max(area.top(), y))
+        popup.show()
+        bpm.setFocus()
+        bpm.selectAll()
+
+    def _split_section(self, at):
+        t = self.current
+        if t and t.sections and 0 < at < t.duration:
+            sections = tempo.split(t.sections, at, t.duration)
+            self.section_i, self.tempo_span = tempo.index(sections, at), None
+            self._set_map(sections)
+            self.tempo_span = self._section_bounds()
+
+    def _move_section(self, i, at):
+        t = self.current
+        if not t or not 0 < i < len(t.sections):
+            return
+        end = t.sections[i + 1].start if i + 1 < len(t.sections) else t.duration
+        at = float(np.clip(at, t.sections[i - 1].start + .02, end - .02))
+        if t.sections[i - 1].start < at < end:
+            self._set_map([*t.sections[:i], replace(t.sections[i], start=at), *t.sections[i + 1:]])
+            self._select_section(i)
+
+    def _join_section(self, i):
+        t = self.current
+        if t and 0 < i < len(t.sections):
+            self.section_i = i - 1
+            self._set_map([*t.sections[:i], *t.sections[i + 1:]])
+            self._select_section(i - 1)
+
+    def _shift_section(self, i, dt):
+        t = self.current
+        if t and t.sections and abs(dt) > 1e-6:
+            s = t.sections[i]
+            self._select_section(i)
+            shift = float(np.clip(s.shift + dt, -t.duration, t.duration))
+            self._set_map([*t.sections[:i], replace(s, shift=shift), *t.sections[i + 1:]])
+
+    def _wave_phase(self, at, dt):
+        if self.current and self.current.sections:
+            self._shift_section(tempo.index(self.current.sections, at), dt)
+
+    def _section_bounds(self):
+        t, i = self.current, self.section_i
+        return t.sections[i].start, t.sections[i + 1].start if i + 1 < len(t.sections) else t.duration
+
     def _bpm_edited(self, v: float):
-        if self.current:
-            self.current.bpm, self.current.bpm_manual = v, True
-            self._refresh()
+        t = self.current
+        if t and t.sections and not self.restoring:
+            a, b = self._section_bounds()
+            self._set_map(tempo.edit_span(t.sections, a, b, t.duration, bpm=v, grid=t.bars))
 
     def _scale_bpm(self, k: float):
-        if self.current:
-            self.current.bpm = float(np.clip(self.current.bpm * k, 30, 320))
-            self.current.bpm_manual = True
-            self._show_track_values()
+        self._bpm_edited(float(np.clip(self.bpm_spin.value() * k, 30, 320)))
 
     def _tap(self):
         """Opens the tap window over the playing song; Apply sets the tempo."""
         t = self.current
         if not (t and t.analysis and self.pcm is not None):
             return
+        span = (self.loop if self.loop_on else None) or self.tempo_span
+        if not span:
+            at = self._here()
+            at = t.t0 if at is None else max(0, at)
+            i = self.wave._bar_at(at)
+            if i is None:
+                span = (at, min(t.duration, at + 8 * t.sections[tempo.index(t.sections, at)].period))
+            else:
+                span = (t.bars[i].start, t.bars[min(len(t.bars) - 1, i + 3)].end)
+        self._tap_span(t, span)
+
+    def _tap_span(self, t: Track, span: tuple[float, float]):
+        if t is not self.current or not t.sections or self.pcm is None:
+            return
+        a, b = max(0.0, span[0]), min(t.duration, span[1])
+        if b - a < .02:
+            return
+        sections = t.sections
         self._stop()
-        d = TapDialog(self, self.pcm, self.sr, max(0.0, t.t0 - 1.0), t.bpm)
-        if d.exec() == QDialog.Accepted and d.taps:
-            t.bpm, t.bpm_manual = d.bpm, True
-            self._show_track_values()
+        s = t.sections[tempo.index(t.sections, a)]
+        d = TapDialog(self, self.pcm, self.sr, a, b, s.bpm, self.speed / 100)
+        if d.exec() == QDialog.Accepted and d.valid and t is self.current and t.sections is sections:
+            updated = tempo.edit_span(sections, a, b, t.duration, bpm=d.bpm, grid=t.bars)
+            self.section_i = tempo.index(updated, a)
+            self.tempo_span = (a, b)
+            self._set_map(updated)
 
     def _meter_changed(self, meter: str):
         t = self.current
-        if t and t.analysis and not t.bpm_manual:
-            t.bpm = 60.0 / an.beat_period(t.analysis, rd.METERS[meter][0])[0]
-            self._show_track_values()
-        else:
-            self._refresh()
+        if t and t.sections and not self.restoring:
+            a, b = self._section_bounds()
+            self._set_map(tempo.edit_span(t.sections, a, b, t.duration, meter=meter, grid=t.bars))
 
     def _t0_edited(self, v: float):
-        if self.current:
-            self.current.t0 = v
-            self._refresh()
+        self._marker_moved(v)
 
     def _marker_moved(self, t0: float):
-        self.current.t0 = t0
-        self.t0_spin.blockSignals(True)
-        self.t0_spin.setValue(t0)
-        self.t0_spin.blockSignals(False)
-        self._refresh()
+        t = self.current
+        if t and t.sections:
+            at = float(np.clip(t0, 0, max(0, t.duration - .001)))
+            i = tempo.index(t.sections, at)
+            sec = replace(t.sections[i], anchor=at, shift=0)
+            self._set_map([*t.sections[:i], sec, *t.sections[i + 1:]], t0=at)
 
     def _shift_beat(self, k: int):
         if self.current:
-            self.current.t0 = max(0.0, self.current.t0 + k * 60.0 / self.current.bpm)
-            self._show_track_values()
+            self._marker_moved(self.current.t0 + k * 60.0 / self.current.bpm)
 
     def _reset_tempo(self):
         """The tempo the detector found, for the meter now chosen."""
         t = self.current
-        if t and t.analysis:
-            t.bpm = 60.0 / an.beat_period(t.analysis, rd.METERS[self.meter_seg.value()][0])[0]
-            t.bpm_manual = False
-            self._show_track_values()
+        if t and t.proposed:
+            i = self.section_i
+            own = t.sections[i]
+            detected = t.proposed[tempo.index(t.proposed, own.start)]
+            self._set_map([*t.sections[:i], replace(detected, start=own.start), *t.sections[i + 1:]])
 
     def _reset_t0(self):
         """The first downbeat the detector found."""
         t = self.current
         if t and t.analysis:
-            t.t0 = t.analysis.first_downbeat
-            self._show_track_values()
+            self._marker_moved(t.analysis.first_downbeat)
 
     def _reset_count(self):
         """The count-in from the saved defaults, or the factory one when none are saved."""
         st = QSettings()
         saved = st.value(DEFAULTS + "style") is not None
-        for seg, key, cast, factory in ((self.style_seg, "style", str, "buildup"), (self.bars_seg, "bars", int, 2),
-                                        (self.meter_seg, "meter", str, "4/4")):
+        for seg, key, cast, factory in ((self.style_seg, "style", str, "buildup"), (self.bars_seg, "bars", int, 2)):
             try:
                 v = cast(st.value(DEFAULTS + key)) if saved else factory
             except (TypeError, ValueError):
                 v = factory
             seg.set_value(v if v in seg.values else factory)
-        try:
-            self.volume.setValue(int(st.value(DEFAULTS + "volume", 0)) if saved else 0)
-        except (TypeError, ValueError):
-            self.volume.setValue(0)
+        self.volume.setValue(count_volume(st.value(DEFAULTS + COUNT_VOLUME_KEY), st.value(DEFAULTS + "volume", 0))
+                             if saved else 0)
+        voice = self.count_voice.findData(st.value(DEFAULTS + "count_voice", COUNT_VOICE_DEFAULT))
+        self.count_voice.setCurrentIndex(voice if voice >= 0 else self.count_voice.findData(COUNT_VOICE_DEFAULT))
 
     def _use_alt(self):
         if self.current and self.current.analysis.alt_downbeat is not None:
-            self.current.t0 = self.current.analysis.alt_downbeat
-            self._show_track_values()
+            self._marker_moved(self.current.analysis.alt_downbeat)
 
     def _style_changed(self, style: str):
         if style == "midi":
@@ -4537,14 +4925,17 @@ class Window(QMainWindow):
             if s.value() != 0:
                 levels[name] = float("-inf") if s.value() == MUTE else float(s.value())
         out_root, group = output_prefs()
+        t = self.current
+        lead_meter = t.sections[tempo.index(t.sections, t.t0)].meter if t and t.sections else self.meter_seg.value()
         return Settings(
-            style=self.style_seg.value(), bars=self.bars_seg.value(), meter=self.meter_seg.value(),
+            style=self.style_seg.value(), bars=self.bars_seg.value(), meter=lead_meter,
             pattern=self.pattern, volume_db=float(self.volume.value()),
             levels=levels, pre_roll="trim" if self.trim.isChecked() else "keep", fmt=export_format(),
             out_root=out_root, group=group, fill=self._filling(), click_all=self.click_all.isChecked(),
             click_voice=self.click_voice.currentData(), click_db=float(self.click_db.value()), fill_build=self.fill_build.isChecked(),
             threshold=float(self.threshold.value()), speed=self.speed / 100, semis=float(self.semis),
             split=pref_bool(EXPORT_SPLIT, False), normalize=pref_bool(EXPORT_NORM, False),
+            count_voice=self.count_voice.currentData(),
         )
 
     def _refresh(self, *_args):
@@ -4561,7 +4952,6 @@ class Window(QMainWindow):
             self.wave.clicks = []
             self.status.setText(str(e))
         self.wave.t0 = t.t0
-        self._auto_volume()
         self.wave.zones = t.zones or []
         self.wave.fill = self._filling()
         self.wave.threshold_db = float(self.threshold.value())
@@ -4570,29 +4960,6 @@ class Window(QMainWindow):
             self.wave.current_zone = None
         self._nav_changed()
         self.wave.update()
-
-    def _vol_auto_toggled(self, on: bool):
-        QSettings().setValue(VOLUME_AUTO_KEY, on)
-        self.volume.setEnabled(not on)
-        self._auto_volume()
-
-    def _auto_volume(self):
-        """In auto mode the volume slider follows the loudest click level the backing leaves room for."""
-        if not (self.vol_auto.isChecked() and self.pcm is not None and self.wave.clicks):
-            return
-        from .core import stems
-
-        st, levels = self._full_stems(), self.settings().levels
-        song = stems.attenuate(self.pcm, st, levels) if st and levels else self.pcm
-        if self.current.extra is not None:
-            song = song + self.current.extra
-        if getattr(self, "_samples", (None,))[0] != self.sr:
-            self._samples = (self.sr, rd.load_samples(self.sr))
-        v = int(np.floor(rd.safe_volume_db(song, self.sr, self.wave.clicks, self._samples[1])))
-        v = max(self.volume.minimum(), min(0, v))
-        if v != self.volume.value():
-            self.volume.setValue(v)
-            self.status.setText(_("Громкость отсчёта подобрана без перегрузки: {v:+d} дБ", v=v))
 
     def _threshold_moved(self, v):
         # Only the band on the waveform follows the slider; the pauses get searched again once it stops
@@ -4643,7 +5010,11 @@ class Window(QMainWindow):
         self.reveal_b.hide()
         self.job_shown = False
         self.show_timer.start()
-        self.job = Job(fn, *args)
+        track = args[0]
+        snapshot = replace(track, zones=[replace(z) for z in track.zones] if track.zones is not None else None,
+                           markers=list(track.markers))
+        self.job = Job(fn, snapshot, *args[1:])
+        self.job.track_source = track
         self.job.signals.progress.connect(self._progress)
         self.job.signals.done.connect(on_done)
         self.job.signals.failed.connect(self._failed)
@@ -4702,9 +5073,13 @@ class Window(QMainWindow):
     def _reset_track(self):
         """Forgets the current track: its audio, stems, waveform and pauses."""
         self.current, self.pcm, self.info, self.stem_cache, self.last_saved = None, None, None, None, None
+        self.ready_preview = None
         self.resume_at, self.zones_pending = None, False
         self.wave.play_t, self.wave.current_zone, self.wave.hover_edge = None, None, None
         self.loop, self.loop_on = None, False
+        self.section_i, self.tempo_span = 0, None
+        self.lane.sections, self.lane.drag = [], None
+        self.lane.update()
         self._apply_loop()
         self._cancel_separation()
         self.backing_key, self.wave_source = None, None
@@ -4759,30 +5134,44 @@ class Window(QMainWindow):
         if self.wave.play_t is not None:
             return self._play_at(self.wave.play_t, preroll=True)
         s = self.settings()
+        if self._reuse_preview(s):
+            return
         self.want_play = True
         self._run(preview_job, self.current, s, self.pcm, self.sr, self.stem_cache, self._separate_now(s),
                   on_done=self._preview_ready)
 
     def _preview_ready(self, result):
+        snapshot, settings = self.job.args[:2]
         self._finish()
-        track, base, stems, sr, start, new_cache, clipped = result
+        track, base, stems, sr, start, new_cache, clipped, state = result
         if track is not self.current or not self.want_play:
             return
         if new_cache:
             self.stem_cache = new_cache
+        s = self.settings()
+        if snapshot.sections is not track.sections or settings != s:
+            self._run(preview_job, track, s, self.pcm, self.sr, self.stem_cache, self._separate_now(s), self.resume_at,
+                      on_done=self._preview_ready)
+            return
         self.status.setText(clip_note(clipped) or (_("Уровни дорожек можно менять на ходу") if stems else
-                            _("Пока дорожки разделяются, играет оригинал") if self.sep_job and self.settings().levels
+                            _("Пока дорожки разделяются, играет оригинал") if self.sep_job and s.levels
                             else ""))
-        self._gains()
         resume, self.resume_at = self.resume_at, None
         preroll, self.preroll = self.preroll, False
+        self.ready_preview = state
+        self._start_buffer(base, stems, sr, start, settings.speed, resume, preroll)
+
+    def _start_buffer(self, base, stems, sr, start, speed, resume, preroll):
+        self._gains()
+        sample = 0 if resume is None else round((resume - start) / speed * sr)
         try:
-            self.player.play(base, stems, sr)
+            self.player.play(base, stems, sr, start=sample if 0 <= sample < len(base) else 0)
         except Exception as e:  # no output device, unsupported channel count
             log.exception("audio output failed")
             self.status.setText(_("Не удалось воспроизвести: {e}", e=e))
+            self.ready_preview = None
             return
-        self.play_start, self.play_speed = start, self.settings().speed
+        self.play_start, self.play_speed = start, speed
         if resume is not None:
             self._jump(resume, preroll)
         self._apply_loop()
@@ -4881,8 +5270,12 @@ class Window(QMainWindow):
         st = QSettings()
         st.setValue(DEFAULTS + "style", self.style_seg.value() if self.style_seg.value() != "midi" else "buildup")
         st.setValue(DEFAULTS + "bars", self.bars_seg.value())
-        st.setValue(DEFAULTS + "meter", self.meter_seg.value())
+        st.setValue(DEFAULTS + "meter", self.settings().meter)
         st.setValue(DEFAULTS + "volume", self.volume.value())
+        st.setValue(DEFAULTS + COUNT_VOLUME_KEY, self.volume.value())
+        st.setValue(DEFAULTS + "count_voice", self.count_voice.currentData())
+        st.setValue(DEFAULTS + "click_voice", self.click_voice.currentData())
+        st.setValue(DEFAULTS + "click_db", self.click_db.value())
         for name, s in self.parts.items():
             st.setValue(DEFAULTS + "part/" + name, s.value())
         st.setValue(DEFAULTS + "trim", self.trim.isChecked())
@@ -4908,8 +5301,11 @@ class Window(QMainWindow):
             return
         self.style_seg.set_value("buildup")
         self.bars_seg.set_value(2)
-        self.meter_seg.set_value("4/4")
+        if not (self.current and self.current.sections):
+            self.meter_seg.set_value("4/4")
         self.volume.setValue(0)
+        self.count_voice.setCurrentIndex(self.count_voice.findData(COUNT_VOICE_DEFAULT))
+        self.click_voice.setCurrentIndex(self.click_voice.findData(METRONOME_VOICE_DEFAULT))
         for s in self.parts.values():
             s.setValue(0)
         self.trim.setChecked(False)
@@ -4922,6 +5318,13 @@ class Window(QMainWindow):
     def _load_defaults(self):
         """Saved defaults; a value that no longer fits (an old meter) is skipped."""
         st = QSettings()
+        self.volume.setValue(count_volume(st.value(DEFAULTS + COUNT_VOLUME_KEY), st.value(DEFAULTS + "volume", 0)))
+        for combo, key, default in ((self.count_voice, "count_voice", COUNT_VOICE_DEFAULT),
+                                    (self.click_voice, "click_voice", METRONOME_VOICE_DEFAULT)):
+            voice = combo.findData(st.value(DEFAULTS + key, default))
+            combo.setCurrentIndex(voice if voice >= 0 else combo.findData(default))
+        self.click_db.setValue(count_volume(st.value(DEFAULTS + "click_db", 0)))
+        self.click_all.setChecked(pref_bool(DEFAULTS + "click_all", False))
         if st.value(DEFAULTS + "style") is None:
             return
 
@@ -4932,17 +5335,17 @@ class Window(QMainWindow):
                 return default
 
         for seg, key, cast in ((self.style_seg, "style", str), (self.bars_seg, "bars", int), (self.meter_seg, "meter", str)):
+            if seg is self.meter_seg and self.current and self.current.sections:
+                continue
             try:
                 v = cast(st.value(DEFAULTS + key))
             except (TypeError, ValueError):
                 continue
             if v in seg.values:
                 seg.set_value(v)
-        self.volume.setValue(num("volume"))
         for name, s in self.parts.items():
             s.setValue(num("part/" + name))
         self.trim.setChecked(st.value(DEFAULTS + "trim", False) in (True, "true"))
-        self.click_all.setChecked(st.value(DEFAULTS + "click_all", False) in (True, "true"))
 
     # --- pauses ---
 
@@ -4950,10 +5353,8 @@ class Window(QMainWindow):
         return self.fill.isChecked() and not self.click_all.isChecked()
 
     def _click_sound(self, *_args):
-        QSettings().setValue(CLICK_VOICE_KEY, self.click_voice.currentData())
-        QSettings().setValue(CLICK_DB_KEY, self.click_db.value())
-        self._refresh()
-        if self.click_all.isChecked():
+        if not self.restoring:
+            self._refresh()
             self._swap_clicks()
 
     def _click_all_toggled(self, on: bool):
@@ -4972,19 +5373,21 @@ class Window(QMainWindow):
             self._restart_preview()
             return
         sr, s = self.player.sr, self.settings()
-        g = 10 ** (s.volume_db / 20)
         click = np.zeros(len(base), dtype=np.float32)
-        for c in clicks_for(self.current, s):
+        clicks = clicks_for(self.current, s)
+        for c in clicks:
             at = self._out(c.time)
             if not 0 <= at < len(click):
                 continue
             pair = self.stick_hits(sr) if c.voice == "stick" else rd.voice_samples(c.voice, sr)
-            x = (pair[0] if c.accent else pair[1]) * (g * c.gain)
+            x = (pair[0] if c.accent else pair[1]) * c.gain
             n = min(len(x), len(click) - at)
             click[at : at + n] += x[:n]
         old = stems["click"][0]
         base = base - old + click[:, None]
         self.player.src = (base, {**stems, "click": (click[:, None], 0)})
+        if self.ready_preview is not None:
+            self.ready_preview.sound = (*self.ready_preview.sound[:2], clicks)
 
     @staticmethod
     @lru_cache(maxsize=4)
@@ -5136,7 +5539,6 @@ class Window(QMainWindow):
         t, key, sl = self.mix_wanted
         self.backing_key = key
         self.wave.set_env(env, len(backing) / self.sr)
-        self._auto_volume()
         if found is None:
             return
         threshold, fit = used
@@ -5183,12 +5585,14 @@ class Window(QMainWindow):
 
     def _zones_found(self, result):
         track, zones, key, full = result
+        snapshot = self.job.args[0]
         self._finish()
         if track is not self.current:
             return
         self.stem_cache = full
         self._update_backing()
-        self._set_found(track, zones, key)
+        if snapshot.bars is track.bars:
+            self._set_found(track, zones, key)
         self._enable()
         self._auto_zones()  # the levels may have moved during the search
         self._restart_preview()  # a preview that played without stems picks them up now
@@ -5197,8 +5601,15 @@ class Window(QMainWindow):
         if self.current:
             t, now = self.current, _bars_of(zones)
             t.dismissed = (t.dismissed | (t.covered - now)) - now
+            # Persist the original source times. Only newly removed/restored bars affect old dismissals.
+            added = now - t.covered
+            spans = t.dismissed_times + [(t.bars[i].start, t.bars[i].end) for i in t.covered - now]
+            for i in added:
+                a, b = t.bars[i].start, t.bars[i].end
+                spans = [(x, y) for lo, hi in spans for x, y in ((lo, min(hi, a)), (max(lo, b), hi)) if x < y]
+            t.dismissed_times = sorted(set(spans))
             t.covered = now
-            self.current.zones = list(zones)
+            t.zones = [zn.mapped(z, t.bars, *zn.bounds(t.bars, z)) if z.kept else z for z in zones]
             self._refresh()
             self._restart_preview()
 
@@ -5207,8 +5618,10 @@ class Window(QMainWindow):
         t = self.current
         if not (t and t.bars):
             return
+        self.tempo_span = (t.bars[first].start, t.bars[last].end)
         menu = QMenu(self)
         loop = menu.addAction(_("Играть по кругу"))
+        tap = menu.addAction(_("Настучать темп выделения"))
         pause = menu.addAction(_("Сделать паузой с хай-хэтом"))
         chosen = menu.exec(QCursor.pos())
         if chosen is loop:
@@ -5218,6 +5631,8 @@ class Window(QMainWindow):
                 self._play_at(self.loop[0], preroll=True) if self.play_start is not None else self._play()
         elif chosen is pause:
             self._make_pause(first, last)
+        elif chosen is tap:
+            self._tap()
 
     def _make_pause(self, first: int, last: int):
         """A span becomes a pause (replacing the ones it overlaps); its tempo and meter open at once."""
@@ -5229,8 +5644,9 @@ class Window(QMainWindow):
         kept = [z for z in (t.zones or []) if z.last < first or z.first > last]
         z = zn.Zone(first, last, manual=True)
         t.zones = sorted(kept + [z], key=lambda q: q.first)
+        i = t.zones.index(z)
         self._zones_edited(t.zones)
-        if not self._edit_zone(t.zones.index(z)):
+        if not self._edit_zone(i):
             t.zones = before  # cancel brings back what the selection covered
             self._zones_edited(t.zones)
 
@@ -5281,7 +5697,13 @@ class Window(QMainWindow):
         self._play_at(bars[max(i - 1, 0)].start if i is not None else max(0.0, t - 2.0))
 
     def _seek(self):
-        """A click that moves the playhead during playback carries on from there at once."""
+        """A click sets the local tempo selection and seeks during playback."""
+        if self.current and self.current.sections and self.wave.play_t is not None:
+            self.section_i = tempo.index(self.current.sections, self.wave.play_t)
+            self.tempo_span = None
+            self._section_values()
+            self._show_detector()
+            self._speed_bpm()
         if self.play_start is not None and self.wave.play_t is not None:
             self._play_at(self.wave.play_t)
 
@@ -5290,13 +5712,43 @@ class Window(QMainWindow):
         clicks in the local tempo leads in."""
         if self.job or not (self.current and self.current.analysis and self.pcm is not None):
             return
+        preroll = preroll and start > min((c.time for c in self.wave.clicks), default=start)
         if self.play_start is not None and self._jump(start, preroll):
             return
         self._stop()
-        self.resume_at, self.preroll, self.want_play = start, preroll, True
         s = self.settings()
+        if self._reuse_preview(s, start, preroll):
+            return
+        self.resume_at, self.preroll, self.want_play = start, preroll, True
         self._run(preview_job, self.current, s, self.pcm, self.sr, self.stem_cache, self._separate_now(s), start,
                   on_done=self._preview_ready)
+
+    def _reuse_preview(self, settings: Settings, start: float | None = None, preroll: bool = False) -> bool:
+        state = self.ready_preview
+        t = self.current
+        if state is None or state.stem_cache is not self.stem_cache or state.extra is not t.extra:
+            return False
+        base, stems = self.player.src
+        if len(stems) <= 1 and self._separate_now(settings):
+            return False
+        try:
+            clicks = clicks_for(t, settings)
+        except (OSError, ValueError, EOFError):  # the normal worker path reports a missing or invalid MIDI pattern
+            return False
+        if state.sound != (settings.speed, settings.semis, clicks):
+            return False
+        resume = min(c.time for c in clicks) if start is None else start
+        sr = self.player.sr
+        sample = round((resume - state.start) / settings.speed * sr)
+        if not 0 <= sample < len(base):
+            return False
+        if self.loop_on and self.loop:
+            a, b = (round((at - state.start) / settings.speed * sr) for at in self.loop)
+            if not 0 <= a < b <= len(base):
+                return False
+        self.want_play = True
+        self._start_buffer(base, stems, sr, state.start, settings.speed, start, preroll)
+        return True
 
     def _out(self, t: float) -> int:
         """Output sample of song time t in the playing buffer."""
@@ -5311,10 +5763,11 @@ class Window(QMainWindow):
         if preroll and self.preroll_cb.isChecked() and self.current.bars:
             bars = self.current.bars
             bar = min(bars, key=lambda b: abs(b.start - t) if b.start <= t + 0.05 else 1e9)
-            n, period = rd.METERS[self.meter_seg.value()][0], bar.period
+            section = self.current.sections[tempo.index(self.current.sections, t)]
+            n, period = rd.METERS[section.meter][0], bar.pulse or bar.period
             lead = [t - k * period for k in range(n, 0, -1)]
             if self._out(lead[0]) >= 0:
-                hi, lo = rd.load_samples(self.player.sr)
+                hi, lo = rd.voice_samples(self.count_voice.currentData(), self.player.sr)
                 g = 10 ** (self.volume.value() / 20)
                 ticks = [(self._out(b), (hi if k == 0 else lo) * g) for k, b in enumerate(lead)]
                 i = ticks[0][0]
@@ -5323,8 +5776,8 @@ class Window(QMainWindow):
 
     def _apply_loop(self):
         playing = self.play_start is not None
-        self.player.loop = ((self._out(self.loop[0]), self._out(self.loop[1]))
-                            if playing and self.loop_on and self.loop else None)
+        loop = (self._out(self.loop[0]), self._out(self.loop[1])) if playing and self.loop_on and self.loop else None
+        self.player.loop = loop if loop and 0 <= loop[0] < loop[1] <= len(self.player.src[0]) else None
         self.wave.loop = (*self.loop, self.loop_on) if self.loop else None
         self.loop_b.setChecked(self.loop_on)
         self._song_changed()
@@ -5460,7 +5913,7 @@ def main() -> int:
     App.dev_links = ".dev" in update.current_version()
     app = App(sys.argv)
     app.setOrganizationName("Count-In")
-    app.setApplicationName("Count-In")
+    app.setApplicationName("Count-In Tempo Dev")
     apply_icon(app)
 
     setup_log()

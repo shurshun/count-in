@@ -10,7 +10,7 @@ from .assets import data_dir
 
 
 def folder() -> Path:
-    return data_dir().parent / "songs"
+    return data_dir().parent / "songs-tempo-dev"
 
 
 def key(song: Path) -> str:
@@ -22,10 +22,15 @@ def key(song: Path) -> str:
 
 
 def load(k: str) -> dict | None:
-    try:
-        return json.loads((folder() / f"{k}.json").read_text("utf-8"))
-    except (OSError, ValueError):
-        return None
+    dest = folder()
+    for directory in (dest, dest.with_name("songs")):
+        try:
+            state = json.loads((directory / f"{k}.json").read_text("utf-8"))
+            if isinstance(state, dict):
+                return state
+        except (OSError, ValueError):
+            continue
+    return None
 
 
 def save(k: str, state: dict) -> None:

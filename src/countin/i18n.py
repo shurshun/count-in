@@ -9,6 +9,20 @@ LANGUAGES = {"system": "Как в системе", "en": "English", "ru": "Ру�
 _lang = "ru"
 
 EN = {
+    "Дорожка темпа": "Tempo track",
+    "Option / Alt: потяните сетку, край или середину паузы для свободного сдвига.": "Option / Alt-drag the grid, a pause edge or its body to move it freely.",
+    "Щёлкните по плашке BPM и размера, чтобы изменить участок. Двойной щелчок по фону делит его. Потяните границу или сдвиньте сетку с Option / Alt.": "Click the BPM and meter badge to edit. Double-click the background to split. Drag an edge, or Option / Alt-drag to shift the beat grid.",
+    "Настучать темп участка": "Tap section tempo",
+    "Изменить темп и размер…": "Edit tempo and meter…",
+    "Темп и размер": "Tempo and meter",
+    "Разделить участок здесь": "Split section here",
+    "Объединить с предыдущим": "Merge into previous section",
+    "Настучать темп выделения": "Tap tempo for this selection",
+    "Размер участка": "Section meter",
+    "Исходный BPM · {a}–{b} · {speed}%": "Original BPM · {a}–{b} · {speed}%",
+    "Вручную": "Manual",
+    "Темп приблизительный": "Tempo uncertain",
+    "{origin} · {bpm:.1f} BPM · {meter}": "{origin} · {bpm:.1f} BPM · {meter}",
     # Window and menus
     "Файл": "File",
     "Открыть…": "Open…",
@@ -59,6 +73,8 @@ EN = {
     "Клик на всю песню": "Click through the whole song",
     "Клик на каждую долю после отсчёта, до конца песни. Заполнение пауз при этом не нужно.":
         "A click on every beat after the count-in, to the end of the song. Pause fill is not needed then.",
+    "Звук отсчёта": "Count-in sound",
+    "Чтобы настроить прокси, сначала добавьте ключ Count-In.": "Add a Count-In key before configuring the proxy.",
     "Звук клика": "Click sound",
     "Громкость клика": "Click volume",
     "Палочки": "Sticks",
@@ -309,8 +325,8 @@ EN = {
     "Не удалось воспроизвести: {e}": "Playback failed: {e}",
     "Файл {name} уже есть. Заменить?": "{name} already exists. Replace it?",
     "Сохранено: {name}": "Saved: {name}",
-    "Клики перегружают звук в {n} сэмплах, убавьте громкость отсчёта":
-        "The clicks clip {n} samples, lower the count-in volume",
+    "Клики перегружают звук в {n} сэмплах, убавьте громкость отсчёта или метронома":
+        "The clicks clip {n} samples. Lower the count-in or metronome volume.",
     "Трек": "Track",
     "Аудио ({exts})": "Audio ({exts})",
     "MIDI-шаблон": "MIDI pattern",
@@ -573,8 +589,6 @@ EN = {
     'Полка НЧ': 'Low shelf',
     'Полка ВЧ': 'High shelf',
     'Авто': 'Auto',
-    'Громкость отсчёта подбирается сама: клики громкие, но вместе с песней не перегружают звук. Снимите галочку, чтобы задать громкость вручную.': 'The count-in level sets itself: the clicks stay loud but never clip together with the song. Untick to set the level by hand.',
-    'Громкость отсчёта подобрана без перегрузки: {v:+d} дБ': 'Count-in level set to avoid clipping: {v:+d} dB',
     'Добавить в трек': 'Add to Track',
     'Ваша гитара с эквалайзером, выровненная по песне, войдёт в прослушивание и в сохранённый трек с отсчётом': 'Your guitar with the EQ, lined up with the song, goes into the preview and the saved track with the count-in',
     'Убрать из трека': 'Remove from Track',
