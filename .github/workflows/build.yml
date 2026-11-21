@@ -10,15 +10,15 @@ jobs:
     env:
       GH_TOKEN: ${{ github.token }}
       GH_REPO: ${{ github.repository }}
-      BUILD_RUN: "44911010267"
+      BUILD_RUN: "44950099315"
     steps:
       - name: Publish completed build artifacts in GitHub Releases
         run: |
           set -euo pipefail
           source=$(gh run view "$BUILD_RUN" --json headSha,headBranch,event,number)
-          jq -e '.headSha | startswith("c0ee1fbd")' <<< "$source" > /dev/null
+          jq -e '.headSha | startswith("5f1bfe1c02efa1129a90f74c8eeeba776c9b6add")' <<< "$source" > /dev/null
           jq -e '.headBranch == "dev-0.10" and .event == "workflow_dispatch"' <<< "$source" > /dev/null
-          version=0.10.1.dev$(jq -r .number <<< "$source")
+          version=0.10.1.dev122
           gh run watch "$BUILD_RUN" --interval 30 --compact --exit-status
           artifacts=$(gh api "repos/$GH_REPO/actions/runs/$BUILD_RUN/artifacts")
           for platform in macos-arm64 windows-x64; do
@@ -31,8 +31,9 @@ jobs:
           {
             printf 'Тестовая сборка Count-In %s из ветки dev-0.10.\n\n' "$version"
             printf '[Windows x64](%s/Count-In-dev-%s-windows-x64.zip) · [macOS Apple Silicon](%s/Count-In-dev-%s-macos-arm64.zip)\n\n' "$base" "$version" "$base" "$version"
-            printf '%s\n\n' '- При облачном разделении клиент передаёт название трека для истории в админке.'
-            tail -n +5 <<< "$previous"
+            printf '%s\n' '- Темпотрек с редактированием BPM, размера и сетки по участкам. Правки сохраняются.' '- Tap Tempo в петле озвучивает нажатия. Home возвращает к первому клику.' '- Обработка затакта и повторное использование готового аудио при перемотке.' '- Раздельные звуки и громкость для отсчёта и метронома. По умолчанию палочки и хай-хэт.' '- Настройки Cloud Proxy доступны после ввода ключа Count-In.'
+            printf '\n'
+            tail -n +5 <<< "$previous" | sed '/Громкость отсчёта «Авто»/d'
           } > release-notes.md
           gh release edit dev-0.10.0-1 --title "Count-In dev $version" --notes-file release-notes.md --prerelease --latest=false
           gh release view dev-0.10.0-1 --json name,url,isDraft,isPrerelease,assets --jq '{name,url,isDraft,isPrerelease,windows:[.assets[]|select(.name|test("dev[0-9]+-windows-x64"))|.url]}'
