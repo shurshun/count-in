@@ -500,7 +500,15 @@ def _stems(job: Job, pcm, sr, label: str, urgent: bool = False, song: Path | Non
 
         try:
             began = time.monotonic()
-            st = cloud.separate(pcm, sr, stem_key(song), job.report, job.cancelled.is_set, cloud_overlap())
+            try:
+                tags = io.probe(song).tags
+            except (OSError, RuntimeError):
+                tags = {}
+            title = tags.get("title", "").strip()
+            artist = tags.get("artist", "").strip()
+            track_title = " — ".join(filter(None, (artist, title))) if title else song.name
+            st = cloud.separate(pcm, sr, stem_key(song), job.report, job.cancelled.is_set, cloud_overlap(),
+                                track_title=track_title)
             worker.separator().last = (time.monotonic() - began, _("в облаке"))
             return st
         except cloud.Cancelled:

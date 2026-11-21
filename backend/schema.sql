@@ -14,6 +14,8 @@ CREATE TABLE IF NOT EXISTS jobs (
   status TEXT NOT NULL,          -- uploading, queued, running, done, failed, deleted
   duration_s REAL NOT NULL,
   input_bytes INTEGER,
+  track_title TEXT,
+  input_uploaded_at INTEGER,
   runpod_id TEXT,
   created_at INTEGER NOT NULL,
   started_at INTEGER,

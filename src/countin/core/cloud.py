@@ -271,7 +271,8 @@ def _flac(x: np.ndarray, sr: int) -> bytes:
     return buf.getvalue()
 
 
-def separate(pcm: np.ndarray, sr: int, song_hash: str, report, cancelled, overlap: int = 4) -> dict[str, np.ndarray]:
+def separate(pcm: np.ndarray, sr: int, song_hash: str, report, cancelled, overlap: int = 4,
+             *, track_title: str | None = None) -> dict[str, np.ndarray]:
     """Stems for the whole song, sample-aligned with pcm. report(text, done, total) shows progress;
     cancelled() stops waiting (the GPU job still finishes and stays in the cache)."""
     import soundfile as sf
@@ -287,7 +288,10 @@ def separate(pcm: np.ndarray, sr: int, song_hash: str, report, cancelled, overla
     gain = 1.0 / peak if peak > 1.0 else 1.0
 
     report(_("Проверка песни на сервере"), 0, 0)
-    job = _call("POST", "/v1/jobs", token, {"duration_s": len(pcm) / sr, "hash": song_hash, "overlap": overlap})
+    payload = {"duration_s": len(pcm) / sr, "hash": song_hash, "overlap": overlap}
+    if track_title:
+        payload["track_title"] = track_title
+    job = _call("POST", "/v1/jobs", token, payload)
     if job["status"] == "uploading":
         report(_("Подготовка песни к загрузке"), 0, 0)
         flac = _flac(pcm * gain, sr)

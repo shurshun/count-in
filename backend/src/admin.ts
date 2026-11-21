@@ -2,6 +2,7 @@
 // One secret, ADMIN_KEY, opens them; the browser keeps its hash in an HttpOnly cookie on /admin.
 
 import type { Env } from "./index";
+import { KEEP_INPUT_S, inputKey } from "./input";
 
 const COOKIE = "countin_admin";
 const now = () => Math.floor(Date.now() / 1000);
@@ -90,7 +91,7 @@ function errorCell(e: string | null): string {
 
 function jobsTable(rows: any[], withUser: boolean): string {
   if (!rows.length) return `<p class="muted">Разделений нет.</p>`;
-  const head = `<tr><th>Когда (UTC)</th>${withUser ? "<th>Ключ</th>" : ""}<th>Статус</th><th class="num">Песня</th>
+  const head = `<tr><th>Когда (UTC)</th>${withUser ? "<th>Ключ</th>" : ""}<th>Статус</th><th>Трек</th><th class="num">Длительность</th>
     <th class="num">Файл</th><th class="num">Ожидание</th><th class="num">GPU</th><th>Окна</th><th>Ошибка</th></tr>`;
   const body = rows.map((j) => {
     const [label, cls] = state(j);
@@ -100,14 +101,33 @@ function jobsTable(rows: any[], withUser: boolean): string {
     return `<tr><td title="${esc(j.id)}">${when(j.created_at)}</td>
       ${withUser ? `<td><a href="/admin/u/${esc(j.token_hash)}">${esc(j.name)}</a></td>` : ""}
       <td><span class="pill ${cls}">${esc(label)}${esc(progress)}</span></td>
+      <td class="wrap">${esc(j.track_title || "—")}</td>
       <td class="num">${mmss(j.duration_s)}</td>
-      <td class="num">${j.input_bytes ? (j.input_bytes / 1e6).toFixed(1) + " МБ" : ""}</td>
+      <td class="num">${j.input_bytes ? (j.input_bytes / 1e6).toFixed(1) + " МБ" : ""}
+        ${j.input_uploaded_at > now() - KEEP_INPUT_S ? `<br><a href="/admin/jobs/${esc(j.id)}/input">Скачать FLAC</a>` : ""}</td>
       <td class="num">${mmss(wait)}</td>
       <td class="num">${j.gpu_seconds ? Math.round(j.gpu_seconds) + " с" : ""}</td>
       <td>${esc(String(j.song_hash ?? "").split("-o").pop())}</td>
       <td class="wrap">${errorCell(j.error)}</td></tr>`;
   }).join("");
   return `<div class="scroll"><table>${head}${body}</table></div>`;
+}
+
+async function downloadInput(env: Env, id: string): Promise<Response> {
+  const job = await env.DB.prepare("SELECT track_title, input_uploaded_at FROM jobs WHERE id = ?").bind(id)
+    .first<{ track_title: string | null; input_uploaded_at: number | null }>();
+  const object = job?.input_uploaded_at && job.input_uploaded_at > now() - KEEP_INPUT_S
+    ? await env.AUDIO.get(inputKey(id)) : null;
+  if (!object) return page("Файл недоступен", "<p>Входной FLAC недоступен.</p>", 404);
+  const name = job?.track_title?.replace(/[<>:"/\\|?*]/g, "_") || "input";
+  const encoded = encodeURIComponent(name + ".flac").replace(/['()*]/g, (c) => "%" + c.charCodeAt(0).toString(16));
+  return new Response(object.body, { headers: {
+    "content-type": "audio/flac",
+    "content-length": String(object.size),
+    "content-disposition": `attachment; filename="input.flac"; filename*=UTF-8''${encoded}`,
+    "cache-control": "private, no-store",
+    "x-content-type-options": "nosniff",
+  } });
 }
 
 // --- pages ---
@@ -223,6 +243,8 @@ export async function admin(env: Env, req: Request, url: URL): Promise<Response>
     return redirect("/admin", `${COOKIE}=${value}; Path=/admin; HttpOnly; Secure; SameSite=Strict; Max-Age=2592000`);
   }
   if (!(await signedIn(env, req))) return LOGIN();
+  if (req.method === "GET" && p.length === 3 && p[0] === "jobs" && p[2] === "input")
+    return downloadInput(env, p[1]);
   if (p[0] === "logout") return redirect("/admin", `${COOKIE}=; Path=/admin; Max-Age=0`);
 
   if (req.method === "POST") {

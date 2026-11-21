@@ -15,7 +15,7 @@ database_id = "cba615f3-3657-4ec4-9685-148ddbccd6c5"
 binding = "AUDIO"
 bucket_name = "count-in-audio"
 
-# Songs and parts live at most a day; the R2 lifecycle rule does the same in production.
+# The hourly cleanup expires uploaded audio after 21 days and stems after 30 days of inactivity.
 [triggers]
 crons = ["17 * * * *"]
 

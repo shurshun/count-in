@@ -1,4 +1,5 @@
 import { admin } from "./admin";
+import { KEEP_INPUT_S, inputKey } from "./input";
 
 // Count-In API: hand-issued tokens in front of a RunPod separation endpoint.
 //
@@ -27,7 +28,6 @@ export interface Env {
 const STEMS = ["guitar", "vocals", "bass", "drums", "piano"];
 const MAX_INPUT_BYTES = 120 * 1024 * 1024;
 const URL_TTL_S = 2 * 3600; // a cold start plus a long song fits
-const KEEP_INPUT_S = 24 * 3600;
 const KEEP_STEMS_S = 30 * 24 * 3600;
 const HASH = /^[0-9a-f]{16,64}$/;
 const OVERLAPS = [2, 4, 8]; // windows per chunk; more is slower and a little cleaner
@@ -166,19 +166,23 @@ async function me(env: Env, t: Token) {
 }
 
 async function create(env: Env, t: Token, req: Request) {
-  const body = await req.json<{ duration_s?: number; hash?: string; overlap?: number }>().catch(() => ({} as Record<string, never>));
+  const body = await req.json<{ duration_s?: number; hash?: string; overlap?: number; track_title?: string }>()
+    .catch(() => ({} as Record<string, never>));
   const dur = Number(body.duration_s);
   if (!(dur > 0) || !HASH.test(String(body.hash ?? ""))) return fail(400, "duration_s and a hex hash are required");
   const overlap = body.overlap ?? Number(env.OVERLAP);
   if (!OVERLAPS.includes(overlap)) return fail(400, `overlap must be one of ${OVERLAPS.join(", ")}`);
   const hash = `${body.hash}-o${overlap}`; // parts made with another overlap are another song for the cache
   const id = crypto.randomUUID();
+  const title = typeof body.track_title === "string"
+    ? body.track_title.slice(0, 240).replace(/[\u0000-\u001f\u007f]/g, " ").trim().toWellFormed() || null
+    : null;
   const kept = await env.DB.prepare("SELECT 1 FROM songs WHERE token_hash = ? AND song_hash = ?").bind(t.hash, hash).first();
   if (kept) {
     await env.DB.batch([
       env.DB.prepare("UPDATE songs SET accessed_at = ? WHERE token_hash = ? AND song_hash = ?").bind(now(), t.hash, hash),
-      env.DB.prepare(`INSERT INTO jobs (id, token_hash, status, duration_s, created_at, finished_at, song_hash, cached)
-                      VALUES (?, ?, 'done', ?, ?, ?, ?, 1)`).bind(id, t.hash, dur, now(), now(), hash),
+      env.DB.prepare(`INSERT INTO jobs (id, token_hash, status, duration_s, created_at, finished_at, song_hash, cached, track_title)
+                      VALUES (?, ?, 'done', ?, ?, ?, ?, 1, ?)`).bind(id, t.hash, dur, now(), now(), hash, title),
     ]);
     note(`${t.name}: song found in the cache, no upload`, { user: t.name, job: id, song_s: Math.round(dur), overlap });
     return json({ id, status: "done", cached: true, stems: stemLinks(id) }, 201);
@@ -189,8 +193,8 @@ async function create(env: Env, t: Token, req: Request) {
     note(`${t.name}: monthly limit reached`, { user: t.name, limit: t.monthly_limit });
     return fail(429, "monthly limit reached", { limit: t.monthly_limit });
   }
-  await env.DB.prepare(`INSERT INTO jobs (id, token_hash, status, duration_s, created_at, song_hash)
-                        VALUES (?, ?, 'uploading', ?, ?, ?)`).bind(id, t.hash, dur, now(), hash).run();
+  await env.DB.prepare(`INSERT INTO jobs (id, token_hash, status, duration_s, created_at, song_hash, track_title)
+                        VALUES (?, ?, 'uploading', ?, ?, ?, ?)`).bind(id, t.hash, dur, now(), hash, title).run();
   note(`${t.name}: new song, waiting for the upload`, { user: t.name, job: id, song_s: Math.round(dur), overlap });
   return json({ id, status: "uploading", upload: `/v1/jobs/${id}/input`, max_bytes: MAX_INPUT_BYTES }, 201);
 }
@@ -201,8 +205,9 @@ async function upload(env: Env, t: Token, id: string, req: Request) {
   if (j.status !== "uploading") return fail(409, "already uploaded");
   const size = Number(req.headers.get("content-length"));
   if (!size || size > MAX_INPUT_BYTES) return fail(413, "input must be 1 byte to 120 MB with a Content-Length");
-  await env.AUDIO.put(`jobs/${id}/input.flac`, req.body);
-  await env.DB.prepare("UPDATE jobs SET input_bytes = ? WHERE id = ?").bind(size, id).run();
+  const uploaded = await env.AUDIO.put(inputKey(id), req.body);
+  await env.DB.prepare("UPDATE jobs SET input_bytes = ?, input_uploaded_at = ? WHERE id = ?")
+    .bind(size, Math.floor(uploaded.uploaded.getTime() / 1000), id).run();
   note(`${t.name}: song uploaded, ${mb(size)} MB`, { user: t.name, job: id, mb: mb(size) });
   return json({ ok: true });
 }
@@ -250,7 +255,6 @@ async function step(env: Env, m: Step) {
     await env.RUNPOD_QUEUE.send({ id: j.id, op: "poll" }, { delaySeconds: POLL_S });
     return;
   }
-  await purgeInput(env, j.id);
   note(`${j.name}: separation ${next === "done" ? "finished" : "failed"}`, { user: j.name, job: j.id, status: next,
     gpu_s: r.executionTime / 1000 || null, wait_s: now() - j.started_at, worker: r.workerId ?? null, error });
   if (next === "done") {
@@ -279,12 +283,9 @@ async function stem(env: Env, t: Token, id: string, name: string) {
 
 async function remove(env: Env, t: Token, id: string) {
   if (!(await job(env, t, id))) return fail(404, "no such job");
-  await purgeInput(env, id);
+  await env.AUDIO.delete(inputKey(id));
+  await env.DB.prepare("UPDATE jobs SET input_uploaded_at = NULL WHERE id = ?").bind(id).run();
   return json({ ok: true });
-}
-
-async function purgeInput(env: Env, id: string) {
-  await env.AUDIO.delete(`jobs/${id}/input.flac`);
 }
 
 // --- worker routes (signed URLs) ---
@@ -292,7 +293,7 @@ async function purgeInput(env: Env, id: string) {
 async function workerFile(env: Env, req: Request, url: URL, id: string, name: string) {
   if (!(await verified(env, req, url))) return fail(403, "bad or expired signature");
   if (req.method === "GET") {
-    const o = await env.AUDIO.get(`jobs/${id}/${name}`);
+    const o = name === "input.flac" ? await env.AUDIO.get(inputKey(id)) : null;
     if (o) note("RunPod fetched the song", { job: id, mb: mb(o.size) });
     return o ? new Response(o.body, { headers: { "content-length": String(o.size) } }) : fail(404, "no such file");
   }
@@ -412,7 +413,7 @@ export default {
     }
   },
 
-  // Uploaded songs go after a day, separated parts 30 days after their last use.
+  // Uploaded audio expires after 21 days; stems expire 30 days after their last use.
   async queue(batch: MessageBatch<Step>, env: Env): Promise<void> {
     for (const m of batch.messages) {
       try {
@@ -435,9 +436,13 @@ export default {
     const stuck = await env.DB.prepare("SELECT id, runpod_id FROM jobs WHERE status IN ('queued', 'running') AND started_at < ?")
       .bind(now() - 600).all<{ id: string; runpod_id: string | null }>();
     for (const j of stuck.results) await env.RUNPOD_QUEUE.send({ id: j.id, op: j.runpod_id ? "poll" : "run" });
-    for (const o of (await env.AUDIO.list({ prefix: "jobs/" })).objects) {
-      if (o.uploaded.getTime() / 1000 < now() - KEEP_INPUT_S) await env.AUDIO.delete(o.key);
-    }
+    let cursor: string | undefined;
+    do {
+      const page = await env.AUDIO.list({ prefix: "jobs/", cursor });
+      const expired = page.objects.filter((o) => o.uploaded.getTime() / 1000 <= now() - KEEP_INPUT_S);
+      if (expired.length) await env.AUDIO.delete(expired.map((o) => o.key));
+      cursor = page.truncated ? page.cursor : undefined;
+    } while (cursor);
     const old = await env.DB.prepare("SELECT token_hash, song_hash FROM songs WHERE accessed_at < ?")
       .bind(now() - KEEP_STEMS_S).all<{ token_hash: string; song_hash: string }>();
     for (const s of old.results) {
