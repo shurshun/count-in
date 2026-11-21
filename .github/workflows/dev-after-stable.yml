@@ -1,0 +1,54 @@
+name: Dev release after stable
+
+on:
+  workflow_run:
+    workflows: [build]
+    types: [completed]
+  workflow_dispatch:
+    inputs:
+      stable_tag:
+        description: "Existing public stable tag to use for a dev release"
+        type: string
+        required: true
+
+jobs:
+  queue-dev:
+    # Only the release workflow for a stable tag can start a dev release automatically.
+    if: >-
+      (github.event_name == 'workflow_dispatch' && github.ref == 'refs/heads/main') ||
+      (github.event_name == 'workflow_run' &&
+       github.event.workflow_run.conclusion == 'success' &&
+       github.event.workflow_run.head_repository.full_name == github.repository &&
+       (github.event.workflow_run.event == 'push' || github.event.workflow_run.event == 'workflow_dispatch') &&
+       startsWith(github.event.workflow_run.head_branch, 'v') &&
+       !contains(github.event.workflow_run.head_branch, 'rc'))
+    runs-on: ubuntu-latest
+    permissions:
+      actions: write
+      contents: read
+    env:
+      GH_TOKEN: ${{ github.token }}
+      GH_REPO: ${{ github.repository }}
+      STABLE_TAG: ${{ inputs.stable_tag || github.event.workflow_run.head_branch }}
+      SOURCE_RUN: ${{ github.event.workflow_run.id }}
+      RELEASE_COMMIT: ${{ github.event.workflow_run.head_sha }}
+    steps:
+      - name: Queue the dev build for the published stable commit
+        run: |
+          set -euo pipefail
+          [[ "$STABLE_TAG" =~ ^v[0-9]+\.[0-9]+\.[0-9]+$ ]] || { echo "Expected a stable release tag" >&2; exit 1; }
+          if [[ -n "$SOURCE_RUN" ]]; then
+            gh run view "$SOURCE_RUN" --json jobs --jq '.jobs' |
+              jq -e 'any(.[]; .name == "release" and .conclusion == "success")' >/dev/null
+          fi
+          gh api "repos/$GH_REPO/releases/tags/$STABLE_TAG" |
+            jq -e --arg tag "$STABLE_TAG" '
+              .tag_name == $tag and (.draft | not) and (.prerelease | not) and
+              ([.assets[] | select(.state == "uploaded") | .name] |
+                contains(["Count-In-windows-x64.zip", "Count-In-macos-arm64.zip"]))
+            ' >/dev/null
+          stable_commit=$(gh api "repos/$GH_REPO/commits/$STABLE_TAG" --jq .sha)
+          [[ "$stable_commit" =~ ^[0-9a-f]{40}$ ]]
+          [[ -z "$RELEASE_COMMIT" || "$stable_commit" == "$RELEASE_COMMIT" ]]
+          gh workflow run build.yml --ref dev-0.10 -f stable_tag="$STABLE_TAG" \
+            -f stable_commit="$stable_commit" -F publish_dev=true
