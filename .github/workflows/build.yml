@@ -234,7 +234,7 @@ jobs:
           archive: false
 
   publish-dev:
-    if: github.event_name == 'workflow_dispatch' && github.ref == 'refs/heads/dev-0.10' && inputs.publish_dev
+    if: ${{ !cancelled() && needs.build.result == 'success' && github.event_name == 'workflow_dispatch' && github.ref == 'refs/heads/dev-0.10' && inputs.publish_dev }}
     needs: build
     runs-on: ubuntu-latest
     permissions:
