@@ -4,11 +4,12 @@
 
 [count-in.app](https://count-in.app) · [Telegram](https://t.me/count_in_app) · [English](#count-in) · [Русский](#русский)
 
-Count-In finds a song's tempo and first downbeat and puts a drum count-in in front of it. The last click lands exactly one beat before the "one". The same song can become a backing track with the guitar and vocals removed or turned down.
+Count-In finds a song's tempo and first downbeat and puts a drum count-in in front of it. If the song starts with a pickup, the count-in ends before it and the grid starts from the first full bar. The same song can become a backing track with the guitar and vocals removed or turned down.
 
 - Count-in of 1 or 2 bars in 4/4, 3/4 or 6/8.
 - Patterns: even, build-up (eighths over the second half of the last bar, louder hit by hit) or your own from a MIDI file.
-- Click through the whole song: a metronome beep, sticks, cowbell, ping or hi-hat on every beat after the count-in, with its own level.
+- Editable tempo track: change BPM, meter and grid alignment by section. Tap Tempo loops the passage and plays a click with each tap.
+- Count-in and whole-song metronome have separate sounds and levels. The defaults are sticks and closed hi-hat.
 - A neural network separates the song into guitar, vocals, bass, drums and piano in one pass. Each part has a level from removed to +6 dB, a mute button and a solo button.
 - Pauses: bars that go quiet once parts are removed get a hi-hat on every beat, as loud as the music around them, with an optional build-up into the band's entry.
 - Loop: select bars and play them round. The speed trainer adds 5% every two laps, and a bar of count-in can lead into every start from mid-song.
@@ -43,7 +44,7 @@ The macOS build is signed and notarized by Apple. The Windows build is not signe
 
 ![Main window](docs/screenshots/main-light-en.png)
 
-The app follows the system appearance and has a [dark theme](docs/screenshots/main-dark-en.png) too.
+The app follows the system appearance and has a dark theme too.
 
 1. Drop a track onto the window, click the drop area or open it with ⌘O. Recent songs are listed there too. The app analyzes it and starts separating the parts in the background right away; a card over the waveform shows the progress and tips.
 2. Check the orange "1" marker on the waveform. If the detector got it wrong, drag the marker to the right beat or use the arrows in the Tempo card; the round arrow brings back what the detector found. The wheel zooms, dragging pans, the overview under the waveform shows the whole song.
@@ -186,11 +187,12 @@ Count-In is released under the [MIT License](LICENSE). The bundled third-party c
 
 Новости, релизы и обратная связь — в Telegram-канале [@count_in_app](https://t.me/count_in_app).
 
-Count-In находит темп и первую сильную долю песни и вставляет перед ней барабанный отсчёт. Последний клик звучит ровно за долю до «раз». Из той же песни можно сделать бэктрек: убрать или приглушить гитару и вокал.
+Count-In находит темп и первую сильную долю песни и вставляет перед ней барабанный отсчёт. При затакте отсчёт заканчивается перед вступлением, а сетка строится от первого полного такта. Из той же песни можно сделать бэктрек: убрать или приглушить гитару и вокал.
 
 - Отсчёт на 1 или 2 такта, размер 4/4, 3/4 или 6/8.
 - Рисунок: ровный, «нарастание» (восьмые во второй половине последнего такта, каждый удар громче предыдущего) или свой из MIDI-файла.
-- Клик на всю песню: метроном, палочки, ковбелл, пинг или хай-хэт на каждую долю после отсчёта, со своей громкостью.
+- Темпотрек: меняйте BPM, размер и положение сетки по участкам. Tap Tempo зацикливает фрагмент и озвучивает каждое нажатие.
+- У отсчёта и метронома на всю песню отдельные звуки и громкость. По умолчанию палочки и закрытый хай-хэт.
 - Нейросеть за один проход разделяет песню на гитару, вокал, бас, барабаны и пианино. У каждой дорожки есть уровень от «убрать» до +6 дБ, кнопка отключения и кнопка соло.
 - Паузы: такты, где без убранных инструментов тихо, получают хай-хэт на каждую долю, громкостью как музыка вокруг, и по желанию нарастание к вступлению группы.
 - Петля: выделите такты и играйте их по кругу. Тренажёр скорости прибавляет 5% каждые два круга, а перед стартом с середины песни может звучать такт отсчёта.
@@ -222,7 +224,7 @@ Count-In находит темп и первую сильную долю пес�
 
 ![Главное окно](docs/screenshots/main-light.png)
 
-Программа следует оформлению системы, есть и [тёмная тема](docs/screenshots/main-dark.png).
+Программа следует оформлению системы, есть и тёмная тема.
 
 1. Перетащите трек в окно, щёлкните по области для перетаскивания или откройте его через ⌘O. Там же есть список недавних песен. Программа анализирует трек и сразу начинает в фоне разделять на дорожки; карточка поверх волны показывает прогресс и советы.
 2. Проверьте оранжевый маркер «1» на волне. Если детектор ошибся, перетащите маркер на нужную долю или сдвиньте стрелками в карточке «Темп»; круглая стрелка возвращает найденное детектором. Колесо меняет масштаб, перетаскивание сдвигает волну, обзор трека под волной показывает всю песню.

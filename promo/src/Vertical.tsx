@@ -13,6 +13,7 @@ const WIN = 760, LENS = { w: 820, h: 430 }, RINGS = { x: 540, y: 560 };
 const VerticalScene = () => {
   const { frame, copy, at, i, line } = useLine();
   const { k, pulse } = useBeat();
+  const shot = copy.shot.replace("main-light", `main-light-${i >= 8 ? "vocals" : i >= 6 ? "guitar" : "promo"}`);
   const intro = frame < f(ONE);
   const [W, H] = copy.size;
   const winH = (WIN * H) / W;
@@ -46,14 +47,14 @@ const VerticalScene = () => {
           <>
               <div style={{ position: "absolute", left: (1080 - WIN) / 2, top: 265, width: WIN, height: winH, transformOrigin: "50% 0",
                 transform: `translateY(${(1 - show) * 90}px) scale(${pop(frame, ONE) * (1.24 - 0.24 * show)}) perspective(1800px) rotateX(10deg) rotateZ(-3deg)` }}>
-                <Img src={staticFile(copy.shot)} style={{ width: WIN, borderRadius: 18, boxShadow: "0 30px 80px rgba(120,60,0,.4)" }} />
+                <Img src={staticFile(shot)} style={{ width: WIN, borderRadius: 18, boxShadow: "0 30px 80px rgba(120,60,0,.4)" }} />
                 <div style={{ position: "absolute", left: fx * WIN - 46, top: fy * winH - 46, width: 92, height: 92, borderRadius: 46, opacity: show,
                   border: `8px solid ${C.accent}`, boxShadow: "0 0 0 5px #fff, 0 8px 24px rgba(0,0,0,.35)", scale: `${1 + 0.18 * pulse}` }} />
               </div>
               <div style={{ position: "absolute", left: 110, top: 700, width: LENS.w, height: LENS.h, borderRadius: 44, overflow: "hidden", background: "#fff",
                 border: "10px solid #fff", boxShadow: "0 30px 80px rgba(120,60,0,.5)", transformOrigin: `${fx * 100}% 0`,
                 transform: `scale(${show}) rotate(1.5deg)` }}>
-                <Img src={staticFile(copy.shot)} style={{ position: "absolute", left: 0, top: 0, width: W, height: H, maxWidth: "none", transformOrigin: "0 0",
+                <Img src={staticFile(shot)} style={{ position: "absolute", left: 0, top: 0, width: W, height: H, maxWidth: "none", transformOrigin: "0 0",
                   transform: `translate(${x}px, ${y}px) scale(${s})` }} />
                 <Flash />
               </div>

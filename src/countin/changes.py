@@ -8,6 +8,28 @@ import html
 import re
 
 RELEASES = [
+    ("0.11.0", "2026-11-22", [
+        ("**Editable tempo track.** Review automatically detected sections, then click the BPM and meter badge "
+         "to edit a section. Changes, grid offsets and hi-hat fills are saved with the song.",
+         "**Темпотрек.** Проверьте автоматически найденные участки и нажмите на плашку BPM и размера, "
+         "чтобы отредактировать участок. Правки, сдвиги сетки и заполнение хай-хэтом сохраняются с песней."),
+        ("**Tap Tempo in a loop.** Each press of Space plays a click. After two missed beats, the metronome "
+         "continues in the tapped tempo. Apply updates the selected passage.",
+         "**Tap Tempo в петле.** Каждый пробел звучит как клик. Через две пропущенные доли метроном "
+         "продолжает в настуканном темпе. «Применить» обновляет выбранный фрагмент."),
+        ("**Pickups and playback.** Count-In checks the first full bar against later bars. Home moves to the "
+         "first count-in click, and Play reuses the prepared audio when possible.",
+         "**Затакт и воспроизведение.** Count-In проверяет первый полный такт по следующим тактам. "
+         "Home возвращает к первому клику, а Play по возможности использует готовое аудио."),
+        ("**Separate click sounds.** Count-in and whole-song metronome have independent sounds and levels. "
+         "The defaults are sticks for count-in and closed hi-hat for the metronome, both at 0 dB.",
+         "**Раздельный звук клика.** У отсчёта и метронома на всю песню свои звук и громкость. "
+         "По умолчанию отсчёт звучит палочками, метроном — закрытым хай-хэтом, оба на 0 дБ."),
+        ("**Manual control when detection is uncertain.** If a reliable rhythm cannot be found, the audio "
+         "still opens and the BPM and first downbeat can be set manually.",
+         "**Ручная настройка при слабом сигнале.** Если программа не нашла устойчивый ритм, аудио всё равно "
+         "открывается. BPM и первую долю можно задать вручную."),
+    ]),
     ("0.10.0", "2026-11-19", [
         ("**Loop and speed trainer.** Select bars and loop them; the trainer raises the speed by 5% every two passes "
          "up to 100%. Speed now goes down to 50%.",

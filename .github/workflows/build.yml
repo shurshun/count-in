@@ -8,6 +8,14 @@ on:
     paths-ignore: ["**.md", "docs/**", "promo/**"]
   workflow_dispatch:
     inputs:
+      stable_tag:
+        description: "Published stable tag to merge into the dev build"
+        type: string
+        required: false
+      stable_commit:
+        description: "Commit behind the stable tag"
+        type: string
+        required: false
       dev_build_number:
         description: "Public dev build number (optional, defaults to the workflow run number)"
         type: string
@@ -56,6 +64,24 @@ jobs:
       run: ${{ steps.find.outputs.run }}
     steps:
       - uses: actions/checkout@v7
+        with:
+          fetch-depth: ${{ inputs.stable_tag != '' && '0' || '1' }}
+          persist-credentials: false
+
+      - name: Merge the published stable commit into the dev source
+        if: github.event_name == 'workflow_dispatch' && github.ref == 'refs/heads/dev-0.10' && inputs.stable_tag != ''
+        env:
+          STABLE_TAG: ${{ inputs.stable_tag }}
+          STABLE_COMMIT: ${{ inputs.stable_commit }}
+        run: |
+          set -euo pipefail
+          [[ "$STABLE_TAG" =~ ^v[0-9]+\.[0-9]+\.[0-9]+$ ]]
+          [[ "$STABLE_COMMIT" =~ ^[0-9a-f]{40}$ ]]
+          [[ "$(git rev-parse "refs/tags/$STABLE_TAG^{commit}")" == "$STABLE_COMMIT" ]]
+          git -c user.name="github-actions[bot]" -c user.email="41898282+github-actions[bot]@users.noreply.github.com" \
+            merge --no-commit --no-ff "$STABLE_COMMIT"
+          version=$(sed -n 's/^version = "\(.*\)"/\1/p' pyproject.toml)
+          [[ "v$version" == "$STABLE_TAG" ]] || { echo "Dev version base does not match $STABLE_TAG" >&2; exit 1; }
 
       # A tag must match the version the update check compares against.
       - name: tag matches pyproject version
@@ -244,6 +270,7 @@ jobs:
       GH_TOKEN: ${{ github.token }}
       GH_REPO: ${{ github.repository }}
       DEV_VERSION: ${{ needs.build.outputs.dev_version }}
+      STABLE_TAG: ${{ inputs.stable_tag }}
     steps:
       - uses: actions/download-artifact@v8
         with:
@@ -261,13 +288,18 @@ jobs:
             mv "Count-In-$platform.zip" "Count-In-dev-$DEV_VERSION-$platform.zip"
           done
           gh release upload "$tag" "Count-In-dev-$DEV_VERSION-windows-x64.zip" "Count-In-dev-$DEV_VERSION-macos-arm64.zip"
-          previous=$(gh release view "$tag" --json body --jq .body)
+          if [[ -n "$STABLE_TAG" && "$(gh api "repos/$GH_REPO/releases/latest" --jq .tag_name)" != "$STABLE_TAG" ]]; then
+            echo "::notice::A newer stable release is already current. The archives were uploaded without replacing the dev download links."
+            exit 0
+          fi
           base="https://github.com/$GH_REPO/releases/download/$tag"
           {
             printf 'Тестовая сборка Count-In %s из ветки dev-0.10.\n\n' "$DEV_VERSION"
+            if [[ -n "$STABLE_TAG" ]]; then
+              printf 'Основана на [стабильной версии %s](https://github.com/%s/releases/tag/%s).\n\n' "$STABLE_TAG" "$GH_REPO" "$STABLE_TAG"
+            fi
             printf '[Windows x64](%s/Count-In-dev-%s-windows-x64.zip) · [macOS Apple Silicon](%s/Count-In-dev-%s-macos-arm64.zip)\n\n' "$base" "$DEV_VERSION" "$base" "$DEV_VERSION"
-            printf '%s\n\n' '- Темпотрек с редактированием и сохранением BPM, размера и сетки по участкам. Tap Tempo работает в петле и озвучивает нажатия.' '- Улучшены затакт, возврат к отсчёту и повторное воспроизведение. У отсчёта и метронома отдельные звуки и громкость.' '- Настройки Cloud Proxy доступны после ввода ключа Count-In.'
-            tail -n +5 <<< "$previous"
+            printf '%s\n' '- Match My Guitar — подгонка тембра гитары к записи.' '- Music Search — поиск музыки для ключей с доступом.' '- Dev-возможности облачного разделения, включая настройки Cloud Proxy после ввода ключа Count-In.'
           } > release-notes.md
           gh release edit "$tag" --title "Count-In dev $DEV_VERSION" --notes-file release-notes.md --prerelease --latest=false
 
