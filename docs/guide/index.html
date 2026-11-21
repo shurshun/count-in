@@ -68,10 +68,10 @@
   <section id="s1">
     <h2>First downbeat and tempo</h2>
     <ul>
-      <li>The orange “1” marker sits on the first downbeat. The count-in ends right before it.</li>
+      <li>The orange “1” marks the first beat of the first full bar. When a song starts with a pickup, the count-in ends before it.</li>
       <li>If the detector got it wrong, drag the marker. It snaps to the detected beats; ⌥ turns snapping off.</li>
       <li>The arrows next to the time move the “1” one beat earlier or later.</li>
-      <li>Set the tempo with − and +, by typing a number, or with Tap. With Tap the song plays and you tap Space.</li>
+      <li>The tempo track above the waveform shows the sections. Click a BPM and meter badge to edit the section or open its Tap Tempo.</li>
       <li>×2 and ÷2 help when the detector counted twice as fast or slow.</li>
       <li>The orange “The detector found another “1”” banner shows up when it is unsure. Click it to take the other candidate.</li>
       <li>The line above the waveform shows the detected tempo, the place of the “1” and the song's key. The key is estimated from the spectrum, so check it by ear.</li>
@@ -82,11 +82,11 @@
   <section id="s2">
     <h2>Tap tempo</h2>
     <ul>
-      <li>The Tap button in the Tempo card opens the “Tap Tempo” window, and the song starts playing just before the “1”.</li>
+      <li>Tap Tempo loops the selected passage. Each press of Space plays a click over the song.</li>
       <li>Tap Space along with the beat, at least three times. The taps are timed by the computer clock, so the tempo is right to a tenth of a BPM.</li>
       <li>Stop, and two beats after your last tap the song carries on with a click at the tapped tempo and phase. You hear at once whether it matches the song.</li>
       <li>If the click drifts from the song, tap again. A gap of more than two seconds starts over.</li>
-      <li>Apply puts the tapped tempo into the Tempo card; Cancel or closing the window keeps the old one. Either way the music stops.</li>
+      <li>Apply writes the tapped BPM to the selected passage. Tempo-track edits are saved with the song.</li>
     </ul>
   </section>
   <section id="s3">
@@ -95,7 +95,7 @@
       <li>“Even” clicks on every beat. “Build-up” switches to eighths over the second half of the last bar and gets louder with every hit. MIDI takes the pattern from your file.</li>
       <li>“Click through the whole song” carries the click on after the count-in, on every beat to the end of the song. The click sound and volume are set under the checkbox, and pause fill is not needed then.</li>
       <li>The count-in lasts one or two bars; the meter is 4/4, 3/4 or 6/8.</li>
-      <li>The count-in volume does not depend on the song's level.</li>
+      <li>Count-in and metronome have separate sounds and levels. By default they use sticks and closed hi-hat respectively, both at 0 dB.</li>
       <li>“Count-in bar when starting mid-song” adds a bar of clicks before the point where playback starts and before each new loop pass. It never reaches the saved file.</li>
     </ul>
     <figure class="small"><img src="/guide/img/count-en.png" alt="Count-in" loading="lazy"></figure>

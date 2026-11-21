@@ -69,6 +69,12 @@ def grid(beats, bars: list[zn.Bar], zones: list[zn.Zone] | None, downbeat: float
     lead = max(0, math.ceil((downbeat - earliest) / bar_len - 1e-9))
     out = [zn.Bar(downbeat - (lead - k) * bar_len, downbeat - (lead - k - 1) * bar_len,
                   [downbeat - (lead - k) * bar_len + j * period for j in range(n)]) for k in range(lead)]
+    if bars and bars[0].meter:
+        # The application has already resolved these beats, including edits and shifted sections.
+        if bars[0].start > downbeat + 1e-8:
+            out.append(zn.Bar(downbeat, bars[0].start, [downbeat], meter=meter, accent=False, pulse=period))
+        out += bars
+        return Grid(out[0].start, out)
     b = song_beats(beats, downbeat, period)
     lo = -math.inf
     for z in sorted(zones or [], key=lambda q: q.first):
@@ -96,6 +102,23 @@ def quarters(bar: zn.Bar, meter: str) -> tuple[float, int, int]:
     return float(n), n, 4
 
 
+def _intervals(g, meter):
+    for bar in g.bars:
+        if bar.meter is None:
+            yield bar.start, bar.end, *quarters(bar, meter)
+            continue
+        num, den = map(int, bar.meter.split("/"))
+        unit = 1.5 if den == 8 else 1.0
+        for a, b in zip(bar.beats, [*bar.beats[1:], bar.end]):
+            if b <= a:
+                continue
+            q = unit
+            # A manually shifted neighbour or clipped song end can cut the last pulse short.
+            if b == bar.end and abs((b - a) / bar.pulse - 1) > .15:
+                q *= (b - a) / bar.pulse
+            yield a, b, q, num, den
+
+
 def _tempo_track(g: Grid, meter: str, speed: float):
     """Tempo and meter events at every bar line, and a function from song time to ticks. Each tempo rounds
     against the time the MIDI has reached so far, so rounding never accumulates."""
@@ -104,9 +127,10 @@ def _tempo_track(g: Grid, meter: str, speed: float):
     track = mido.MidiTrack()
     marks = []  # (song time, tick) at every bar line
     tick, last_tick, midi_us, sig = 0, 0, 0.0, None
-    for bar in g.bars:
-        q, num, den = quarters(bar, meter)
-        target_us = (bar.end - g.start) / speed * 1e6
+    for start, end, q, num, den in _intervals(g, meter):
+        length = max(1, round(q * TPB))
+        q = length / TPB
+        target_us = (end - g.start) / speed * 1e6
         tempo = max(1, round((target_us - midi_us) / q))
         events = []
         if (num, den) != sig:
@@ -117,9 +141,9 @@ def _tempo_track(g: Grid, meter: str, speed: float):
             e.time = tick - last_tick if k == 0 else 0
             track.append(e)
         last_tick = tick
-        marks.append((bar.start, tick, (bar.end - bar.start) / (q * TPB)))
+        marks.append((start, tick, (end - start) / length))
         midi_us += tempo * q
-        tick += round(q * TPB)
+        tick += length
     def to_tick(t: float) -> int:
         for start, at, sec_per_tick in reversed(marks):
             if t >= start - 1e-9:

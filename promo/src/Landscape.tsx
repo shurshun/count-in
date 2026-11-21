@@ -10,6 +10,7 @@ const WIN = 940, LEFT = 900, LENS = { w: 780, h: 400 }, COL = 760;
 const Scene = () => {
   const { frame, copy, at, i, fx, fy, z, show, before, accent, after } = useFocus();
   const { k, pulse } = useBeat();
+  const shot = copy.shot.replace("main-light", `main-light-${i >= 8 ? "vocals" : i >= 6 ? "guitar" : "promo"}`);
   const winH = (WIN * copy.size[1]) / copy.size[0];
   const t = pop(frame, at[i]);
   const small = { fontSize: 70, fontWeight: 800, letterSpacing: -1.5, color: C.text, opacity: t };
@@ -24,13 +25,13 @@ const Scene = () => {
 
       <div style={{ position: "absolute", left: LEFT, top: 60, width: WIN, height: winH, transformOrigin: "50% 0",
         transform: `translateY(${(1 - show) * 130}px) scale(${pop(frame, ONE) * (1 - 0.2 * show)}) perspective(1800px) rotateX(10deg) rotateZ(-3deg)` }}>
-        <Shot src={copy.shot} w={WIN} />
+        <Shot src={shot} w={WIN} />
         <Ring x={fx * WIN} y={fy * winH} pulse={pulse} opacity={show} />
       </div>
       <div style={{ position: "absolute", left: LEFT + (WIN - LENS.w) / 2 + 40, top: 560, width: LENS.w, height: LENS.h, borderRadius: 44, overflow: "hidden",
         background: "#fff", border: "10px solid #fff", boxShadow: "0 30px 80px rgba(120,60,0,.5)", transformOrigin: `${fx * 100}% 0`,
         transform: `scale(${show}) rotate(1.5deg)` }}>
-        <Magnified src={copy.shot} size={copy.size} w={LENS.w} h={LENS.h} fx={fx} fy={fy} s={0.3 * z} />
+        <Magnified src={shot} size={copy.size} w={LENS.w} h={LENS.h} fx={fx} fy={fy} s={0.3 * z} />
         <Flash />
       </div>
 

@@ -7,7 +7,7 @@ import soundfile as sf
 import pytest
 
 from countin.core import io, render as rd
-from countin.core.analyze import Analysis, beat_period, fit_grid, snap_onset
+from countin.core.analyze import Analysis, analyze, beat_period, fit_grid, snap_onset
 from countin.verify import find_onset
 
 SR = 44100
@@ -58,6 +58,24 @@ def test_fit_grid_handles_half_time_intro():
     beats = 6.0 + np.array(slots) * period
     p, phase, _, share = fit_grid(beats, 0)
     assert p == pytest.approx(period) and phase == pytest.approx(6.0) and share == 1
+
+
+@pytest.mark.parametrize("false_first", [False, True])
+def test_pickup_does_not_move_the_first_full_bar(false_first):
+    pickup, first_bar, period = 0.5, 1.5, 0.5
+    beats = np.arange(pickup, 12, period)
+    downbeats = np.arange(first_bar, 12, 4 * period)
+    if false_first:
+        downbeats = np.r_[pickup, downbeats]
+    song = impulse_song(pickup, period, 12, lead_silence=pickup)
+    a = analyze(song, SR, (beats, downbeats, np.ones(12 * 50)))
+    assert a.first_downbeat == pytest.approx(first_bar, abs=0.003)
+    assert a.pickup_start == pytest.approx(pickup)
+    assert a.bpm == pytest.approx(120)
+    clicks = rd.before_pickup(rd.click_grid(a.first_downbeat, a.period, 1, "4/4"),
+                              a.pickup_start, 4 * a.period)
+    assert [c.time for c in clicks] == pytest.approx([-0.5, 0], abs=0.003)
+    assert [c.accent for c in clicks] == [True, False]
 
 
 def test_pattern_grid_stretches_midi(tmp_path):

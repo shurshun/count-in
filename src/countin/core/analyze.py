@@ -6,9 +6,14 @@ from functools import lru_cache
 import numpy as np
 
 from . import assets
+from .render import leading_silence
 
 FPS = 50  # beat_this frame rate, 20 ms per frame
 GRID_BEATS = 16
+
+
+class RhythmError(ValueError):
+    """The detected beats do not support a count-in grid."""
 
 
 @dataclass
@@ -25,6 +30,8 @@ class Analysis:
     alt_downbeat: float | None = None  # first beat on the bar phase most later downbeats agree on
     snap_ms: float = 0.0  # shift from the fitted grid to the audio attack
     notes: list[str] = field(default_factory=list)
+    manual: bool = False
+    pickup_start: float | None = None  # audio entrance before the first full bar
 
     @property
     def period(self) -> float:
@@ -79,14 +86,14 @@ def fit_grid(beats: np.ndarray, start: int, n: int = GRID_BEATS) -> tuple[float,
     """
     seg = beats[start : start + n]
     if len(seg) < 3:
-        raise ValueError("too few beats after the first downbeat")
+        raise RhythmError("too few beats after the first downbeat")
     period = float(np.median(np.diff(seg)))
     k = np.round((seg - seg[0]) / period)
     resid = seg - seg[0] - k * period
     k, seg, resid = k[k < n], seg[k < n], resid[k < n]
     good = np.abs(resid) < 0.25 * period
     if good.sum() < 3:
-        raise ValueError("beats do not fit a steady grid")
+        raise RhythmError("beats do not fit a steady grid")
     slope, phase = np.polyfit(k[good], seg[good], 1)
     jitter = float(np.std(seg[good] - (phase + k[good] * slope)))
     return float(slope), float(phase), jitter, float(good.mean())
@@ -140,14 +147,52 @@ def beat_period(a: "Analysis", beats_per_bar: int) -> tuple[float, str | None]:
     return a.period, f"detector counts {a.beats_per_bar} beats per bar, the meter expects {beats_per_bar}"
 
 
-def analyze(pcm: np.ndarray, sr: int) -> Analysis:
-    beats, downs, prob = detect(pcm, sr)
+def analyze(pcm: np.ndarray, sr: int, detection=None) -> Analysis:
+    beats, downs, prob = detect(pcm, sr) if detection is None else detection
     if len(beats) < 4 or len(downs) == 0:
-        raise ValueError("no stable beat found")
+        raise RhythmError("no stable beat found")
 
     notes = []
     start = int(np.argmin(np.abs(beats - downs[0])))
-    period, t0, jitter, share = fit_grid(beats, start)
+    try:
+        period, t0, jitter, share = fit_grid(beats, start)
+    except RhythmError:
+        # An intro can have sparse or irregular onsets. Use the first later downbeat
+        # whose following beats give a reliable grid, without extrapolating it back.
+        for index, downbeat in enumerate(downs[1:], 1):
+            candidate = int(np.argmin(np.abs(beats - downbeat)))
+            if len(beats) - candidate < GRID_BEATS:
+                raise
+            try:
+                fitted = fit_grid(beats, candidate)
+            except RhythmError:
+                continue
+            if fitted[0] > 0 and fitted[2] < 0.02 and fitted[3] >= 0.75:
+                period, t0, jitter, share = fitted
+                start, downs = candidate, downs[index:]
+                notes.append("beat grid starts later in the song; check the downbeat marker")
+                break
+        else:
+            raise
+
+    # A short first interval can be a pickup mislabeled as a downbeat. Require three
+    # consecutive full bars at the same beat count and phase before dropping that label.
+    if len(downs) >= 5:
+        lengths = np.diff(downs[:5])
+        full_beats = int(round(np.median(lengths[1:]) / period))
+        if (2 <= full_beats <= 12 and 0 < lengths[0] < (full_beats - 0.5) * period
+                and np.all(np.abs(lengths[1:] - full_beats * period) < 0.22 * period)):
+            candidate = int(np.argmin(np.abs(beats - downs[1])))
+            try:
+                fitted = fit_grid(beats, candidate)
+            except RhythmError:
+                pass
+            else:
+                p, phase, error, support = fitted
+                expected = phase + np.arange(4) * full_beats * p
+                if error < 0.02 and support >= 0.75 and np.all(np.abs(downs[1:5] - expected) < 0.22 * p):
+                    period, t0, jitter, share = fitted
+                    start, downs = candidate, downs[1:]
 
     # 20 ms of timing jitter around the fitted grid counts as no regularity at all.
     regularity = float(max(0.0, 1 - jitter / 0.02) * share)
@@ -178,10 +223,16 @@ def analyze(pcm: np.ndarray, sr: int) -> Analysis:
     else:
         notes.append("no clear attack at the downbeat, using the beat grid")
 
+    pickup = None
+    if bpb and len(later) >= 3 and agreement >= 0.75 and beats[0] < t0 - 0.15 * period:
+        onset = leading_silence(pcm[:max(0, round(t0 * sr))], sr)
+        if t0 - bpb * period < onset < t0 - 0.15 * period:
+            pickup = onset
+
     return Analysis(
         beats=beats, downbeats=downs, bpm=60.0 / period, first_downbeat=t0,
         confidence=activation * regularity * agreement, activation=activation, regularity=regularity,
-        beats_per_bar=bpb, bar_agreement=agreement, alt_downbeat=alt, snap_ms=snap_ms, notes=notes,
+        beats_per_bar=bpb, bar_agreement=agreement, alt_downbeat=alt, snap_ms=snap_ms, notes=notes, pickup_start=pickup,
     )
 
 
