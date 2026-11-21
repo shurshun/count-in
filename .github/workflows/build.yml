@@ -64,24 +64,6 @@ jobs:
       run: ${{ steps.find.outputs.run }}
     steps:
       - uses: actions/checkout@v7
-        with:
-          fetch-depth: ${{ inputs.stable_tag != '' && '0' || '1' }}
-          persist-credentials: false
-
-      - name: Merge the published stable commit into the dev source
-        if: github.event_name == 'workflow_dispatch' && github.ref == 'refs/heads/dev-0.10' && inputs.stable_tag != ''
-        env:
-          STABLE_TAG: ${{ inputs.stable_tag }}
-          STABLE_COMMIT: ${{ inputs.stable_commit }}
-        run: |
-          set -euo pipefail
-          [[ "$STABLE_TAG" =~ ^v[0-9]+\.[0-9]+\.[0-9]+$ ]]
-          [[ "$STABLE_COMMIT" =~ ^[0-9a-f]{40}$ ]]
-          [[ "$(git rev-parse "refs/tags/$STABLE_TAG^{commit}")" == "$STABLE_COMMIT" ]]
-          git -c user.name="github-actions[bot]" -c user.email="41898282+github-actions[bot]@users.noreply.github.com" \
-            merge --no-commit --no-ff "$STABLE_COMMIT"
-          version=$(sed -n 's/^version = "\(.*\)"/\1/p' pyproject.toml)
-          [[ "v$version" == "$STABLE_TAG" ]] || { echo "Dev version base does not match $STABLE_TAG" >&2; exit 1; }
 
       # A tag must match the version the update check compares against.
       - name: tag matches pyproject version
@@ -133,6 +115,24 @@ jobs:
         shell: bash
     steps:
       - uses: actions/checkout@v7
+        with:
+          fetch-depth: ${{ inputs.stable_tag != '' && '0' || '1' }}
+          persist-credentials: false
+
+      - name: Merge the published stable commit into the dev source
+        if: github.event_name == 'workflow_dispatch' && github.ref == 'refs/heads/dev-0.10' && inputs.stable_tag != ''
+        env:
+          STABLE_TAG: ${{ inputs.stable_tag }}
+          STABLE_COMMIT: ${{ inputs.stable_commit }}
+        run: |
+          set -euo pipefail
+          [[ "$STABLE_TAG" =~ ^v[0-9]+\.[0-9]+\.[0-9]+$ ]]
+          [[ "$STABLE_COMMIT" =~ ^[0-9a-f]{40}$ ]]
+          [[ "$(git rev-parse "refs/tags/$STABLE_TAG^{commit}")" == "$STABLE_COMMIT" ]]
+          git -c user.name="github-actions[bot]" -c user.email="41898282+github-actions[bot]@users.noreply.github.com" \
+            merge --no-commit --no-ff "$STABLE_COMMIT"
+          version=$(sed -n 's/^version = "\(.*\)"/\1/p' pyproject.toml)
+          [[ "v$version" == "$STABLE_TAG" ]] || { echo "Dev version base does not match $STABLE_TAG" >&2; exit 1; }
 
       # A tag must match the version the update check compares against.
       - name: tag matches pyproject version
