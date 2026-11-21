@@ -1,7 +1,7 @@
 """Count-in grid and sample-accurate mixing."""
 
 import math
-from dataclasses import dataclass
+from dataclasses import dataclass, replace
 from functools import lru_cache
 from pathlib import Path
 
@@ -62,6 +62,18 @@ def buildup_grid(first_downbeat: float, period: float, bars: int, meter: str) ->
     ramp = np.geomspace(BUILDUP_FROM, BUILDUP_TO, len(pos))
     return [Click(first_downbeat + q * step, q.is_integer() and int(q) % per_bar == 0, float(g))
             for q, g in zip(pos, ramp)]
+
+
+def before_pickup(clicks: list[Click], pickup: float | None, bar: float) -> list[Click]:
+    """End the count-in before the entry while keeping the original grid and bar accents."""
+    if pickup is None or not clicks:
+        return clicks
+    cutoff = pickup - 0.012  # leave room for small differences between the fitted grid and the attack
+    before = [c for c in clicks if c.time < cutoff]
+    if before:
+        return before
+    shift = (math.floor((clicks[-1].time - cutoff) / bar) + 1) * bar
+    return [replace(c, time=c.time - shift) for c in clicks]
 
 
 def _quantize(beat: float) -> float:

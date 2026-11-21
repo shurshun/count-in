@@ -9,6 +9,20 @@ LANGUAGES = {"system": "Как в системе", "en": "English", "ru": "Ру�
 _lang = "ru"
 
 EN = {
+    "Дорожка темпа": "Tempo track",
+    "Option / Alt: потяните сетку, край или середину паузы для свободного сдвига.": "Option / Alt-drag the grid, a pause edge or its body to move it freely.",
+    "Щёлкните по плашке BPM и размера, чтобы изменить участок. Двойной щелчок по фону делит его. Потяните границу или сдвиньте сетку с Option / Alt.": "Click the BPM and meter badge to edit. Double-click the background to split. Drag an edge, or Option / Alt-drag to shift the beat grid.",
+    "Настучать темп участка": "Tap section tempo",
+    "Изменить темп и размер…": "Edit tempo and meter…",
+    "Темп и размер": "Tempo and meter",
+    "Разделить участок здесь": "Split section here",
+    "Объединить с предыдущим": "Merge into previous section",
+    "Настучать темп выделения": "Tap tempo for this selection",
+    "Размер участка": "Section meter",
+    "Исходный BPM · {a}–{b} · {speed}%": "Original BPM · {a}–{b} · {speed}%",
+    "Вручную": "Manual",
+    "Темп приблизительный": "Tempo uncertain",
+    "{origin} · {bpm:.1f} BPM · {meter}": "{origin} · {bpm:.1f} BPM · {meter}",
     # Window and menus
     "Файл": "File",
     "Открыть…": "Open…",
@@ -59,6 +73,13 @@ EN = {
     "Клик на всю песню": "Click through the whole song",
     "Клик на каждую долю после отсчёта, до конца песни. Заполнение пауз при этом не нужно.":
         "A click on every beat after the count-in, to the end of the song. Pause fill is not needed then.",
+    "Звук отсчёта": "Count-in sound",
+    "Авто": "Auto",
+    'У отсчёта и метронома отдельные звук и громкость. По умолчанию у отсчёта палочки, у метронома закрытый хай-хэт, оба на 0 дБ.': 'Count-in and metronome have separate sounds and levels. By default they use sticks and closed hi-hat respectively, both at 0 dB.',
+    '«Применить» записывает настуканный BPM в выбранный участок. Правки темпотрека сохраняются с песней.': 'Apply writes the tapped BPM to the selected passage. Tempo-track edits are saved with the song.',
+    'Tap Tempo зацикливает выбранный участок. Каждый удар пробелом слышен поверх песни.': 'Tap Tempo loops the selected passage. Each press of Space plays a click over the song.',
+    'Темпотрек над волной показывает участки. Нажмите плашку BPM и размера, чтобы изменить их или открыть Tap Tempo для этого участка.': 'The tempo track above the waveform shows the sections. Click a BPM and meter badge to edit the section or open its Tap Tempo.',
+    'Оранжевый маркер «1» показывает первую долю первого полного такта. При затакте отсчёт заканчивается до вступления.': 'The orange “1” marks the first beat of the first full bar. When a song starts with a pickup, the count-in ends before it.',
     "Звук клика": "Click sound",
     "Громкость клика": "Click volume",
     "Палочки": "Sticks",
@@ -285,8 +306,8 @@ EN = {
     "Не удалось воспроизвести: {e}": "Playback failed: {e}",
     "Файл {name} уже есть. Заменить?": "{name} already exists. Replace it?",
     "Сохранено: {name}": "Saved: {name}",
-    "Клики перегружают звук в {n} сэмплах, убавьте громкость отсчёта":
-        "The clicks clip {n} samples, lower the count-in volume",
+    "Клики перегружают звук в {n} сэмплах, убавьте громкость отсчёта или метронома":
+        "The clicks clip {n} samples. Lower the count-in or metronome volume.",
     "Трек": "Track",
     "Аудио ({exts})": "Audio ({exts})",
     "MIDI-шаблон": "MIDI pattern",

@@ -125,6 +125,8 @@ def main(argv: list[str] | None = None) -> int:
     grid = rd.buildup_grid if args.style == "buildup" else rd.click_grid
     clicks = (rd.pattern_grid(args.pattern, t0, period, args.meter) if args.pattern
               else grid(t0, period, args.bars, args.meter))
+    if args.first_beat is None:
+        clicks = rd.before_pickup(clicks, a.pickup_start, period * rd.METERS[args.meter][0])
     levels = {k: v for k, v in (("guitar", args.guitar_db), ("vocals", args.vocals_db)) if v is not None and v < 0}
     if levels:
         from .core import stems

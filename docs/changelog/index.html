@@ -53,6 +53,7 @@
     <p class="lead">Every release, newest first. The app updates itself.</p>
   </div>
   <ul class="toc">
+    <li><a href="#v0-11-0">0.11.0</a></li>
     <li><a href="#v0-10-0">0.10.0</a></li>
     <li><a href="#v0-9-1">0.9.1</a></li>
     <li><a href="#v0-8-2">0.8.2</a></li>
@@ -73,11 +74,24 @@
     <li><a href="#v0-1-0">0.1.0</a></li>
   </ul>
   <div class="releases">
-    <section class="card release latest" id="v0-10-0">
+    <section class="card release latest" id="v0-11-0">
+      <header>
+        <h2>0.11.0</h2>
+        <time datetime="2026-11-22">November 22, 2026</time>
+        <span class="tag">Latest</span>
+      </header>
+      <ul>
+        <li><b>Editable tempo track.</b> Review automatically detected sections, then click the BPM and meter badge to edit a section. Changes, grid offsets and hi-hat fills are saved with the song.</li>
+        <li><b>Tap Tempo in a loop.</b> Each press of Space plays a click. After two missed beats, the metronome continues in the tapped tempo. Apply updates the selected passage.</li>
+        <li><b>Pickups and playback.</b> Count-In checks the first full bar against later bars. Home moves to the first count-in click, and Play reuses the prepared audio when possible.</li>
+        <li><b>Separate click sounds.</b> Count-in and whole-song metronome have independent sounds and levels. The defaults are sticks for count-in and closed hi-hat for the metronome, both at 0 dB.</li>
+        <li><b>Manual control when detection is uncertain.</b> If a reliable rhythm cannot be found, the audio still opens and the BPM and first downbeat can be set manually.</li>
+      </ul>
+    </section>
+    <section class="card release" id="v0-10-0">
       <header>
         <h2>0.10.0</h2>
         <time datetime="2026-11-19">November 19, 2026</time>
-        <span class="tag">Latest</span>
       </header>
       <ul>
         <li><b>Loop and speed trainer.</b> Select bars and loop them; the trainer raises the speed by 5% every two passes up to 100%. Speed now goes down to 50%.</li>

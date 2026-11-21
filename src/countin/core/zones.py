@@ -4,7 +4,7 @@ The bars come from the detected beats and downbeats of the whole song, so the hi
 and meter changes.
 """
 
-from dataclasses import dataclass
+from dataclasses import dataclass, replace
 
 import numpy as np
 
@@ -20,6 +20,9 @@ class Bar:
     start: float
     end: float
     beats: list[float]  # beat times in the bar, the first one on the downbeat
+    meter: str | None = None  # populated by the editable song map
+    accent: bool = True  # a section boundary can interrupt a bar between downbeats
+    pulse: float | None = None  # nominal pulse of a mapped bar, including a partial bar
 
     @property
     def period(self) -> float:
@@ -151,6 +154,9 @@ class Zone:
     bpm: float | None = None
     beats: int | None = None
     manual: bool = False
+    start: float | None = None  # source seconds persist when the bar grid changes
+    end: float | None = None
+    free: bool = False  # the hi-hat's first hit is anchored directly to start
 
     @property
     def kept(self) -> bool:
@@ -159,6 +165,18 @@ class Zone:
 
 def zones_from(indices: set[int]) -> list[Zone]:
     return [Zone(a, b) for a, b in ranges(indices)]
+
+
+def bounds(bars, z):
+    return (z.start if z.start is not None else bars[z.first].start,
+            z.end if z.end is not None else bars[z.last].end)
+
+
+def mapped(z, bars, start, end):
+    """Index a stable time range on the current bars. A range in the intro uses the nearest bar's meter."""
+    starts = [bar.start for bar in bars]
+    first, last = np.searchsorted(starts, [start + 1e-8, end - 1e-8], side="right") - 1
+    return replace(z, first=max(0, int(first)), last=max(0, int(last)), start=start, end=end)
 
 
 def _irregular(bars: list[Bar]) -> bool:
@@ -190,16 +208,22 @@ def zone_bars(bars: list[Bar], z: Zone) -> list[Bar]:
     """The bars a zone plays: the detected ones; an even grid between the zone edges when the detected ones are
     irregular, in the meter and tempo the band stopped in; or a steady grid from the zone start when the zone
     has an override."""
-    if z.bpm is None and z.beats is None:
+    start, end = bounds(bars, z)
+    if z.bpm is None and z.beats is None and not z.free:
         own = bars[z.first : z.last + 1]
+        if own[0].meter:
+            return [replace(bar, start=max(start, bar.start), end=min(end, bar.end),
+                            beats=[t for t in bar.beats if start - 1e-8 <= t < end - 1e-8],
+                            accent=bar.accent and bar.start >= start - 1e-8)
+                    for bar in own if any(start - 1e-8 <= t < end - 1e-8 for t in bar.beats)]
         if not _irregular(own):
             return own
         n, bar_len = _meter_around(bars, z)
         return _even(own[0].start, own[-1].end, bar_len, n)
-    start, end = bars[z.first].start, bars[z.last].end
     own = bars[z.first]
-    p = 60.0 / z.bpm if z.bpm else own.period
-    n = z.beats or len(own.beats)
+    p = 60.0 / z.bpm if z.bpm else own.pulse or own.period
+    from .render import METERS
+    n = z.beats or (METERS[own.meter][0] if own.meter else len(own.beats))
     beats = list(start + p * np.arange(int(np.ceil((end - start) / p - 1e-6))))
     return [Bar(beats[k], min(beats[k] + n * p, end), beats[k : k + n]) for k in range(0, len(beats), n)]
 
@@ -207,12 +231,16 @@ def zone_bars(bars: list[Bar], z: Zone) -> list[Bar]:
 def describe(bars: list[Bar], z: Zone) -> tuple[float, float, float, int]:
     """(start, end, bpm, beats per bar) of a zone as it will play."""
     own = bars[z.first]
-    if z.bpm is not None or z.beats is not None:
-        return own.start, bars[z.last].end, z.bpm or 60.0 / own.period, z.beats or len(own.beats)
+    start, end = bounds(bars, z)
+    if z.bpm is not None or z.beats is not None or z.free:
+        from .render import METERS
+        return start, end, z.bpm or 60.0 / (own.pulse or own.period), z.beats or (METERS[own.meter][0] if own.meter else len(own.beats))
     zb = zone_bars(bars, z)
+    if not zb:
+        return start, end, 60 / (own.pulse or own.period), len(own.beats)
     periods = [b.period for b in zb if len(b.beats) > 1] or [zb[0].period]
     counts = [len(b.beats) for b in zb]
-    return bars[z.first].start, bars[z.last].end, 60.0 / float(np.median(periods)), max(set(counts), key=counts.count)
+    return start, end, 60.0 / float(np.median(periods)), max(set(counts), key=counts.count)
 
 
 def _build_up(bar: Bar, gain: float) -> list[Click]:
@@ -238,13 +266,16 @@ def zone_clicks(bars: list[Bar], zones: list[Zone], downbeat: float, bar_db: lis
     clicks = []
     for z in sorted(zones, key=lambda q: q.first):
         zb = zone_bars(bars, z)
+        if not zb:
+            continue
         slack = zb[0].period / 2
         gain = zone_gain(bar_db, z) if bar_db else 1.0
         for i, b in enumerate(zb):
             if build_up and i == len(zb) - 1 and len(b.beats) > 1:
-                clicks += [c for c in _build_up(b, gain) if c.time >= downbeat - slack]
+                clicks += [c for c in _build_up(b, gain) if c.time >= downbeat - slack or z.free]
                 continue
-            clicks += [Click(t, k == 0, gain, voice="hihat") for k, t in enumerate(b.beats) if t >= downbeat - slack]
+            clicks += [Click(t, k == 0 and b.accent, gain, voice="hihat") for k, t in enumerate(b.beats)
+                       if t >= downbeat - slack or z.free]
     return clicks
 
 

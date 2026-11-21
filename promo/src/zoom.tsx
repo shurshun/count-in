@@ -1,14 +1,13 @@
-// Focus point (fraction of the screenshot) and zoom for each line, in line order.
-// Measured from the app window (Window widgets mapped to the grab), the same for both languages within 3%.
+// Focus point (fraction of the light screenshot) and zoom for each scene.
 export const FOCUS: [number, number, number][] = [
-  [0.5, 0.5, 1],      // whole window
-  [0.15, 0.73, 2.6],  // tempo card
-  [0.45, 0.16, 3],    // the orange "1" marker
-  [0.28, 0.2, 2.4],   // the clicks
-  [0.41, 0.73, 2.6],  // count-in card
-  [0.61, 0.83, 2.8],  // "Fill pauses with hi-hat"
-  [0.77, 0.61, 2.8],  // backing track, guitar muted
-  [0.69, 0.49, 3],    // Speed in the transport bar
-  [0.77, 0.66, 2.8],  // backing track, vocals
-  [0.5, 0.5, 1],      // whole window
+  [0.5, 0.5, 1],         // whole window
+  [0.450, 0.215, 2.6],   // tempo track
+  [0.450, 0.265, 3],     // the orange "1"
+  [0.106, 0.283, 2.4],   // the first count-in click
+  [0.389, 0.904, 2.6],   // metronome sound
+  [0.630, 0.798, 2.8],   // hi-hat in pauses
+  [0.768, 0.645, 2.8],   // guitar
+  [0.590, 0.545, 3],     // speed
+  [0.768, 0.676, 2.8],   // vocals
+  [0.5, 0.5, 1],         // whole window
 ];
