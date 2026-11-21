@@ -1,320 +1,38 @@
-name: build
-
-# PRs check every code change; tags publish a release. Docs, the site and the promo video skip the build.
+name: Publish Count-In dev artifacts
 on:
-  push:
-    tags: ["v*"]
-  pull_request:
-    paths-ignore: ["**.md", "docs/**", "promo/**"]
   workflow_dispatch:
-
 jobs:
-  # A PR that only bumps the version needs no new bundles: the tag build makes the release ones.
-  changes:
-    if: github.event_name == 'pull_request'
+  publish:
     runs-on: ubuntu-latest
     permissions:
-      contents: read
-    outputs:
-      build: ${{ steps.diff.outputs.build }}
-    steps:
-      - uses: actions/checkout@v7
-        with:
-          fetch-depth: 0
-      - id: diff
-        run: |
-          other=$(git diff -U0 "origin/$GITHUB_BASE_REF...HEAD" -- . ':!*.md' ':!docs/' ':!promo/' \
-            | grep -E '^[-+]' | grep -vE '^(\+\+\+|---) ' | grep -vE '^[-+]version = "[^"]+"$' || true)
-          echo "build=$([ -n "$other" ] && echo true || echo false)" >> "$GITHUB_OUTPUT"
-          echo "tree=$(git rev-parse 'HEAD^{tree}')" >> "$GITHUB_OUTPUT"
-          git rev-parse 'HEAD^{tree}' > tree.txt
-
-      # The tag build finds this PR run by the tree it built and publishes its bundles (job reuse).
-      - uses: actions/upload-artifact@v7
-        with:
-          name: tree-${{ steps.diff.outputs.tree }}
-          path: tree.txt
-
-  # A pushed tag whose files match a passed PR build reuses that build's bundles instead of building them again.
-  # A manual run on the tag always builds.
-  reuse:
-    if: github.event_name == 'push' && startsWith(github.ref, 'refs/tags/v')
-    runs-on: ubuntu-latest
-    permissions:
-      contents: read
       actions: read
-    outputs:
-      run: ${{ steps.find.outputs.run }}
-    steps:
-      - uses: actions/checkout@v7
-
-      # A tag must match the version the update check compares against.
-      - name: tag matches pyproject version
-        run: |
-          v=$(sed -n 's/^version = "\(.*\)"/\1/p' pyproject.toml)
-          [ "v$v" = "$GITHUB_REF_NAME" ] || { echo "tag $GITHUB_REF_NAME, pyproject $v" >&2; exit 1; }
-
-      # Runs of this repository only, so a fork's PR build never reaches a release.
-      - id: find
-        env:
-          GH_TOKEN: ${{ github.token }}
-          REPO_ID: ${{ github.repository_id }}
-        run: |
-          tree=$(git rev-parse 'HEAD^{tree}')
-          for run in $(gh api "repos/$GITHUB_REPOSITORY/actions/artifacts?name=tree-$tree" \
-              -q ".artifacts[] | select(.expired | not) | select(.workflow_run.head_repository_id == $REPO_ID) | .workflow_run.id"); do
-            ok=$(gh api "repos/$GITHUB_REPOSITORY/actions/runs/$run" -q .conclusion)
-            zips=$(gh api "repos/$GITHUB_REPOSITORY/actions/runs/$run/artifacts" \
-              -q '[.artifacts[] | select(.expired | not) | select(.name | endswith(".zip"))] | length')
-            if [ "$ok" = success ] && [ "$zips" = 2 ]; then
-              echo "reusing the bundles of run $run"
-              echo "run=$run" >> "$GITHUB_OUTPUT"
-              break
-            fi
-          done
-
-  build:
-    needs: [changes, reuse]
-
-    # Tags without a PR build to reuse and manual runs always build; a failed check builds too.
-    if: ${{ !cancelled() && needs.reuse.outputs.run == '' && (needs.changes.result != 'success' || needs.changes.outputs.build == 'true') }}
-    strategy:
-      fail-fast: false
-      matrix:
-        include:
-          - os: windows-latest
-            name: Count-In-windows-x64
-            cli: dist/Count-In/countin
-          - os: macos-latest
-            name: Count-In-macos-arm64
-            cli: dist/Count-In.app/Contents/MacOS/countin
-    runs-on: ${{ matrix.os }}
-    permissions:
-      contents: read
-    defaults:
-      run:
-        shell: bash
-    steps:
-      - uses: actions/checkout@v7
-
-      # A tag must match the version the update check compares against.
-      - name: tag matches pyproject version
-        if: startsWith(github.ref, 'refs/tags/v')
-        run: |
-          v=$(sed -n 's/^version = "\(.*\)"/\1/p' pyproject.toml)
-          [ "v$v" = "$GITHUB_REF_NAME" ] || { echo "tag $GITHUB_REF_NAME, pyproject $v" >&2; exit 1; }
-      - uses: astral-sh/setup-uv@v10.3.3  # setup-uv publishes exact version tags only
-        with:
-          enable-cache: true
-
-      # LGPL builds only: libmp3lame is LGPL, nothing GPL goes into the bundle.
-      - name: ffmpeg (Windows)
-        if: runner.os == 'Windows'
-        run: |
-          # Dated build pinned by hash. BtbN prunes old autobuilds; on a 404 move to a newer one and update both lines.
-          curl -fsSL -o ff.zip https://github.com/BtbN/FFmpeg-Builds/releases/download/autobuild-2026-11-13-12-43/ffmpeg-n8.1.3-35-gf1acb0a266-win64-lgpl-8.1.zip
-          echo "ea5e260eb3d669aff29e7bfc100e0ed9ea633e37f02fee358f6d164cb946e421  ff.zip" | sha256sum -c -
-          7z x -y ff.zip > /dev/null
-          mkdir -p bin
-          cp ffmpeg-*/bin/ffmpeg.exe ffmpeg-*/bin/ffprobe.exe bin/
-          cp ffmpeg-*/LICENSE.txt bin/FFMPEG-LICENSE.txt
-          bin/ffmpeg.exe -hide_banner -encoders | grep -q libmp3lame
-      - name: ffmpeg cache (macOS)
-        if: runner.os == 'macOS'
-        id: ffmpeg-cache
-        uses: actions/cache@v6
-        with:
-          path: bin
-          key: ffmpeg-macos-${{ hashFiles('packaging/build_ffmpeg.sh') }}
-      - name: ffmpeg (macOS)
-        if: runner.os == 'macOS' && steps.ffmpeg-cache.outputs.cache-hit != 'true'
-        run: brew install lame mpg123 && packaging/build_ffmpeg.sh
-
-      - name: set dev build version
-        if: github.event_name == 'workflow_dispatch' && github.ref == 'refs/heads/dev-0.10'
-        run: uv version --no-sync --bump patch --bump "dev=$GITHUB_RUN_NUMBER"
-
-      - run: uv sync --locked
-      - run: uv run pytest -m 'not slow' -q
-
-      - uses: actions/cache@v6
-        with:
-          path: models
-          key: models-${{ hashFiles('packaging/fetch_models.sh') }}
-      - run: packaging/fetch_models.sh
-
-      # The Core ML model the smoke test exports on a miss (about a minute). The key covers everything that shapes
-      # the export, so a change to it exports again inside the bundle.
-      # A model compiled on another runner image may not load there.
-      - name: runner image (macOS)
-        if: runner.os == 'macOS'
-        id: image
-        run: echo "image=$ImageOS-$ImageVersion" >> "$GITHUB_OUTPUT"
-      # uv.lock without the project's own version, so a release bump keeps the key.
-      - name: lock hash (macOS)
-        if: runner.os == 'macOS'
-        id: lock
-        run: echo "hash=$(awk 'skip && /^version = /{skip=0; next} /^name = "countin"$/{skip=1} 1' uv.lock | shasum -a 256 | cut -c1-16)" >> "$GITHUB_OUTPUT"
-      - name: Core ML cache (macOS)
-        if: runner.os == 'macOS'
-        uses: actions/cache@v6
-        with:
-          path: ~/Library/Application Support/Count-In/assets/separator/BS-Roformer-SW-core.mlmodelc
-          key: coreml-${{ steps.image.outputs.image }}-${{ steps.lock.outputs.hash }}-${{ hashFiles('packaging/countin.spec', 'src/countin/core/accel.py', 'src/countin/core/stems.py', 'src/countin/core/roformer/**') }}
-
-      - run: uv run pyinstaller packaging/countin.spec --noconfirm --distpath dist --workpath build/work
-
-      # Smoke test of the shipped bundle: 12 s of clicks at 120 BPM through detection, separation and mp3 export.
-      # The bundle carries no models; the smoke tests take them from the fetched models/ folder.
-      # Windows runners have no GPU and DirectML would crawl on the software adapter, so their smoke test separates
-      # with torch; macOS builds and runs the Core ML model.
-      - name: smoke test
-        env:
-          COUNTIN_ASSETS: ${{ github.workspace }}/models
-          COUNTIN_ACCEL: ${{ runner.os == 'Windows' && 'torch' || '' }}
-        run: |
-          uv run python -c "import numpy as np, soundfile as sf; sr=44100; x=np.zeros((12*sr,2),np.float32); [x.__setitem__(slice(int(t*sr),int(t*sr)+400), 0.8) for t in np.arange(1,12,0.5)]; sf.write('smoke.wav', x, sr)"
-          expected=$(uv version --short)
-          actual=$(${{ matrix.cli }} --version)
-          echo "Bundle version: $actual"
-          [ "$actual" = "$expected" ] || { echo "Expected $expected, got $actual" >&2; exit 1; }
-
-          # A real HTTPS request from the bundle. An HTTP error such as the shared runner IP hitting
-          # the API rate limit still proves TLS works; certificate and network errors fail the step.
-          out=$(${{ matrix.cli }} --check-update 2>&1) || grep -q "HTTP Error" <<<"$out"
-          echo "$out"
-
-          out=$(${{ matrix.cli }} smoke.wav --guitar-db=-12 --format mp3 --out smoke_out.mp3)
-          echo "$out"
-          test -s smoke_out.mp3
-
-          # A cached Core ML model that fails to load falls back to torch quietly; the Mac must separate with Core ML.
-          if [ "$RUNNER_OS" = macOS ]; then grep -q "with Core ML" <<<"$out"; fi
-
-      # The app itself: starts offscreen with the bundled Qt plugins, icons and PortAudio, then quits.
-      - name: smoke test (app)
-        env:
-          COUNTIN_ASSETS: ${{ github.workspace }}/models
-          QT_QPA_PLATFORM: offscreen
-          COUNTIN_SMOKE: "1"
-        run: |
-          if [ "$RUNNER_OS" = Windows ]; then dist/Count-In/Count-In; else dist/Count-In.app/Contents/MacOS/Count-In; fi
-
-      # Level 1: torch and Qt libraries halve, weights barely shrink. Higher levels save ~5% for 4x the time.
-      - name: pack
-        run: |
-          if [ "$RUNNER_OS" = Windows ]; then
-            (cd dist && 7z a -tzip -mx=1 "../${{ matrix.name }}.zip" Count-In > /dev/null)
-          else
-            ditto -c -k --zlibCompressionLevel 1 --keepParent dist/Count-In.app "${{ matrix.name }}.zip"
-          fi
-
-      # Uploaded as-is, so the artifact is the release zip itself rather than a zip inside a zip.
-      - uses: actions/upload-artifact@v7
-        with:
-          path: ${{ matrix.name }}.zip
-          archive: false
-
-  # Signs, notarizes and staples the macOS bundle, built here or reused from the PR run. The signing secrets live
-  # in the `release` environment, which only v* tags may use, so PR builds stay unsigned.
-  sign-macos:
-    if: ${{ !cancelled() && startsWith(github.ref, 'refs/tags/v') && (needs.build.result == 'success' || needs.reuse.outputs.run != '') }}
-    needs: [reuse, build]
-    runs-on: macos-latest
-    environment: release
-    permissions:
-      contents: read
-      actions: read
-    steps:
-      - uses: actions/checkout@v7
-      - uses: actions/download-artifact@v8
-        with:
-          pattern: Count-In-macos-arm64.zip
-          run-id: ${{ needs.reuse.outputs.run || github.run_id }}
-          github-token: ${{ github.token }}
-          merge-multiple: true
-          skip-decompress: true
-
-      - name: import the certificate
-        env:
-          MACOS_CERT_P12: ${{ secrets.MACOS_CERT_P12 }}
-          MACOS_CERT_PASSWORD: ${{ secrets.MACOS_CERT_PASSWORD }}
-        run: |
-          keychain="$RUNNER_TEMP/sign.keychain-db"
-          pass=$(uuidgen)
-          security create-keychain -p "$pass" "$keychain"
-          security set-keychain-settings -lut 3600 "$keychain"
-          security unlock-keychain -p "$pass" "$keychain"
-          base64 --decode <<<"$MACOS_CERT_P12" > "$RUNNER_TEMP/cert.p12"
-          security import "$RUNNER_TEMP/cert.p12" -k "$keychain" -P "$MACOS_CERT_PASSWORD" -T /usr/bin/codesign
-          rm "$RUNNER_TEMP/cert.p12"
-          security set-key-partition-list -S apple-tool:,apple: -s -k "$pass" "$keychain" > /dev/null
-          security list-keychains -d user -s "$keychain" "$HOME/Library/Keychains/login.keychain-db"
-
-      - name: sign
-        env:
-          MACOS_SIGN_IDENTITY: ${{ secrets.MACOS_SIGN_IDENTITY }}
-        run: |
-          ditto -x -k Count-In-macos-arm64.zip unpacked
-          packaging/sign_macos.sh unpacked/Count-In.app "$MACOS_SIGN_IDENTITY"
-
-      # notarytool exits 0 on a rejected submission, so the status gets checked and Apple's log printed.
-      - name: notarize and staple
-        env:
-          NOTARY_KEY_P8: ${{ secrets.NOTARY_KEY_P8 }}
-          NOTARY_KEY_ID: ${{ secrets.NOTARY_KEY_ID }}
-          NOTARY_ISSUER_ID: ${{ secrets.NOTARY_ISSUER_ID }}
-        run: |
-          key="$RUNNER_TEMP/notary.p8"
-          printf '%s\n' "$NOTARY_KEY_P8" > "$key"
-          auth=(--key "$key" --key-id "$NOTARY_KEY_ID" --issuer "$NOTARY_ISSUER_ID")
-          ditto -c -k --keepParent unpacked/Count-In.app notarize.zip
-          xcrun notarytool submit notarize.zip "${auth[@]}" --wait --timeout 1h --output-format json > result.json
-          cat result.json
-          if [ "$(jq -r .status result.json)" != Accepted ]; then
-            xcrun notarytool log "$(jq -r .id result.json)" "${auth[@]}"
-            exit 1
-          fi
-          xcrun stapler staple unpacked/Count-In.app
-          spctl --assess --type execute -vv unpacked/Count-In.app
-          mkdir signed
-          ditto -c -k --zlibCompressionLevel 1 --keepParent unpacked/Count-In.app signed/Count-In-macos-arm64.zip
-
-      - name: remove the keychain and the key
-        if: always()
-        run: |
-          security delete-keychain "$RUNNER_TEMP/sign.keychain-db" || true
-          rm -f "$RUNNER_TEMP/notary.p8"
-
-      - uses: actions/upload-artifact@v7
-        with:
-          name: signed-macos
-          path: signed/Count-In-macos-arm64.zip
-          compression-level: 0
-
-  release:
-    # On a tag the changes check is skipped, and a skipped ancestor would skip this job too; check build directly.
-    if: ${{ !cancelled() && startsWith(github.ref, 'refs/tags/v') && needs.sign-macos.result == 'success' && (needs.build.result == 'success' || needs.reuse.outputs.run != '') }}
-    needs: [reuse, build, sign-macos]
-    runs-on: ubuntu-latest
-    permissions:
       contents: write
-      actions: read
+    env:
+      GH_TOKEN: ${{ github.token }}
+      GH_REPO: ${{ github.repository }}
+      BUILD_RUN: "44911010267"
     steps:
-      # The Windows bundle from the reused PR run or this one; the macOS bundle signed in this run.
-      - uses: actions/download-artifact@v8
-        with:
-          pattern: Count-In-windows-x64.zip
-          run-id: ${{ needs.reuse.outputs.run || github.run_id }}
-          github-token: ${{ github.token }}
-          merge-multiple: true
-          skip-decompress: true
-      - uses: actions/download-artifact@v8
-        with:
-          name: signed-macos
-      - uses: softprops/action-gh-release@v3
-        with:
-          name: Count-In ${{ github.ref_name }}
-          prerelease: ${{ contains(github.ref_name, 'rc') }}  # v0.10.0rc1 never becomes the latest release
-          files: "*.zip"
-          fail_on_unmatched_files: true
+      - name: Publish completed build artifacts in GitHub Releases
+        run: |
+          set -euo pipefail
+          source=$(gh run view "$BUILD_RUN" --json headSha,headBranch,event,number)
+          jq -e '.headSha | startswith("c0ee1fbd")' <<< "$source" > /dev/null
+          jq -e '.headBranch == "dev-0.10" and .event == "workflow_dispatch"' <<< "$source" > /dev/null
+          version=0.10.1.dev$(jq -r .number <<< "$source")
+          gh run watch "$BUILD_RUN" --interval 30 --compact --exit-status
+          artifacts=$(gh api "repos/$GH_REPO/actions/runs/$BUILD_RUN/artifacts")
+          for platform in macos-arm64 windows-x64; do
+            id=$(jq -er --arg name "Count-In-$platform.zip" '.artifacts[] | select(.name == $name and .expired == false) | .id' <<< "$artifacts")
+            gh api "repos/$GH_REPO/actions/artifacts/$id/zip" > "Count-In-dev-$version-$platform.zip"
+          done
+          gh release upload dev-0.10.0-1 "Count-In-dev-$version-macos-arm64.zip" "Count-In-dev-$version-windows-x64.zip"
+          previous=$(gh release view dev-0.10.0-1 --json body --jq .body)
+          base="https://github.com/$GH_REPO/releases/download/dev-0.10.0-1"
+          {
+            printf 'Тестовая сборка Count-In %s из ветки dev-0.10.\n\n' "$version"
+            printf '[Windows x64](%s/Count-In-dev-%s-windows-x64.zip) · [macOS Apple Silicon](%s/Count-In-dev-%s-macos-arm64.zip)\n\n' "$base" "$version" "$base" "$version"
+            printf '%s\n\n' '- При облачном разделении клиент передаёт название трека для истории в админке.'
+            tail -n +5 <<< "$previous"
+          } > release-notes.md
+          gh release edit dev-0.10.0-1 --title "Count-In dev $version" --notes-file release-notes.md --prerelease --latest=false
+          gh release view dev-0.10.0-1 --json name,url,isDraft,isPrerelease,assets --jq '{name,url,isDraft,isPrerelease,windows:[.assets[]|select(.name|test("dev[0-9]+-windows-x64"))|.url]}'
