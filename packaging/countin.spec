@@ -44,9 +44,10 @@ app_exe = EXE(pyz, scripts_for("countin_app"), [], exclude_binaries=True, name="
 cli_exe = EXE(pyz, scripts_for("countin_cli"), [], exclude_binaries=True, name="countin", console=True)
 coll = COLLECT(app_exe, cli_exe, a.binaries, a.datas, name="Count-In")
 if sys.platform == "darwin":
+    is_dev = ".dev" in version
     url_types = {"CFBundleURLTypes": [{"CFBundleURLName": "local.countin.dev.proxy",
-                                     "CFBundleURLSchemes": ["countin-dev"]}]} if ".dev" in version else {}
-    app = BUNDLE(coll, name="Count-In.app", bundle_identifier="local.countin",
+                                     "CFBundleURLSchemes": ["countin-dev"]}]} if is_dev else {}
+    app = BUNDLE(coll, name="Count-In.app", bundle_identifier="local.countin.dev" if is_dev else "local.countin",
                  icon=str(icons / "light" / "macos" / "Count-In.icns"),
                  # The CLI is the last EXE, so PyInstaller would mark the bundle background-only.
                  info_plist={"NSHighResolutionCapable": True, "LSBackgroundOnly": False, "LSMinimumSystemVersion": "14.0",
