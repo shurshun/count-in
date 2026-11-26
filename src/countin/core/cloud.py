@@ -278,6 +278,7 @@ def separate(pcm: np.ndarray, sr: int, song_hash: str, report, cancelled, overla
     import soundfile as sf
 
     from ..i18n import _
+    from ..update import current_version
 
     token = key()
     if not token:
@@ -289,6 +290,9 @@ def separate(pcm: np.ndarray, sr: int, song_hash: str, report, cancelled, overla
 
     report(_("Проверка песни на сервере"), 0, 0)
     payload = {"duration_s": len(pcm) / sr, "hash": song_hash, "overlap": overlap}
+    app_version = current_version()
+    if app_version != "0":
+        payload["app_version"] = app_version
     if track_title:
         payload["track_title"] = track_title
     job = _call("POST", "/v1/jobs", token, payload)

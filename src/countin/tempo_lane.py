@@ -12,7 +12,7 @@ class TempoLane(QWidget):
     selected = Signal(int)
     splitAt = Signal(float)
     moved = Signal(int, float)
-    joined = Signal(int)
+    joined = Signal(int, int)  # first and last sections in an adjacent range
     shifted = Signal(int, float)
     editRequested = Signal(int, QPoint)
 
@@ -20,13 +20,22 @@ class TempoLane(QWidget):
         super().__init__()
         self.wave = wave
         self.sections, self.active, self.drag = [], 0, None
+        self.selection: set[int] | None = None
+        self.selection_anchor: int | None = None
         self.hot_value = self.pressed_value = None
         self.setFixedHeight(52)
         self.setMouseTracking(True)
         self.setFocusPolicy(Qt.StrongFocus)
         self.setAccessibleName(_("Дорожка темпа"))
         self.setToolTip(_("Щёлкните по плашке BPM и размера, чтобы изменить участок. Двойной щелчок по фону делит его. "
-                          "Потяните границу или сдвиньте сетку с Option / Alt."))
+                          "Потяните границу или сдвиньте сетку с Option / Alt. "
+                          "Ctrl/⌘ добавляет участок к выделению, Shift выделяет диапазон."))
+
+    def set_sections(self, sections, active: int):
+        if sections is not self.sections or active != self.active:
+            self.selection = self.selection_anchor = None
+        self.sections, self.active = sections, active
+        self.update()
 
     def _badge(self, i):
         section = self.sections[i]
@@ -56,7 +65,7 @@ class TempoLane(QWidget):
             right = self.wave.x_of(end)
             if right < 0 or x >= self.width():
                 continue
-            selected = i == self.active
+            selected = i in self.selection if self.selection is not None else i == self.active
             color = QColor(palette.highlight().color()) if selected else QColor(100, 135, 160)
             color.setAlpha(75 if selected else 30)
             p.fillRect(QRectF(x, 18, right - x, 32), color)
@@ -91,22 +100,43 @@ class TempoLane(QWidget):
         if not 0 <= t < self.wave.duration:
             return
         i = index(self.sections, t)
+        modifiers = e.modifiers()
+        if e.button() == Qt.LeftButton or (e.button() == Qt.RightButton and modifiers & Qt.MetaModifier):
+            if modifiers & Qt.ShiftModifier:
+                anchor = self.active if self.selection_anchor is None else self.selection_anchor
+                self.selection_anchor = anchor
+                self.selection = set(range(min(anchor, i), max(anchor, i) + 1))
+                self.update()
+                return
+            if modifiers & (Qt.ControlModifier | Qt.MetaModifier):
+                group = self.selection if self.selection is not None else {self.active}
+                self.selection = group ^ {i}
+                self.selection_anchor = i
+                self.update()
+                return
         if e.button() == Qt.RightButton:
             m = QMenu(self)
             edit = m.addAction(_("Изменить темп и размер…"))
             m.addSeparator()
             cut = m.addAction(_("Разделить участок здесь"))
             join = m.addAction(_("Объединить с предыдущим")) if i else None
+            group = sorted(self.selection) if self.selection and i in self.selection and len(self.selection) > 1 else []
+            merge = m.addAction(_("Объединить выбранные участки")) if group else None
+            if merge is not None:
+                merge.setEnabled(len(group) == group[-1] - group[0] + 1)
             chosen = m.exec(e.globalPosition().toPoint())
             if chosen is edit:
                 self.editRequested.emit(i, e.globalPosition().toPoint())
             elif chosen is cut:
                 self.splitAt.emit(t)
             elif join is not None and chosen is join:
-                self.joined.emit(i)
+                self.joined.emit(i - 1, i)
+            elif merge is not None and chosen is merge:
+                self.joined.emit(group[0], group[-1])
             return
         if e.button() != Qt.LeftButton:
             return
+        self.selection = self.selection_anchor = None
         self.selected.emit(i)
         edge = self._edge(x)
         if e.modifiers() & Qt.AltModifier:

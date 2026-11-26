@@ -247,10 +247,14 @@ jobs:
       # Level 1: torch and Qt libraries halve, weights barely shrink. Higher levels save ~5% for 4x the time.
       - name: pack
         run: |
+          bundle=Count-In
+          if [[ "$(uv version --short)" == *.dev* ]]; then bundle="Count-In Dev"; fi
           if [ "$RUNNER_OS" = Windows ]; then
-            (cd dist && 7z a -tzip -mx=1 "../${{ matrix.name }}.zip" Count-In > /dev/null)
+            if [[ "$bundle" != Count-In ]]; then mv dist/Count-In "dist/$bundle"; fi
+            (cd dist && 7z a -tzip -mx=1 "../${{ matrix.name }}.zip" "$bundle" > /dev/null)
           else
-            ditto -c -k --zlibCompressionLevel 1 --keepParent dist/Count-In.app "${{ matrix.name }}.zip"
+            if [[ "$bundle" != Count-In ]]; then mv dist/Count-In.app "dist/$bundle.app"; fi
+            ditto -c -k --zlibCompressionLevel 1 --keepParent "dist/$bundle.app" "${{ matrix.name }}.zip"
           fi
 
       # Uploaded as-is, so the artifact is the release zip itself rather than a zip inside a zip.
@@ -309,6 +313,7 @@ jobs:
               printf 'Основана на [стабильной версии %s](https://github.com/%s/releases/tag/%s).\n\n' "$STABLE_TAG" "$GH_REPO" "$STABLE_TAG"
             fi
             printf '[Windows x64](%s/Count-In-dev-%s-windows-x64.zip) · [macOS Apple Silicon](%s/Count-In-dev-%s-macos-arm64.zip)\n\n' "$base" "$DEV_VERSION" "$base" "$DEV_VERSION"
+            printf '%s\n' '- Guitar Pro — импорт темпа, размера и меток с привязкой к записи по двум точкам.' '- Метки частей на мини-волне — щелчок переносит к началу части.' '- Play после паузы и перемотки использует готовый буфер при тех же настройках.'
             printf '%s\n' '- Match My Guitar — подгонка тембра гитары к записи.' '- Music Search — поиск музыки для ключей с доступом.' '- Dev-возможности облачного разделения, включая настройки Cloud Proxy после ввода ключа Count-In.'
           } > release-notes.md
           gh release edit "$tag" --title "Count-In dev $DEV_VERSION" --notes-file release-notes.md --prerelease --latest=false

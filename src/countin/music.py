@@ -10,6 +10,10 @@ from .i18n import _
 ROOT = "/v1/music"
 
 
+def imports_dir() -> Path:
+    return assets.data_dir() / "imports"
+
+
 def artists(job, token, query):
     return cloud._call("GET", ROOT + "/artists?" + urlencode({"q": query}), token)["results"]
 
@@ -51,7 +55,7 @@ def import_track(job, token, track):
         suffix = Path(info["filename"]).suffix.lower()
         if not raw or suffix not in {".flac", ".mp3", ".m4a", ".wav", ".aif", ".aiff", ".ogg"}:
             raise cloud.CloudError("Unsupported audio")
-        directory = assets.data_dir() / "imports"
+        directory = imports_dir()
         directory.mkdir(parents=True, exist_ok=True)
         name = "".join(char if char.isalnum() or char in " ._-" else "_" for char in track["title"])[:80]
         target = directory / f"{name} - {uuid4().hex[:8]}{suffix}"

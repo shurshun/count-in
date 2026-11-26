@@ -15,6 +15,20 @@ from .io import resource
 # 6/8 counts six eighths over two dotted-quarter beats.
 METERS = {"4/4": (4, 1), "3/4": (3, 1), "6/8": (2, 3)}
 
+
+def meter_parts(meter: str) -> tuple[int, int]:
+    num, den = (int(part) for part in meter.split("/"))
+    if not 1 <= num <= 32 or den not in (1, 2, 4, 8, 16, 32, 64):
+        raise ValueError(f"Unsupported meter: {meter}")
+    return num, den
+
+
+def meter_shape(meter: str) -> tuple[int, int]:
+    num, den = meter_parts(meter)
+    sub = 3 if den == 8 and num >= 6 and num % 3 == 0 else 1
+    return num // sub, sub
+
+
 SILENCE_DB = -60.0
 
 # The closing hits of a pause build-up, about +4 dB.
@@ -41,7 +55,7 @@ class Click:
 
 def click_grid(first_downbeat: float, period: float, bars: int, meter: str) -> list[Click]:
     """Clicks over `bars` bars, ending one click before the first downbeat."""
-    beats, sub = METERS[meter]
+    beats, sub = meter_shape(meter)
     per_bar = beats * sub
     step = period / sub
     n = bars * per_bar
@@ -51,7 +65,7 @@ def click_grid(first_downbeat: float, period: float, bars: int, meter: str) -> l
 def buildup_grid(first_downbeat: float, period: float, bars: int, meter: str) -> list[Click]:
     """Plain clicks up to the middle of the last bar, twice as dense over its second half, louder click by click
     up to full scale on the last one, so the band hears the intro coming."""
-    beats, sub = METERS[meter]
+    beats, sub = meter_shape(meter)
     per_bar = beats * sub
     step = period / sub
     n = bars * per_bar
@@ -100,9 +114,10 @@ def pattern_grid(midi_path: str | Path, first_downbeat: float, period: float, me
     if not hits:
         raise ValueError(f"no notes in {midi_path}")
 
-    # MIDI beats are quarter notes. 6/8 bars hold three quarters of length 2/3 of a dotted-quarter beat.
-    beats, sub = METERS[meter]
-    quarters_per_bar = beats * sub / (2 if sub == 3 else 1)
+    # MIDI beats are quarter notes regardless of the score’s pulse unit.
+    beats, _ = meter_shape(meter)
+    num, den = meter_parts(meter)
+    quarters_per_bar = num * 4 / den
     sec_per_quarter = period * beats / quarters_per_bar
     lead = math.floor(min(hits) / quarters_per_bar + 1e-9) * quarters_per_bar  # empty bars before the first note
     notes = sorted((b - lead, v) for b, v in hits.items())

@@ -329,17 +329,22 @@ def test_update_check_offers_only_newer_releases():
 
 
 def test_update_helper_swaps_the_bundle_after_the_app_exits(tmp_path):
-    """Runs the real sh or cmd helper: it waits for the process, swaps folders and cleans up."""
+    """The real helper updates a custom install name and leaves the neighboring stable app alone."""
     import subprocess
     import sys
     import time
 
     from countin import update
 
-    root = tmp_path / ("Count-In" if sys.platform == "win32" else "Count-In.app")
+    suffix = "" if sys.platform == "win32" else ".app"
+    stable = tmp_path / f"Count-In{suffix}"
+    stable.mkdir()
+    (stable / "version").write_text("stable")
+    root = tmp_path / f"My Dev Copy{suffix}"
     (root / "lib").mkdir(parents=True)
     (root / "lib" / "v").write_text("old")
-    new = update.staging_dir(root) / "new" / root.name
+    stage = tmp_path / ".staged-with-a-space here"
+    new = stage / "new" / f"Count-In Dev{suffix}"
     (new / "lib").mkdir(parents=True)
     (new / "lib" / "v").write_text("new")
 
@@ -349,12 +354,47 @@ def test_update_helper_swaps_the_bundle_after_the_app_exits(tmp_path):
     assert (root / "lib" / "v").read_text() == "old"  # still waiting for the app
     app.wait()
     for _ in range(100):
-        if (root / "lib" / "v").read_text() == "new" and not update.staging_dir(root).exists():
+        if (root / "lib" / "v").read_text() == "new" and not stage.exists():
             break
         time.sleep(0.2)
     log = update.HELPER_LOG.read_text(errors="replace") if update.HELPER_LOG.exists() else ""
     assert (root / "lib" / "v").read_text() == "new", log[-3000:]
-    assert not update.staging_dir(root).exists() and not root.with_name(root.name + ".old").exists()
+    assert not stage.exists() and not root.with_name(root.name + ".old").exists()
+    assert (stable / "version").read_text() == "stable"
+
+
+def test_dev_update_uses_the_newest_platform_archive_and_verifies_it(tmp_path):
+    import hashlib
+    import sys
+    import zipfile
+
+    from countin import update
+
+    suffix = update.asset_suffix()
+    name = f"Count-In-dev-0.11.1.dev132-{suffix}"
+    archive = tmp_path / name
+    entry = "Count-In Dev/Count-In.exe" if sys.platform == "win32" else "Count-In Dev.app/Contents/MacOS/Count-In"
+    with zipfile.ZipFile(archive, "w") as z:
+        z.writestr(entry, "new dev build")
+    digest = hashlib.sha256(archive.read_bytes()).hexdigest()
+    page = f"https://github.com/{update.REPO}/releases/download/{update.DEV_RELEASE_TAG}/"
+    release = {"tag_name": update.DEV_RELEASE_TAG, "prerelease": True, "assets": [
+        {"name": f"Count-In-dev-0.11.1.dev131-{suffix}", "state": "uploaded"},
+        {"name": name, "state": "uploaded", "browser_download_url": page + name, "digest": f"sha256:{digest}"},
+        {"name": f"Count-In-dev-0.11.1.dev133-{suffix}", "state": "starter"},
+    ]}
+    found = update.newer_dev_release(release, "0.11.1.dev131")
+    assert (found.version, found.url, found.sha256) == ("0.11.1.dev132", page + name, digest)
+    assert update.newer_dev_release(release, found.version) is None
+
+    found.url = archive.as_uri()
+    root = tmp_path / "Custom Dev"
+    new = update.download(found, root)
+    assert (new.parent / entry).read_text() == "new dev build"
+    found.sha256 = "0" * 64
+    with pytest.raises(ValueError, match="does not match its sha256"):
+        update.download(found, root)
+    assert list(tmp_path.glob(".Custom Dev.update-*")) == [new.parent.parent]
 
 def test_icon_choice_is_light_or_dark_and_defaults_to_light(tmp_path):
     from PySide6.QtCore import QCoreApplication, QSettings

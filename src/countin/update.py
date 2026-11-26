@@ -36,6 +36,10 @@ def current_version() -> str:
         return "0"
 
 
+def app_name(v: str) -> str:
+    return "Count-In Dev" if ".dev" in v else "Count-In"
+
+
 def parse(v: str) -> tuple[tuple[int, ...], int]:
     """'v1.2.3' -> ((1, 2, 3), 1). A suffix (rc1, dev) sorts before the final release; trailing zeros do not count."""
     m = re.match(r"[vV]?(\d+(?:\.\d+)*)(.*)", v.strip())
@@ -58,16 +62,20 @@ def newer_release(data: dict, current: str) -> Release | None:
         return None
     page = f"https://github.com/{REPO}/releases/latest"
     asset = next((a for a in data.get("assets", []) if a.get("name", "").endswith(asset_suffix())), {})
-    url = asset.get("browser_download_url", "")
+    return _asset_release(tag.lstrip("vV"), asset, page)
 
+
+def _asset_release(v: str, asset: dict, page: str) -> Release:
+    url = asset.get("browser_download_url", "")
     # Only links into this repository get opened or downloaded.
     if not url.startswith(f"https://github.com/{REPO}/"):
-        return Release(tag.lstrip("vV"), page)
+        return Release(v, page)
     digest = asset.get("digest") or ""
-    return Release(tag.lstrip("vV"), url, digest.removeprefix("sha256:") if digest.startswith("sha256:") else "")
+    return Release(v, url, digest.removeprefix("sha256:") if digest.startswith("sha256:") else "")
 
 
-UPDATE_CHANNEL = os.environ.get("COUNTIN_UPDATE_CHANNEL", "dev" if ".dev" in current_version() else "stable")
+def default_channel() -> str:
+    return os.environ.get("COUNTIN_UPDATE_CHANNEL", "dev" if ".dev" in current_version() else "stable")
 
 
 def newer_dev_release(data: dict, current: str) -> Release | None:
@@ -75,31 +83,31 @@ def newer_dev_release(data: dict, current: str) -> Release | None:
     if data.get("tag_name") != DEV_RELEASE_TAG or not data.get("prerelease") or data.get("draft"):
         return None
     pattern = rf"Count-In-dev-(\d+(?:\.\d+){{2}}\.dev\d+)-{re.escape(asset_suffix())}"
-    versions = [match[1] for asset in data.get("assets", [])
-                if (match := re.fullmatch(pattern, asset.get("name", ""))) and asset.get("state") == "uploaded"]
-    if not versions:
+    assets = {match[1]: asset for asset in data.get("assets", [])
+              if (match := re.fullmatch(pattern, asset.get("name", ""))) and asset.get("state") == "uploaded"}
+    if not assets:
         return None
 
     def order(value: str) -> tuple:
         base, _, build = value.partition(".dev")
         return parse(base)[0], int(build) if build.isdecimal() else float("inf")
 
-    latest = max(versions, key=order)
+    latest = max(assets, key=order)
     if order(latest) <= order(current):
         return None
-    # Open the public dev release page so a ZIP cannot replace an adjacent stable installation.
-    return Release(latest, f"https://github.com/{REPO}/releases/tag/{DEV_RELEASE_TAG}")
+    return _asset_release(latest, assets[latest], f"https://github.com/{REPO}/releases/tag/{DEV_RELEASE_TAG}")
 
 
-def check() -> Release | None:
+def check(channel: str | None = None) -> Release | None:
     """Blocking call, run it off the UI thread. Raises on network, TLS and API errors.
 
     TLS trusts the operating system's certificate store (Keychain, Windows store) through truststore.
     The bundled Python's own OpenSSL would look in a folder that exists only where python.org Python is installed.
     """
-    if UPDATE_CHANNEL == "dev":
+    channel = channel or default_channel()
+    if channel == "dev":
         endpoint, select = f"tags/{DEV_RELEASE_TAG}", newer_dev_release
-    elif UPDATE_CHANNEL == "stable":
+    elif channel == "stable":
         endpoint, select = "latest", newer_release
     else:
         raise ValueError("COUNTIN_UPDATE_CHANNEL must be dev or stable")
@@ -125,6 +133,8 @@ def installed_bundle() -> Path | None:
     root = exe.parents[2] if sys.platform == "darwin" else exe.parent
     if sys.platform == "darwin" and (root.suffix != ".app" or "/AppTranslocation/" in str(root)):
         return None
+    if sys.platform == "win32" and (exe.name.lower() != "count-in.exe" or not (root / "_internal").is_dir()):
+        return None
     return root if os.access(root.parent, os.W_OK) else None
 
 
@@ -132,19 +142,25 @@ def can_self_update(r: Release) -> bool:
     return bool(r.sha256) and installed_bundle() is not None
 
 
-def staging_dir(root: Path) -> Path:
-    """Next to the bundle, so the final move stays on one volume and is a rename."""
-    return root.parent / ".count-in-update"
-
-
 def download(r: Release, root: Path, progress=lambda done, total: None) -> Path:
     """Downloads and unpacks the release next to root; returns the new bundle. Blocking, raises on any error.
 
     The archive streams to disk and gets hashed on the way; a digest mismatch deletes it.
     """
-    stage = staging_dir(root)
-    shutil.rmtree(stage, ignore_errors=True)
-    stage.mkdir()
+    # Each download gets its own directory, on the same volume as the running app.
+    stage = Path(tempfile.mkdtemp(prefix=f".{root.name}.update-", dir=root.parent))
+    try:
+        return _download(r, stage, progress)
+    except Exception:
+        shutil.rmtree(stage, ignore_errors=True)
+        raise
+
+
+def discard(new: Path) -> None:
+    shutil.rmtree(new.parent.parent, ignore_errors=True)
+
+
+def _download(r: Release, stage: Path, progress) -> Path:
     archive = stage / "update.zip"
     req = urllib.request.Request(r.url, headers={"User-Agent": "Count-In"})
     h = hashlib.sha256()
@@ -156,7 +172,6 @@ def download(r: Release, root: Path, progress=lambda done, total: None) -> Path:
             done += len(chunk)
             progress(done, total)
     if h.hexdigest() != r.sha256:
-        shutil.rmtree(stage, ignore_errors=True)
         raise ValueError("downloaded update does not match its sha256")
     out = stage / "new"
 
@@ -167,10 +182,13 @@ def download(r: Release, root: Path, progress=lambda done, total: None) -> Path:
         with zipfile.ZipFile(archive) as z:
             z.extractall(out)
     archive.unlink()
-    new = out / root.name
-    if not new.is_dir():
-        raise ValueError(f"{root.name} is missing from the update")
-    return new
+    suffix = ".app" if sys.platform == "darwin" else ""
+    for name in (app_name(r.version), "Count-In"):
+        new = out / (name + suffix)
+        executable = new / ("Contents/MacOS/Count-In" if suffix else "Count-In.exe")
+        if executable.is_file():
+            return new
+    raise ValueError("Count-In executable is missing from the update")
 
 
 MAC_SWAP = """#!/bin/sh
@@ -221,7 +239,7 @@ def install_on_exit(root: Path, new: Path, relaunch: bool, pid: int | None = Non
     fd, script = tempfile.mkstemp(suffix=".cmd" if win else ".sh")
     with os.fdopen(fd, "w", newline="\r\n" if win else "\n") as f:
         f.write(WIN_SWAP if win else MAC_SWAP)
-    args = [str(pid), str(root), str(new), str(staging_dir(root)), "1" if relaunch else "0", str(HELPER_LOG)]
+    args = [str(pid), str(root), str(new), str(new.parent.parent), "1" if relaunch else "0", str(HELPER_LOG)]
 
     # The helper runs outside the bundle, so nothing in it holds the folder being moved.
     if win:

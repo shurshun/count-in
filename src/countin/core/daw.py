@@ -5,13 +5,16 @@ project start and the DAW's bars match the song's.
 """
 
 import math
+import shutil
+from contextlib import contextmanager
 from dataclasses import dataclass
 from pathlib import Path
+from tempfile import TemporaryDirectory, mkdtemp
 
 import numpy as np
 
 from . import zones as zn
-from .render import METERS, Click, stretch_many
+from .render import Click, meter_parts, meter_shape, stretch_many
 
 TPB = 480  # MIDI ticks per quarter note
 DRUMS = 9  # GM drum channel (10 counted from 1)
@@ -64,7 +67,7 @@ def grid(beats, bars: list[zn.Bar], zones: list[zn.Zone] | None, downbeat: float
     """Bars from a bar line at or before `earliest` to the song end, in the chosen meter from the downbeat on.
     The bars before the downbeat are even at the set tempo. Song bars group the detected beats, so a stray or
     missed downbeat never changes the meter. Pauses with their own tempo or meter take their zone bars."""
-    n = METERS[meter][0]
+    n = meter_shape(meter)[0]
     bar_len = n * period
     lead = max(0, math.ceil((downbeat - earliest) / bar_len - 1e-9))
     out = [zn.Bar(downbeat - (lead - k) * bar_len, downbeat - (lead - k - 1) * bar_len,
@@ -97,9 +100,9 @@ def grid(beats, bars: list[zn.Bar], zones: list[zn.Zone] | None, downbeat: float
 def quarters(bar: zn.Bar, meter: str) -> tuple[float, int, int]:
     """(quarter notes, numerator, denominator) of a bar. A 6/8 beat is a dotted quarter."""
     n = len(bar.beats)
-    if METERS[meter][1] == 3:
-        return 1.5 * n, 3 * n, 8
-    return float(n), n, 4
+    _, den = meter_parts(meter)
+    _, sub = meter_shape(meter)
+    return n * sub * 4 / den, n * sub, den
 
 
 def _intervals(g, meter):
@@ -107,8 +110,9 @@ def _intervals(g, meter):
         if bar.meter is None:
             yield bar.start, bar.end, *quarters(bar, meter)
             continue
-        num, den = map(int, bar.meter.split("/"))
-        unit = 1.5 if den == 8 else 1.0
+        num, den = meter_parts(bar.meter)
+        _, sub = meter_shape(bar.meter)
+        unit = sub * 4 / den
         for a, b in zip(bar.beats, [*bar.beats[1:], bar.end]):
             if b <= a:
                 continue
@@ -119,7 +123,13 @@ def _intervals(g, meter):
             yield a, b, q, num, den
 
 
-def _tempo_track(g: Grid, meter: str, speed: float):
+def _edited_intervals(g, meter, clock):
+    for start, end, q, num, den in _intervals(g, meter):
+        for a, b, _ in clock.slices(max(g.start, start), end):
+            yield clock.output_at(a), clock.output_at(b), q * (b - a) / (end - start), num, den
+
+
+def _tempo_track(g: Grid, meter: str, speed: float, clock=None):
     """Tempo and meter events at every bar line, and a function from song time to ticks. Each tempo rounds
     against the time the MIDI has reached so far, so rounding never accumulates."""
     import mido
@@ -127,10 +137,11 @@ def _tempo_track(g: Grid, meter: str, speed: float):
     track = mido.MidiTrack()
     marks = []  # (song time, tick) at every bar line
     tick, last_tick, midi_us, sig = 0, 0, 0.0, None
-    for start, end, q, num, den in _intervals(g, meter):
+    intervals, origin = (_edited_intervals(g, meter, clock), clock.output_at(g.start)) if clock else (_intervals(g, meter), g.start)
+    for start, end, q, num, den in intervals:
         length = max(1, round(q * TPB))
         q = length / TPB
-        target_us = (end - g.start) / speed * 1e6
+        target_us = (end - origin) / speed * 1e6
         tempo = max(1, round((target_us - midi_us) / q))
         events = []
         if (num, den) != sig:
@@ -153,12 +164,12 @@ def _tempo_track(g: Grid, meter: str, speed: float):
     return track, to_tick
 
 
-def write_tempo(path: Path, g: Grid, meter: str, speed: float = 1.0, markers: list | None = None) -> None:
+def write_tempo(path: Path, g: Grid, meter: str, speed: float = 1.0, markers: list | None = None, *, clock=None) -> None:
     """The tempo map; section markers (song time, name) go in as MIDI markers a DAW shows on its timeline."""
     import mido
 
-    track, to_tick = _tempo_track(g, meter, speed)
-    mid = mido.MidiFile(type=1, ticks_per_beat=TPB)
+    track, to_tick = _tempo_track(g, meter, speed, clock)
+    mid = mido.MidiFile(type=1, ticks_per_beat=TPB, charset="utf-8")
     mid.tracks.append(track)
     if markers:
         names = mido.MidiTrack([mido.MetaMessage("track_name", name="Sections")])
@@ -170,11 +181,11 @@ def write_tempo(path: Path, g: Grid, meter: str, speed: float = 1.0, markers: li
     mid.save(str(path))
 
 
-def write_clicks(path: Path, g: Grid, clicks: list[Click], meter: str, speed: float = 1.0) -> None:
+def write_clicks(path: Path, g: Grid, clicks: list[Click], meter: str, speed: float = 1.0, *, clock=None) -> None:
     """The clicks as GM drum notes on channel 10, with the tempo map, so they land on the song's beats."""
     import mido
 
-    tempo, to_tick = _tempo_track(g, meter, speed)
+    tempo, to_tick = _tempo_track(g, meter, speed, clock)
     events = []
     for c in clicks:
         note = NOTES[c.voice][0 if c.accent else 1]
@@ -191,9 +202,13 @@ def write_clicks(path: Path, g: Grid, clicks: list[Click], meter: str, speed: fl
     mid.save(str(path))
 
 
-def place(xs: list[np.ndarray], sr: int, g: Grid, speed: float = 1.0, semis: float = 0.0) -> list[np.ndarray]:
+def place(xs: list[np.ndarray], sr: int, g: Grid, speed: float = 1.0, semis: float = 0.0, *, clock=None) -> list[np.ndarray]:
     """Audio of the whole song (song time 0 at sample 0) moved to output time, with bar 1 at sample 0.
     Silence fills the bars before the song starts; audio before bar 1 (trimmed silence) gets cut."""
+    if clock:
+        out = clock.audio(xs, sr, 0.0, clock.duration, semis)
+        offset = round(clock.output_at(g.start) * sr)
+        return [x[offset:] if offset >= 0 else np.pad(x, ((-offset, 0), (0, 0))) for x in out]
     if g.start > 0:
         return stretch_many([x[round(g.start * sr):] for x in xs], sr, speed, semis)
     out = stretch_many(xs, sr, speed, semis)
@@ -205,6 +220,39 @@ def write_wav(path: Path, x: np.ndarray, sr: int) -> None:
     import soundfile as sf
 
     sf.write(str(path), x, sr, subtype="FLOAT")
+
+
+@contextmanager
+def staged_export(folder: Path):
+    """Publish all files together and preserve unrelated files in an existing export."""
+    folder.parent.mkdir(parents=True, exist_ok=True)
+    with TemporaryDirectory(dir=folder.parent, prefix=".count-in-export-") as tmp:
+        stage = Path(tmp) / "out"
+        stage.mkdir()
+        yield stage
+        if not folder.exists():
+            stage.rename(folder)
+            return
+        names = {p.name.casefold() for p in stage.iterdir()}
+
+        def skip_replaced(src, files):
+            return [f for f in files if f.casefold() in names] if Path(src) == folder else []
+
+        shutil.copytree(folder, stage, symlinks=True, dirs_exist_ok=True, ignore=skip_replaced)
+        backup_root = Path(mkdtemp(dir=folder.parent, prefix=".count-in-previous-"))
+        backup = backup_root / folder.name
+        try:
+            folder.rename(backup)
+        except OSError:
+            backup_root.rmdir()
+            raise
+        try:
+            stage.rename(folder)
+        except OSError:
+            backup.rename(folder)
+            backup_root.rmdir()
+            raise
+        shutil.rmtree(backup_root, ignore_errors=True)
 
 
 def parts(pcm: np.ndarray, st: dict[str, np.ndarray]) -> dict[str, np.ndarray]:

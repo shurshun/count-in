@@ -157,10 +157,11 @@ class Zone:
     start: float | None = None  # source seconds persist when the bar grid changes
     end: float | None = None
     free: bool = False  # the hi-hat's first hit is anchored directly to start
+    count_in: bool = False  # use the following section's rhythm at the end of this pause
 
     @property
     def kept(self) -> bool:
-        return self.manual or self.bpm is not None or self.beats is not None
+        return self.manual or self.bpm is not None or self.beats is not None or self.count_in
 
 
 def zones_from(indices: set[int]) -> list[Zone]:
@@ -222,8 +223,8 @@ def zone_bars(bars: list[Bar], z: Zone) -> list[Bar]:
         return _even(own[0].start, own[-1].end, bar_len, n)
     own = bars[z.first]
     p = 60.0 / z.bpm if z.bpm else own.pulse or own.period
-    from .render import METERS
-    n = z.beats or (METERS[own.meter][0] if own.meter else len(own.beats))
+    from .render import meter_shape
+    n = z.beats or (meter_shape(own.meter)[0] if own.meter else len(own.beats))
     beats = list(start + p * np.arange(int(np.ceil((end - start) / p - 1e-6))))
     return [Bar(beats[k], min(beats[k] + n * p, end), beats[k : k + n]) for k in range(0, len(beats), n)]
 
@@ -233,8 +234,8 @@ def describe(bars: list[Bar], z: Zone) -> tuple[float, float, float, int]:
     own = bars[z.first]
     start, end = bounds(bars, z)
     if z.bpm is not None or z.beats is not None or z.free:
-        from .render import METERS
-        return start, end, z.bpm or 60.0 / (own.pulse or own.period), z.beats or (METERS[own.meter][0] if own.meter else len(own.beats))
+        from .render import meter_shape
+        return start, end, z.bpm or 60.0 / (own.pulse or own.period), z.beats or (meter_shape(own.meter)[0] if own.meter else len(own.beats))
     zb = zone_bars(bars, z)
     if not zb:
         return start, end, 60 / (own.pulse or own.period), len(own.beats)
@@ -260,7 +261,7 @@ def _build_up(bar: Bar, gain: float) -> list[Click]:
 def zone_clicks(bars: list[Bar], zones: list[Zone], downbeat: float, bar_db: list[float] | None = None,
                 build_up: bool = False) -> list[Click]:
     """A hi-hat on every beat of the zone bars, as loud as the music around the pause when bar_db (bar_levels)
-    is given; with build_up the last bar runs into the band's entry in eighths. Inside the song nothing else plays: the stick count-in belongs to the song's start only. The
+    is given; with build_up the last bar runs into the band's entry in eighths. The
     downbeat is the snapped "1", a few ms off the detected bar start, so beats compare with half a beat of
     slack."""
     clicks = []

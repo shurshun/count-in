@@ -6,7 +6,7 @@ import math
 
 import numpy as np
 
-from .render import METERS
+from .render import meter_shape
 from .zones import Bar
 
 
@@ -21,6 +21,7 @@ class Section:
     meter_known: bool = False
     fixed: bool = False  # manual BPM; pulses follow the exact edited grid
     meter_manual: bool = False
+    pickup_start: float | None = None  # source time of the entrance in an imported pickup
 
     @property
     def period(self):
@@ -56,7 +57,7 @@ def edit_span(sections, a, b, duration, bpm=None, meter=None, grid=()):
     for i, sec in enumerate(out):
         if a - 1e-6 <= sec.start < b - 1e-6:
             # Keep the closest existing bar phase rather than projecting a new BPM from far outside the span.
-            bar = sec.period * METERS[sec.meter][0]
+            bar = sec.period * meter_shape(sec.meter)[0]
             anchor = sec.anchor + sec.shift
             if sec.start > 0:
                 anchor += round((sec.start - anchor) / bar) * bar
@@ -76,11 +77,17 @@ def from_json(rows, duration):
         return None
     try:
         out = [Section(**row) for row in rows]
-        if out[0].start != 0 or any(s.meter not in METERS or not 30 <= s.bpm <= 320
+        if out[0].start != 0 or any(not .5 <= s.bpm <= 5120
                                     or not all(math.isfinite(x) for x in (s.start, s.anchor, s.shift))
                                     or not 0 <= s.start < duration or abs(s.anchor) > duration + 30
-                                    or abs(s.shift) > duration + 30 for s in out):
+                                    or abs(s.shift) > duration + 30
+                                    or (s.pickup_start is not None and not 0 <= s.pickup_start < duration)
+                                    for s in out):
             return None
+        for sec in out:
+            if not isinstance(sec.meter, str):
+                return None
+            meter_shape(sec.meter)
         return out if all(a.start < b.start for a, b in zip(out, out[1:])) else None
     except (KeyError, TypeError, ValueError):
         return None
@@ -159,7 +166,7 @@ def propose(beats, downs, duration, first, default_meter):
             edge = float(near[np.argmin(abs(near - t))]) if len(near) else t
             if known and stable:
                 n = {"3/4": 3, "4/4": 4, "6/8": 6}[meter]
-                pulse = np.diff(downs) / METERS[meter][0]
+                pulse = np.diff(downs) / meter_shape(meter)[0]
                 fits = (counts == n) & (np.abs(pulse * bpm / 60 - 1) < .12)
                 starts = downs[:-1][fits & ~np.r_[False, fits[:-1]]]
                 near = starts[np.abs(starts - t) <= 2 * width]
@@ -210,7 +217,7 @@ def bars(sections, detected, first, duration):
         end = sections[i + 1].start if i + 1 < len(sections) else duration
         own = out[-1] if out and out[-1].meter == sec.meter else None
         for t, k in _pulses(sec, max(first, sec.start), end, detected):
-            strong = k % METERS[sec.meter][0] == 0
+            strong = k % meter_shape(sec.meter)[0] == 0
             if own is None or strong:
                 if out:
                     out[-1].end = t

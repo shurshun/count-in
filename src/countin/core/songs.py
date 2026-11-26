@@ -10,7 +10,7 @@ from .assets import data_dir
 
 
 def folder() -> Path:
-    return data_dir().parent / "songs-tempo-dev"
+    return data_dir().parent / "songs-editor-dev"
 
 
 def key(song: Path) -> str:
@@ -23,7 +23,7 @@ def key(song: Path) -> str:
 
 def load(k: str) -> dict | None:
     dest = folder()
-    for directory in (dest, dest.with_name("songs")):
+    for directory in (dest, dest.with_name("songs-tempo-dev"), dest.with_name("songs")):
         try:
             state = json.loads((directory / f"{k}.json").read_text("utf-8"))
             if isinstance(state, dict):

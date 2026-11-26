@@ -25,9 +25,11 @@ datas.append((str(root / "LICENSE"), "."))
 
 # Package metadata carries the version the update check compares against.
 datas += copy_metadata("countin")
+datas += copy_metadata("pyguitarpro")  # carries the legacy Guitar Pro reader's license
 
 a = Analysis([str(root / "packaging" / f) for f in ("countin_app.py", "countin_cli.py")],
              pathex=[str(root / "src")], datas=datas,
+             module_collection_mode={"guitarpro": "py"},  # keep the LGPL reader as replaceable source
              excludes=["tkinter", "matplotlib", "IPython"])
 pyz = PYZ(a.pure)
 
@@ -51,6 +53,8 @@ if sys.platform == "darwin":
                  icon=str(icons / "light" / "macos" / "Count-In.icns"),
                  # The CLI is the last EXE, so PyInstaller would mark the bundle background-only.
                  info_plist={"NSHighResolutionCapable": True, "LSBackgroundOnly": False, "LSMinimumSystemVersion": "14.0",
+                             "CFBundleName": "Count-In Dev" if is_dev else "Count-In",
+                             "CFBundleDisplayName": "Count-In Dev" if is_dev else "Count-In",
                              "CFBundleShortVersionString": re.match(r"[\d.]*\d", version).group(),  # 0.10.0rc1 -> 0.10.0
                              **url_types,
                              "CFBundleDocumentTypes": [{"CFBundleTypeName": "Audio", "CFBundleTypeRole": "Viewer",
