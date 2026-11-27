@@ -149,8 +149,8 @@ jobs:
         if: runner.os == 'Windows'
         run: |
           # Dated build pinned by hash. BtbN prunes old autobuilds; on a 404 move to a newer one and update both lines.
-          curl -fsSL -o ff.zip https://github.com/BtbN/FFmpeg-Builds/releases/download/autobuild-2026-11-13-12-43/ffmpeg-n8.1.3-35-gf1acb0a266-win64-lgpl-8.1.zip
-          echo "ea5e260eb3d669aff29e7bfc100e0ed9ea633e37f02fee358f6d164cb946e421  ff.zip" | sha256sum -c -
+          curl -fsSL -o ff.zip https://github.com/FFmpeg-Builds/FFmpeg-Builds/releases/download/autobuild-2026-11-26-12-56/ffmpeg-n8.1.3-41-ga8029b6528-win64-lgpl-8.1.zip
+          echo "5eb24166e7f7103dcc12fa6d773674df9491005e78e8069c131e65b3661343da  ff.zip" | sha256sum -c -
           7z x -y ff.zip > /dev/null
           mkdir -p bin
           cp ffmpeg-*/bin/ffmpeg.exe ffmpeg-*/bin/ffprobe.exe bin/

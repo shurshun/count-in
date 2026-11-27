@@ -2,7 +2,7 @@ from types import SimpleNamespace
 
 import numpy as np
 import pytest
-from PySide6.QtCore import QPoint, QSettings, Qt
+from PySide6.QtCore import QEvent, QPoint, QSettings, Qt
 from PySide6.QtTest import QTest
 from PySide6.QtWidgets import QApplication
 
@@ -20,6 +20,8 @@ def qt_app(tmp_path, monkeypatch):
     app.setOrganizationName("Count-In tests")
     app.setApplicationName("Tap and selection")
     yield app
+    # Destroy the widgets and their timers while the application is still alive.
+    app.sendPostedEvents(None, QEvent.DeferredDelete)
     app.setOrganizationName(org)
     app.setApplicationName(name)
     QSettings.setDefaultFormat(fmt)
@@ -51,6 +53,7 @@ def test_tap_tempo_is_silent_until_the_automatic_click(qt_app, monkeypatch):
         assert d.player.laps == 2
     finally:
         d.reject()
+        d.deleteLater()
 
 
 def test_plain_wave_drag_scrolls_without_moving_the_start(qt_app, tmp_path):
@@ -85,3 +88,4 @@ def test_plain_wave_drag_scrolls_without_moving_the_start(qt_app, tmp_path):
         assert wave.sel == pytest.approx((42., 45.))
     finally:
         w.close()
+        w.deleteLater()
