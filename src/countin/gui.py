@@ -8,7 +8,6 @@ import sys
 import threading
 import random
 import time
-from collections import deque
 from dataclasses import dataclass, field, replace
 from functools import lru_cache
 from html import escape
@@ -946,8 +945,6 @@ class Player:
         self.ticks: list[tuple[int, np.ndarray]] = []  # clicks mixed live: (output sample, mono hit)
         self.laps = 0  # times the loop came round
         self.low_latency = False
-        self.hits: deque[np.ndarray] = deque()
-        self.hit_tails: list[np.ndarray] = []
         self.frames_played = 0
         self.periodic: tuple[float, float, np.ndarray] | None = None  # first sample, period, hit in unwrapped time
         self.solo: set[str] = set()  # stems played alone; empty plays the whole mix
@@ -1026,16 +1023,6 @@ class Player:
                     x[lo - start:hi - start] += hit[lo - at:hi - at, None]
                 k += 1
         self.frames_played += n
-        if self.hits or self.hit_tails:
-            while self.hits:
-                self.hit_tails.append(self.hits.popleft())
-            tails = []
-            for hit in self.hit_tails:
-                mixed = min(n, len(hit))
-                x[:mixed] += hit[:mixed, None]
-                if mixed < len(hit):
-                    tails.append(hit[mixed:])
-            self.hit_tails = tails
         x *= self.volume
         if not np.isfinite(x).all():  # one NaN makes Core Audio click and fall silent for the rest of the stream
             self.bad += 1
@@ -1053,8 +1040,6 @@ class Player:
             Player.streams -= 1
             s.stop()
             s.close()
-            self.hits.clear()
-            self.hit_tails.clear()
             if self.dry or self.bad:
                 log.warning("preview audio ran dry in %d blocks, %d blocks had NaN or inf", self.dry, self.bad)
 
@@ -1548,6 +1533,8 @@ class Wave(QWidget):
         self.overlay: QWidget | None = None  # progress card shown over the dimmed waveform during a job
         self.cursor_t = None
         self.drag = None
+        self.selection_pointer = None
+        self.selection_scroll = QTimer(self, interval=16, timeout=self._scroll_selection)
         self._cache = (None, None)
         self._grid: tuple = (None, None)  # beat lines and clicks layer, see _grid_pixmap
 
@@ -1953,11 +1940,40 @@ class Wave(QWidget):
                    key=lambda b: abs(b - at), default=fallback)
 
     def _selection_range(self, x: float, free: bool) -> tuple[float, float]:
-        _, x0, fixed, _ = self.drag
-        a, b = (float(np.clip(self.t_of(px), 0.0, self.duration)) for px in (x0, x))
+        _, _, fixed, _, origin, _ = self.drag
+        a = origin
+        b = float(np.clip(self.t_of(max(0., min(x, self.width()))), 0., self.duration))
         if self.beats and not free:
             a, b = (self._snap_beat(t, 0.0, self.duration, t) for t in (a, b))
         return tuple(sorted((a if fixed is None else fixed, b)))
+
+    def _start_selection(self, x: float, popup: bool):
+        fixed = None
+        if self.sel:
+            edge = min(self.sel, key=lambda at: abs(self.x_of(at) - x))
+            if abs(self.x_of(edge) - x) <= 7:
+                fixed = self.sel[1] if edge == self.sel[0] else self.sel[0]
+        origin = float(np.clip(self.t_of(x), 0., self.duration))
+        self.drag = ("select", x, fixed, self.sel, origin, popup)
+        self.selection_pointer = None
+
+    def _scroll_selection(self):
+        if not self.drag or self.drag[0] != "select" or self.selection_pointer is None:
+            self.selection_scroll.stop()
+            return
+        x, free = self.selection_pointer
+        edge = max(1., min(48., self.width() / 6))
+        direction = min(0., (x - edge) / edge) + max(0., (x - self.width() + edge) / edge)
+        if not direction:
+            self.selection_scroll.stop()
+            return
+        step = .045 * (self.v1 - self.v0) * max(-2., min(direction, 2.))
+        previous = self.v0
+        self.show_range(self.v0 + step, self.v1 + step)
+        if self.v0 == previous:
+            self.selection_scroll.stop()
+        self.sel = self._selection_range(x, free)
+        self.update()
 
     def _resize_pause(self, x: float, free: bool) -> bool:
         _, z, side, x0, original = self.drag
@@ -2027,13 +2043,7 @@ class Wave(QWidget):
         x, pos = e.position().x(), e.position()
         if e.button() == Qt.LeftButton and self.duration and (
                 self.selection_mode or e.modifiers() & Qt.ShiftModifier or pos.y() > self.height() - self.RULER):
-            previous = self.sel
-            fixed = None
-            if self.selection_mode and previous:
-                edge = min(previous, key=lambda at: abs(self.x_of(at) - x))
-                if abs(self.x_of(edge) - x) <= 7:
-                    fixed = previous[1] if edge == previous[0] else previous[0]
-            self.drag = ("select", x, fixed, previous)
+            self._start_selection(x, popup=not self.selection_mode)
             self.update()
             return
         if e.button() == Qt.LeftButton and e.modifiers() & Qt.AltModifier and self.bars:
@@ -2074,19 +2084,17 @@ class Wave(QWidget):
         label = next((i for box, i in self.labels if box.contains(pos)), None)
         self.press_x = x
         hit = self._near_edge(x) if self.bars else None
-        zone_i = label
-        if zone_i is None and self.bars and not hit:
-            at = self.t_of(x)
-            zone_i = self._zone_at_time(at)
-        if zone_i is not None and e.button() == Qt.LeftButton:
-            z = self.zones[zone_i]
-            self.drag = ("zone-move", z, x, replace(z), label is not None)
+        if label is not None and e.button() == Qt.LeftButton:
+            z = self.zones[label]
+            self.drag = ("zone-move", z, x, replace(z))
             return
-        if hit and (pos.y() > 22 or not self._near_marker(x)):
+        if e.button() == Qt.LeftButton and hit and (pos.y() > 22 or not self._near_marker(x)):
             z = self.zones[hit[0]]
             self.drag = ("edge", z, hit[1], x, replace(z))
-        elif self._near_marker(x):
+        elif e.button() == Qt.LeftButton and self._near_marker(x) and pos.y() < 22:
             self.drag = "marker"
+        elif e.button() == Qt.LeftButton and self.duration:
+            self._start_selection(x, popup=False)
         else:
             self.drag = ("pan", x, self.v0, self.v1)
 
@@ -2121,10 +2129,15 @@ class Wave(QWidget):
         elif self.drag and self.drag[0] == "phase":
             self.setCursor(Qt.SizeHorCursor)
         elif self.drag and self.drag[0] == "select":
-            self.sel = self._selection_range(x, bool(e.modifiers() & Qt.AltModifier))
-            self.update()
+            if self.selection_pointer is not None or abs(x - self.drag[1]) > 4:
+                free = bool(e.modifiers() & Qt.AltModifier)
+                self.selection_pointer = (x, free)
+                self.sel = self._selection_range(x, free)
+                if not self.selection_scroll.isActive():
+                    self.selection_scroll.start()
+                self.update()
         elif self.drag and self.drag[0] == "zone-move":
-            _, z, x0, original, _ = self.drag
+            _, z, x0, original = self.drag
             if not any(z is other for other in self.zones):
                 return
             first, last = zn.bounds(self.bars, original)
@@ -2158,10 +2171,11 @@ class Wave(QWidget):
                 self.hover_close = close
                 self.update()
             on_label = any(box.contains(e.position()) for box, _i in self.labels)
+            on_downbeat = e.position().y() < 22 and self._near_marker(x)
             self.setCursor(Qt.PointingHandCursor if close is not None else
                            Qt.CrossCursor if self.selection_mode else
                            Qt.PointingHandCursor if on_label else
-                           Qt.SizeHorCursor if self._near_marker(x) or edge else Qt.OpenHandCursor)
+                           Qt.SizeHorCursor if on_downbeat or edge else Qt.CrossCursor)
 
     def leaveEvent(self, e):
         if self.hover_close is not None:
@@ -2176,6 +2190,8 @@ class Wave(QWidget):
     def clear_selection(self) -> bool:
         if self.drag and self.drag[0] == "select":
             self.drag = None
+            self.selection_scroll.stop()
+            self.selection_pointer = None
         if self.sel is None:
             return False
         self.sel = None
@@ -2200,32 +2216,33 @@ class Wave(QWidget):
                 self.set_playhead(at, snap=False)
                 self.playheadClicked.emit()
         elif self.drag and self.drag[0] == "select":
-            _, x0, _, previous = self.drag
+            _, x0, _, previous, _, popup = self.drag
             x = e.position().x()
             a, b = self._selection_range(x, bool(e.modifiers() & Qt.AltModifier))
-            moved = abs(x - x0) > 4
+            moved = self.selection_pointer is not None or abs(x - x0) > 4
+            self.selection_scroll.stop()
+            self.selection_pointer = None
             changed = moved and b - a >= .001
             self.sel = (a, b) if changed else previous
             self.drag = None
             self.update()
             if changed:
-                self.spanSelected.emit(not self.selection_mode)
-            elif not moved and self.selection_mode and not e.modifiers() & Qt.ShiftModifier:
+                self.spanSelected.emit(popup)
+            elif not moved and not e.modifiers() & Qt.ShiftModifier:
                 if not self._remove_pause_at(e.position()):
                     self._clear_selection_on_click(e)
+                    if not self.selection_mode:
+                        self.set_playhead(self.t_of(x), snap=not e.modifiers() & Qt.AltModifier)
+                        self.playheadClicked.emit()
         elif self.drag and self.drag[0] == "zone-move":
-            _, z, x0, original, header = self.drag
+            _, z, x0, original = self.drag
             if any(z is other for other in self.zones):
                 if abs(e.position().x() - x0) > 4:
                     if z != original:
                         self.zonesEdited.emit(self.zones)
-                elif header:
+                else:
                     self.current_zone = next(i for i, other in enumerate(self.zones) if other is z)
                     self.zoneClicked.emit(self.current_zone)
-                else:
-                    self._clear_selection_on_click(e)
-                    self.set_playhead(self.t_of(e.position().x()))
-                    self.playheadClicked.emit()
         elif self.drag and self.drag[0] == "edge":
             if self._resize_pause(e.position().x(), bool(e.modifiers() & Qt.AltModifier)):
                 self.zonesEdited.emit(self.zones)
@@ -2698,7 +2715,7 @@ class TapDialog(QDialog):
         self.wall0 = time.monotonic()
 
     def _now(self) -> float:
-        """Song time heard right now. The wall clock, not the player's block counter: blocks are 43 ms coarse."""
+        """Estimate when the listener heard the tap using a monotonic clock and the output latency."""
         lag = self.player.stream.latency if self.player.stream else 0.0
         return max(0.0, time.monotonic() - self.wall0 - lag)
 
@@ -2736,7 +2753,6 @@ class TapDialog(QDialog):
             self.taps = []
             self.clicking = False
         self.player.periodic = None
-        self.player.hits.append(self.hit)
         self.taps = (self.taps + [now])[-12:]
         self._set_measurement(tempo.tapped_bpm(self.taps, self.speed))
         if self.valid:
@@ -3669,6 +3685,8 @@ class Window(QMainWindow):
         edit.addAction(_("Отменить"), QKeySequence.Undo, self._undo)
         edit.addAction(_("Повторить"), QKeySequence.Redo, lambda: self._undo(redo=True))
         edit.addSeparator()
+        self.select_end_a = edit.addAction(_("Выделить до конца песни"), QKeySequence("Shift+End"), self._select_to_end)
+        self.select_end_a.setEnabled(False)
         self.import_gp_a = edit.addAction(_("Импортировать темпотрек из Guitar Pro…"), self._import_guitar_pro)
         self.import_gp_a.setEnabled(False)
 
@@ -3938,7 +3956,7 @@ class Window(QMainWindow):
                   self.play_b,
                   glyph_button("next", _("Следующая пауза (→)"), lambda: self._jump_pause(1))):
             h.addWidget(b)
-        self.loop_b = glyph_button("loop", _("Играть выделенные такты по кругу (L). Такты выделяются протяжкой с Shift"),
+        self.loop_b = glyph_button("loop", _("Играть выделенные такты по кругу (L). Протяните по волне, чтобы выделить такты"),
                                    self._toggle_loop)
         self.loop_b.setCheckable(True)
         self.loop_b.setEnabled(False)
@@ -3973,7 +3991,7 @@ class Window(QMainWindow):
         self.pause_l = QLabel(objectName="chipText", alignment=Qt.AlignCenter, minimumWidth=56)
         ch.addWidget(self.pause_l)
         h.addWidget(chip)
-        h.addWidget(glyph_button("plus", keys(_("Сделать паузой такт под плейхедом. Чтобы взять несколько тактов, тяните с ⇧ или по линейке.")),
+        h.addWidget(glyph_button("plus", keys(_("Сделать паузой такт под плейхедом. Чтобы взять несколько тактов, протяните по волне.")),
                                  self._add_pause, "round"))
         help_b = QPushButton("?", objectName="tbtn", clicked=self._help, toolTip=_("Справка Count-In"))
         help_b.setFocusPolicy(Qt.TabFocus)
@@ -5462,7 +5480,7 @@ class Window(QMainWindow):
         t = self.current
         if not (t and t.analysis and self.pcm is not None):
             return
-        span = (self.wave.sel if self.wave.selection_mode else None) or (self.loop if self.loop_on else None) or self.tempo_span
+        span = self.wave.sel or (self.loop if self.loop_on else None) or self.tempo_span
         if not span:
             at = self._here()
             at = t.t0 if at is None else max(0, at)
@@ -5691,6 +5709,7 @@ class Window(QMainWindow):
         self.threshold.setEnabled(self._filling())
         self.fill_build.setEnabled(self._filling())
         self.save_a.setEnabled(ready and not busy)
+        self.select_end_a.setEnabled(ready)
         self.import_gp_a.setEnabled(ready and not busy)
         self.import_gp_b.setEnabled(self.import_gp_a.isEnabled())
         self.add_marker_b.setEnabled(ready and not busy)
@@ -5786,6 +5805,8 @@ class Window(QMainWindow):
         self.ready_preview = None
         self.resume_at, self.zones_pending = None, False
         self.wave.play_t, self.wave.current_zone, self.wave.hover_edge = None, None, None
+        self.wave.selection_scroll.stop()
+        self.wave.drag, self.wave.selection_pointer = None, None
         self.wave.sel, self.wave.edits = None, ()
         self._span_selected(False)
         self.loop, self.loop_on = None, False
@@ -6356,6 +6377,16 @@ class Window(QMainWindow):
             pad = max(.05, (b - a) * .06)
             self.wave.show_range(a - pad, b + pad)
 
+    def _select_to_end(self):
+        w = self.wave
+        if not (self.current and self.current.analysis):
+            return
+        here = self._here()
+        start = max(0., self.current.t0 if here is None else here)
+        if start < w.duration:
+            w.sel = (start, w.duration)
+            self._span_selected(False)
+
     def _nudge_selection(self, end: bool, direction: int):
         w = self.wave
         span = list(w.sel)
@@ -6458,6 +6489,7 @@ class Window(QMainWindow):
         reset_speed = menu.addAction(_("Сбросить скорость участка"))
         menu.addSeparator()
         exact = menu.addAction(_("Границы выделения…"))
+        to_end = menu.addAction(_("Выделить до конца песни"))
         zoom = menu.addAction(_("Масштаб по выделению"))
         save = menu.addAction(_("Экспортировать выделение…"))
         joins = [end for (_, end, *_), (start, *_) in zip(clock.pieces, clock.pieces[1:])
@@ -6496,6 +6528,8 @@ class Window(QMainWindow):
             self._set_audio_edits(timeline.without_edit(t.edits, a, b, cutting=chosen is uncut))
         elif chosen is exact:
             self._edit_selection_bounds()
+        elif chosen is to_end:
+            self._select_to_end()
         elif chosen is zoom:
             self._zoom_selection()
         elif chosen is save:
